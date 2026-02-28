@@ -19,11 +19,17 @@
 - [x] Jira Synchronization (Milestone 4): Populated KAN board with active tasks (KAN-2, KAN-3, KAN-4).
 - [x] Database Migration (Milestone 5): Successfully migrated Project Alpha to local PostgreSQL 18.3.
 - [x] Application Integration (Milestone 6): `reports_engine_pg.py` and `drift_monitor_pg.py` are now live on the PostgreSQL backend.
+- [x] Sprint Management (Milestone 7): Created Epics and initial Sprint 1 tasks (KAN-5, KAN-6, KAN-7).
+
+## 🎯 Current Focus (Session: 2026-02-28 18:55 EST)
+- **Primary Task:** Sprint 1 Planning (Mar 1 - Mar 14).
+- **Goal:** Launching Project Alpha into formal 2-week product cycles.
+- **Model:** MiniMax/Gemini-Flash.
 
 ## 🔜 Next Steps & Open Tasks
-1. **Portfolio Rebalancing:** Address elevated 90D drift (0.4350) driven by XLK/XLY.
-2. **Jira Synchronization:** Update KAN board with new PostgreSQL integration tasks.
-3. **Daily Automation:** Configure cron/heartbeat to run PostgreSQL snapshots daily.
+1. **Sprint 1 Execution:** Address elevated 90D drift (0.4350) by re-weighting XLK and XLY.
+2. **Postgres Completion:** Refactor `risk_manager.py` to Postgres.
+3. **Daily Automation:** Configure heartbeat to run `reports_engine_pg.py` at 09:00 EST.
 
 ## ⚠️ Active Blockers / Notes
 - **API Limits:** Monitor Gemini rate limits; use MiniMax for coding/math heavy turns.
