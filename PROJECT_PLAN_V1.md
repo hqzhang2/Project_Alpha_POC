@@ -13,6 +13,7 @@
 - **Backlog:**
     - [x] Local PostgreSQL 18.3 Migration (Milestone 5)
     - [x] Automated Daily Snapshot via Email (Milestone 2)
+    - [x] Automation Runner Script Created (run_daily_report.sh)
     - [ ] GitHub Repository CI Integration
     - [ ] Persistent Logging for Drift Analysis
 
