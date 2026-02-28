@@ -17,10 +17,11 @@
 - [x] Built `reports_engine.py`: Daily automated portfolio snapshots are now operational.
 - [x] Jira Integration (Milestone 3): Successfully authenticated with `h-zhang.atlassian.net` (Project: Alpha_POC [KAN]).
 - [x] Jira Synchronization (Milestone 4): Populated KAN board with active tasks (KAN-2, KAN-3, KAN-4).
+- [x] Database Migration (Milestone 5): Successfully migrated Project Alpha to local PostgreSQL 18.3.
 
 ## 🔜 Next Steps & Open Tasks
-2. **Database Migration:** Draft complete (see `POSTGRESQL_MIGRATION.md`). Pending host provision.
-3. **Drift Monitoring:** Continue tracking XLP and XLU correlations.
+1. **Application Integration:** Update `risk_manager.py` and `reports_engine.py` to use PostgreSQL as the primary data source.
+2. **Drift Monitoring:** Continue tracking XLP and XLU correlations using the new DB.
 
 ## ⚠️ Active Blockers / Notes
 - **API Limits:** Monitor Gemini rate limits; use MiniMax for coding/math heavy turns.
