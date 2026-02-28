@@ -1,7 +1,7 @@
 # PROJECT_PLAN_V1.md - Project Alpha Startup Cycle
 
 ## 🗓️ Release Cadence: 2-Week Sprints
-**Current Cycle:** Sprint 2026.1 (Mar 2, 2026 - Mar 15, 2026)
+**Current Cycle:** Sprint 2026.1 (Mar 1, 2026 - Mar 14, 2026)
 **Owner:** Hong (Lead) / Chuck (AI Execution)
 
 ---

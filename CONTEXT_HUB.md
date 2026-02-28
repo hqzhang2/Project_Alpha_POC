@@ -21,8 +21,8 @@
 - [x] Application Integration (Milestone 6): `reports_engine_pg.py` and `drift_monitor_pg.py` are now live on the PostgreSQL backend.
 - [x] Sprint Management (Milestone 7): Created Epics and initial Sprint 2026.1 tasks (KAN-5, KAN-6, KAN-7).
 
-## 🎯 Current Focus (Session: 2026-02-28 18:57 EST)
-- **Primary Task:** Sprint 2026.1 Preparation (Starts Monday, Mar 2).
+## 🎯 Current Focus (Session: 2026-02-28 18:58 EST)
+- **Primary Task:** Sprint 2026.1 Preparation (Starts Sunday, Mar 1).
 - **Goal:** Launching Project Alpha into formal 2-week product cycles.
 - **Model:** MiniMax/Gemini-Flash.
 
