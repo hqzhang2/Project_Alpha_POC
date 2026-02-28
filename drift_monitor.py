@@ -135,7 +135,7 @@ def save_snapshot(correlation_matrix, output_file):
     latest_matrix.to_csv(output_file)
     print("Snapshot saved.")
 
-if __name__ == "__main__":
+def main():
     # 1. Pull data
     returns_data = get_returns_from_db(DATABASE_PATH, TICKERS, LOOKBACK_DAYS)
 
@@ -181,3 +181,6 @@ if __name__ == "__main__":
         save_snapshot(rolling_correlation_matrix, OUTPUT_FILE)
     else:
         print("Could not proceed with calculations due to empty returns data.")
+
+if __name__ == "__main__":
+    main()
