@@ -9,7 +9,7 @@ TICKERS = [
 ]
 DEFENSIVE_ASSETS = ['XLU', 'XLV', 'GLD']
 MARKET_ASSET = 'SPY'
-LOOKBACK_DAYS = 90
+LOOKBACK_DAYS = 180
 ROLLING_CORRELATION_DAYS = 60
 CONVERGENCE_THRESHOLD = 0.1 # Example threshold, needs to be defined by Hong for "significant"
 OUTPUT_FILE = 'correlation_matrix_snapshot.csv'
