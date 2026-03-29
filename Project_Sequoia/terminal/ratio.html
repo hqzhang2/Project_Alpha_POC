@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal - Ratio Analysis</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 16px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .filter-group { display: flex; align-items: center; gap: 8px; }
+        .filter-group label { font-size: 12px; color: #8b949e; text-transform: uppercase; }
+        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 100px; }
+        .filter-input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 8px; border-radius: 4px; width: 60px; font-size: 13px; }
+        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #2ea043; }
+        
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+        .chart-container { background: #161b22; border-radius: 8px; padding: 20px; height: 500px; }
+        .sub-chart { background: #161b22; border-radius: 8px; padding: 20px; height: 250px; }
+        
+        .chart-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .chart-tab { background: none; border: none; color: #8b949e; padding: 6px 12px; cursor: pointer; border-radius: 4px; }
+        .chart-tab.active { background: #21262d; color: #e6edf3; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛠️ Alpha Terminal</h1>
+        <div class="nav">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="omon.html">OMON</a>
+            <a href="screener.html">Option Screener</a>
+            <a href="ratio.html" class="active">Ratio Analysis</a>
+        </div>
+    </div>
+    
+    <div class="toolbar">
+        <div class="filter-group">
+            <label>Pair</label>
+            <input type="text" class="search" id="t1" value="XLE">
+            <span style="color:#8b949e;">/</span>
+            <input type="text" class="search" id="t2" value="SPY">
+        </div>
+        <div class="filter-group">
+            <label>SMA</label>
+            <input type="number" class="filter-input" id="smaInput" value="20">
+        </div>
+        <button class="btn" onclick="fetchRatio()">Analyze Ratio</button>
+        
+        <div class="chart-tabs" style="margin-bottom:0; margin-left: auto;">
+            <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
+            <button class="chart-tab" onclick="setTimeframe('3M')">3M</button>
+            <button class="chart-tab" onclick="setTimeframe('6M')">6M</button>
+            <button class="chart-tab" onclick="setTimeframe('YTD')">YTD</button>
+            <button class="chart-tab active" onclick="setTimeframe('1Y')">1Y</button>
+            <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
+        </div>
+    </div>
+    
+    <div class="omain">
+        <div class="chart-container">
+            <canvas id="ratioChart"></canvas>
+        </div>
+        <div class="sub-chart">
+            <canvas id="indicatorChart"></canvas>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let ratioChart = null;
+        let indicatorChart = null;
+        let timeframe = '1Y';
+
+        async function fetchRatio() {
+            const t1 = document.getElementById('t1').value.toUpperCase();
+            const t2 = document.getElementById('t2').value.toUpperCase();
+            const sma = document.getElementById('smaInput').value;
+            
+            try {
+                const res = await fetch(`http://localhost:9090/api/ratio?t1=${t1}&t2=${t2}&tf=${timeframe}&sma=${sma}`);
+                const data = await res.json();
+                renderCharts(data);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function setTimeframe(tf) {
+            timeframe = tf;
+            document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            fetchRatio();
+        }
+
+        function renderCharts(data) {
+            if (ratioChart) ratioChart.destroy();
+            if (indicatorChart) indicatorChart.destroy();
+
+            const ctx1 = document.getElementById('ratioChart').getContext('2d');
+            ratioChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        { label: 'Ratio', data: data.ratio, borderColor: '#58a6ff', tension: 0.1, pointRadius: 0 },
+                        { label: 'SMA', data: data.sma, borderColor: '#f85149', borderDash: [5, 5], tension: 0.1, pointRadius: 0 },
+                        { label: 'Upper BB', data: data.upper, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0 },
+                        { label: 'Lower BB', data: data.lower, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0 }
+                    ]
+                },
+                options: { 
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { title: { display: true, text: `${data.t1_name} / ${data.t2_name} Ratio`, color: '#e6edf3' } },
+                    scales: { y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }, x: { display: false } }
+                }
+            });
+
+            const ctx2 = document.getElementById('indicatorChart').getContext('2d');
+            indicatorChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [{ label: 'RSI', data: data.rsi, borderColor: '#d29922', tension: 0.1, pointRadius: 0 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { title: { display: true, text: 'RSI (Relative Strength Index)', color: '#e6edf3' } },
+                    scales: { 
+                        y: { min: 0, max: 100, grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
+                        x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }
+                    }
+                }
+            });
+        }
+
+        fetchRatio();
+    </script>
+</body>
+</html>

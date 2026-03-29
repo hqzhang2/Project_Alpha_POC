@@ -2,3 +2,13 @@
   warnings.warn(
 127.0.0.1 - - [28/Mar/2026 22:05:26] "GET /api/screen?ticker=AAPL HTTP/1.1" 200 -
 127.0.0.1 - - [28/Mar/2026 22:05:40] "GET /api/quotes?tickers=SPY,QQQ,IWM,TLT,GLD HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:07:24] "GET /screener.html HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:07:24] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:07:56] "GET /screener.html HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:08:17] "GET /api/screen?ticker=SPY HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:08:42] "GET /omon.html HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:08:43] "GET /api/expirations?ticker=SPY HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:08:43] "GET /api/options?ticker=SPY&expiry=2026-04-17 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:09:01] "GET /screener.html HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:09:21] "GET /api/screen?ticker=SPY HTTP/1.1" 200 -
+127.0.0.1 - - [28/Mar/2026 22:11:56] "GET /screener.html HTTP/1.1" 200 -
