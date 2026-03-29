@@ -93,32 +93,53 @@ class Handler(SimpleHTTPRequestHandler):
         return SimpleHTTPRequestHandler.do_GET(self)
 
     def get_ratio_data(self, t1, t2, tf, sma_period):
-        period_map = {'1M': '1mo', '3M': '3mo', '6M': '6mo', 'YTD': 'ytd', '1Y': '1y', '5Y': '5y'}
-        p = period_map.get(tf, '1y')
+        # Increased fetch period to 3 years to ensure 200 SMA is stable at the start of a 1Y or 2Y view
+        fetch_period = '3y' if tf != '5Y' else 'max'
         
-        d1 = yf.Ticker(t1).history(period=p)['Close']
-        d2 = yf.Ticker(t2).history(period=p)['Close']
+        d1 = yf.Ticker(t1).history(period=fetch_period)['Close']
+        d2 = yf.Ticker(t2).history(period=fetch_period)['Close']
         
         # Align data
         df = pd.DataFrame({'t1': d1, 't2': d2}).dropna()
         df['ratio'] = df['t1'] / df['t2']
         
-        # Indicators
+        # Indicators calculated on full history to ensure accuracy at the start of display
         df['sma'] = df['ratio'].rolling(window=sma_period).mean()
         df['rsi'] = calculate_rsi(df['ratio'])
         macd, signal, hist = calculate_macd(df['ratio'])
         upper, lower = calculate_bollinger_bands(df['ratio'])
         
+        df['macd'] = macd
+        df['macd_signal'] = signal
+        df['macd_hist'] = hist
+        df['upper'] = upper
+        df['lower'] = lower
+
+        # Slicing for display timeframe
+        period_map = {'1M': 30, '3M': 90, '6M': 180, 'YTD': 'ytd', '1Y': 365, '5Y': 1825}
+        days = period_map.get(tf, 365)
+        
+        if days == 'ytd':
+            # Use fixed year for the POC or current year
+            current_year = datetime.date.today().year
+            start_date = pd.Timestamp(year=current_year, month=1, day=1)
+            # Ensure start_date matches timezone of data index
+            if df.index.tz is not None:
+                start_date = start_date.tz_localize(df.index.tz)
+            display_df = df[df.index >= start_date]
+        else:
+            display_df = df.tail(days)
+        
         return {
-            'labels': [x.strftime('%Y-%m-%d') for x in df.index],
-            'ratio': df['ratio'].tolist(),
-            'sma': df['sma'].tolist(),
-            'rsi': df['rsi'].tolist(),
-            'macd': macd.tolist(),
-            'macd_signal': signal.tolist(),
-            'macd_hist': hist.tolist(),
-            'upper': upper.tolist(),
-            'lower': lower.tolist(),
+            'labels': [x.strftime('%Y-%m-%d') for x in display_df.index],
+            'ratio': display_df['ratio'].tolist(),
+            'sma': display_df['sma'].tolist(),
+            'rsi': display_df['rsi'].tolist(),
+            'macd': display_df['macd'].tolist(),
+            'macd_signal': display_df['macd_signal'].tolist(),
+            'macd_hist': display_df['macd_hist'].tolist(),
+            'upper': display_df['upper'].tolist(),
+            'lower': display_df['lower'].tolist(),
             't1_name': t1,
             't2_name': t2
         }

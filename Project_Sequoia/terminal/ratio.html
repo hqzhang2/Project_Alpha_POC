@@ -22,7 +22,7 @@
         .btn:hover { background: #2ea043; }
         
         .omain { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
-        .chart-container { background: #161b22; border-radius: 8px; padding: 20px; height: 500px; }
+        .chart-container { background: #161b22; border-radius: 8px; padding: 20px; height: 400px; }
         .sub-chart { background: #161b22; border-radius: 8px; padding: 20px; height: 250px; }
         
         .chart-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -50,7 +50,14 @@
         </div>
         <div class="filter-group">
             <label>SMA</label>
-            <input type="number" class="filter-input" id="smaInput" value="20">
+            <select id="smaInput" class="filter-input" onchange="fetchRatio()">
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200" selected>200</option>
+            </select>
         </div>
         <button class="btn" onclick="fetchRatio()">Analyze Ratio</button>
         
@@ -69,14 +76,18 @@
             <canvas id="ratioChart"></canvas>
         </div>
         <div class="sub-chart">
-            <canvas id="indicatorChart"></canvas>
+            <canvas id="rsiChart"></canvas>
+        </div>
+        <div class="sub-chart">
+            <canvas id="macdChart"></canvas>
         </div>
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         let ratioChart = null;
-        let indicatorChart = null;
+        let rsiChart = null;
+        let macdChart = null;
         let timeframe = '1Y';
 
         async function fetchRatio() {
@@ -102,7 +113,17 @@
 
         function renderCharts(data) {
             if (ratioChart) ratioChart.destroy();
-            if (indicatorChart) indicatorChart.destroy();
+            if (rsiChart) rsiChart.destroy();
+            if (macdChart) macdChart.destroy();
+
+            const commonOptions = {
+                responsive: true, maintainAspectRatio: false,
+                scales: { 
+                    y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }, 
+                    x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' }, display: false } 
+                },
+                plugins: { legend: { labels: { color: '#e6edf3' } } }
+            };
 
             const ctx1 = document.getElementById('ratioChart').getContext('2d');
             ratioChart = new Chart(ctx1, {
@@ -111,33 +132,39 @@
                     labels: data.labels,
                     datasets: [
                         { label: 'Ratio', data: data.ratio, borderColor: '#58a6ff', tension: 0.1, pointRadius: 0 },
-                        { label: 'SMA', data: data.sma, borderColor: '#f85149', borderDash: [5, 5], tension: 0.1, pointRadius: 0 },
-                        { label: 'Upper BB', data: data.upper, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0 },
-                        { label: 'Lower BB', data: data.lower, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0 }
+                        { label: `${document.getElementById('smaInput').value} SMA`, data: data.sma, borderColor: '#f85149', borderDash: [5, 5], tension: 0.1, pointRadius: 0 },
+                        { label: 'Upper BB', data: data.upper, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0, fill: false },
+                        { label: 'Lower BB', data: data.lower, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0, fill: false }
                     ]
                 },
-                options: { 
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: { title: { display: true, text: `${data.t1_name} / ${data.t2_name} Ratio`, color: '#e6edf3' } },
-                    scales: { y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }, x: { display: false } }
-                }
+                options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: `${data.t1_name} / ${data.t2_name} Ratio`, color: '#e6edf3' } } }
             });
 
-            const ctx2 = document.getElementById('indicatorChart').getContext('2d');
-            indicatorChart = new Chart(ctx2, {
+            const ctx2 = document.getElementById('rsiChart').getContext('2d');
+            rsiChart = new Chart(ctx2, {
                 type: 'line',
                 data: {
                     labels: data.labels,
-                    datasets: [{ label: 'RSI', data: data.rsi, borderColor: '#d29922', tension: 0.1, pointRadius: 0 }]
+                    datasets: [{ label: 'RSI (14)', data: data.rsi, borderColor: '#d29922', tension: 0.1, pointRadius: 0 }]
                 },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: { title: { display: true, text: 'RSI (Relative Strength Index)', color: '#e6edf3' } },
-                    scales: { 
-                        y: { min: 0, max: 100, grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
-                        x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }
-                    }
-                }
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, min: 0, max: 100 } } }
+            });
+
+            const ctx3 = document.getElementById('macdChart').getContext('2d');
+            macdChart = new Chart(ctx3, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        { label: 'MACD', data: data.macd, borderColor: '#58a6ff', pointRadius: 0, tension: 0.1 },
+                        { label: 'Signal', data: data.macd_signal, borderColor: '#f85149', pointRadius: 0, tension: 0.1 },
+                        { label: 'Hist', data: data.macd_hist, type: 'bar', backgroundColor: (ctx) => {
+                            const val = ctx.raw;
+                            return val >= 0 ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)';
+                        }}
+                    ]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, x: { ...commonOptions.scales.x, display: true } } }
             });
         }
 
