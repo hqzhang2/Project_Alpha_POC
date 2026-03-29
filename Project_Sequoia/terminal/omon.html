@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal - OMON</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            min-height: 100vh;
+        }
+        .header {
+            background: #161b22;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .toolbar {
+            background: #161b22;
+            padding: 12px 24px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+        }
+        .search {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #e6edf3;
+            padding: 8px 12px;
+            border-radius: 6px;
+            width: 120px;
+        }
+        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #2ea043; }
+        
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+        
+        .chain-container { display: block; background: #161b22; border-radius: 8px; overflow-x: auto; }
+        .chain-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .chain-table th { padding: 8px 4px; background: #21262d; color: #8b949e; position: sticky; top: 0; z-index: 10; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #30363d; }
+        .chain-table td { padding: 6px 4px; text-align: right; border-bottom: 1px solid #21262d; }
+        .chain-table .strike-cell { background: #0d1117; font-weight: 700; text-align: center; color: #e6edf3; width: 80px; }
+        .chain-table tr:hover td { background: #21262d; }
+        .chain-table .call-side { border-right: 1px solid #30363d; }
+        .chain-table .put-side { border-left: 1px solid #30363d; }
+        .itm-call { background: rgba(63, 185, 80, 0.05); }
+        .itm-put { background: rgba(248, 81, 73, 0.05); }
+        
+        .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;}
+        .info-bar .ticker { font-size: 24px; font-weight: 700; }
+        .info-bar .spot { font-size: 24px; }
+        .loading { padding: 40px; text-align: center; color: #8b949e; }
+
+        select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛠️ Alpha Terminal</h1>
+        <div class="nav">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="omon.html" class="active">OMON</a>
+        </div>
+    </div>
+    
+    <div class="toolbar">
+        <input type="text" class="search" id="ticker" placeholder="SPY" value="SPY">
+        <button class="btn" onclick="fetchExpirations()">Load</button>
+        <select id="expirySelect" onchange="loadOptions()"></select>
+    </div>
+    
+    <div class="omain">
+        <div class="info-bar">
+            <div class="ticker" id="qtTicker">SPY</div>
+            <div class="spot" id="qtSpot">Spot: --</div>
+            <div>
+                <label style="color:#8b949e;font-size:12px;">View:</label>
+                <select id="viewMode" onchange="renderChain()">
+                    <option value="otm">20 OTM (10c/10p)</option>
+                    <option value="all">All Strikes</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="chain-container" id="chainContainer">
+            <div class="loading">Enter ticker and click Load</div>
+        </div>
+    </div>
+    
+    <script>
+        let optionsData = null;
+        let spotPrice = 0;
+        
+        async function fetchExpirations() {
+            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
+            if (!ticker) return;
+            
+            try {
+                const res = await fetch(`http://localhost:9090/api/expirations?ticker=${ticker}`);
+                const data = await res.json();
+                
+                const select = document.getElementById('expirySelect');
+                select.innerHTML = '';
+                
+                // Show standard expiries first
+                data.standard.forEach(e => {
+                    const opt = document.createElement('option');
+                    opt.value = e.date;
+                    opt.textContent = e.label;
+                    select.appendChild(opt);
+                });
+                
+                if (data.standard.length > 0) {
+                    const divider = document.createElement('option');
+                    divider.disabled = true;
+                    divider.textContent = "──────────";
+                    select.appendChild(divider);
+                }
+
+                data.expirations.forEach(e => {
+                    const opt = document.createElement('option');
+                    opt.value = e;
+                    opt.textContent = e;
+                    select.appendChild(opt);
+                });
+
+                loadOptions();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function loadOptions() {
+            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
+            const expiry = document.getElementById('expirySelect').value;
+            if (!ticker || !expiry) return;
+            
+            document.getElementById('chainContainer').innerHTML = '<div class="loading">Loading...</div>';
+            
+            try {
+                const res = await fetch(`http://localhost:9090/api/options?ticker=${ticker}&expiry=${expiry}`);
+                optionsData = await res.json();
+                
+                const quoteRes = await fetch(`http://localhost:9090/api/quotes?tickers=${ticker}`);
+                const quoteData = await quoteRes.json();
+                spotPrice = quoteData[ticker]?.price || 0;
+                
+                document.getElementById('qtTicker').textContent = ticker;
+                document.getElementById('qtSpot').textContent = 'Spot: $' + spotPrice.toFixed(2);
+                
+                renderChain();
+            } catch (e) {
+                console.error('Load error:', e);
+                document.getElementById('chainContainer').innerHTML = '<div class="loading">Error: ' + e.message + '</div>';
+            }
+        }
+        
+        function renderChain() {
+            if (!optionsData) return;
+            const calls = optionsData.calls || [];
+            const puts = optionsData.puts || [];
+            const viewMode = document.getElementById('viewMode')?.value || 'otm';
+            
+            const strikeSet = new Set();
+            calls.forEach(c => strikeSet.add(c.strike));
+            puts.forEach(p => strikeSet.add(p.strike));
+            let sortedStrikes = Array.from(strikeSet).sort((a, b) => a - b);
+            
+            if (viewMode === 'otm') {
+                const callOtm = sortedStrikes.filter(s => s > spotPrice).slice(0, 10);
+                const putOtm = sortedStrikes.filter(s => s < spotPrice).reverse().slice(0, 10).reverse();
+                sortedStrikes = [...putOtm, ...callOtm];
+            }
+            
+            const callMap = {};
+            calls.forEach(c => callMap[c.strike] = c);
+            const putMap = {};
+            puts.forEach(p => putMap[p.strike] = p);
+            
+            let html = `
+                <table class="chain-table">
+                    <thead>
+                        <tr>
+                            <th colspan="6" style="color:#3fb950;border-bottom:2px solid #3fb950;">CALLS</th>
+                            <th class="strike-cell">STRIKE</th>
+                            <th colspan="6" style="color:#f85149;border-bottom:2px solid #f85149;">PUTS</th>
+                        </tr>
+                        <tr>
+                            <th>IV</th><th>OI</th><th>Vol</th><th>Last</th><th>Bid</th><th>Ask</th>
+                            <th class="strike-cell">Price</th>
+                            <th>Bid</th><th>Ask</th><th>Last</th><th>Vol</th><th>OI</th><th>IV</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            sortedStrikes.forEach(s => {
+                const c = callMap[s] || {};
+                const p = putMap[s] || {};
+                const c_itm = s < spotPrice ? 'itm-call' : '';
+                const p_itm = s > spotPrice ? 'itm-put' : '';
+                
+                html += `
+                    <tr>
+                        <td class="call-side ${c_itm}">${fmtPct(c.iv)}</td>
+                        <td class="call-side ${c_itm}">${fmtNum(c.oi)}</td>
+                        <td class="call-side ${c_itm}">${fmtNum(c.vol)}</td>
+                        <td class="call-side ${c_itm}">${c.last?.toFixed(2) || '-'}</td>
+                        <td class="call-side ${c_itm}">${c.bid?.toFixed(2) || '-'}</td>
+                        <td class="call-side ${c_itm}">${c.ask?.toFixed(2) || '-'}</td>
+                        <td class="strike-cell">${s.toFixed(1)}</td>
+                        <td class="put-side ${p_itm}">${p.bid?.toFixed(2) || '-'}</td>
+                        <td class="put-side ${p_itm}">${p.ask?.toFixed(2) || '-'}</td>
+                        <td class="put-side ${p_itm}">${p.last?.toFixed(2) || '-'}</td>
+                        <td class="put-side ${p_itm}">${fmtNum(p.vol)}</td>
+                        <td class="put-side ${p_itm}">${fmtNum(p.oi)}</td>
+                        <td class="put-side ${p_itm}">${fmtPct(p.iv)}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `</tbody></table>`;
+            document.getElementById('chainContainer').innerHTML = html;
+        }
+        
+        function fmtNum(n) {
+            if (n == null || isNaN(n)) return '-';
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return n;
+        }
+        
+        function fmtPct(n) {
+            if (n == null || isNaN(n)) return '-';
+            return (n * 100).toFixed(1) + '%';
+        }
+        
+        document.getElementById('ticker').addEventListener('keypress', e => {
+            if (e.key === 'Enter') fetchExpirations();
+        });
+
+        // Init
+        fetchExpirations();
+    </script>
+</body>
+</html>

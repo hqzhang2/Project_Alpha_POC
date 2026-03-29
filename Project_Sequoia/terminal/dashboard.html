@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            min-height: 100vh;
+        }
+        .header {
+            background: #161b22;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header .time { color: #8b949e; font-size: 14px; }
+        
+        .toolbar {
+            background: #161b22;
+            padding: 12px 24px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+        }
+        .search {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #e6edf3;
+            padding: 8px 12px;
+            border-radius: 6px;
+            width: 200px;
+        }
+        .search:focus { outline: none; border-color: #58a6ff; }
+        
+        .btn {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn:hover { background: #2ea043; }
+        .btn-secondary {
+            background: #21262d;
+            border: 1px solid #30363d;
+        }
+        .btn-secondary:hover { background: #30363d; }
+        
+        .main {
+            padding: 24px;
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 24px;
+        }
+        
+        .sidebar {
+            background: #161b22;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .sidebar h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #8b949e;
+            margin-bottom: 12px;
+        }
+        
+        .watchlist-item {
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+        .watchlist-item:hover { background: #21262d; }
+        .watchlist-item.active { background: #21262d; border-left: 2px solid #58a6ff; }
+        .watchlist-item .ticker { font-weight: 600; }
+        .watchlist-item .price { color: #8b949e; font-size: 14px; }
+        
+        .panel {
+            background: #161b22;
+            border-radius: 8px;
+            padding: 24px;
+        }
+        
+        .quote-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 24px;
+        }
+        .quote-header .ticker {
+            font-size: 32px;
+            font-weight: 700;
+        }
+        .quote-header .name {
+            color: #8b949e;
+            margin-top: 4px;
+        }
+        .quote-header .price-block {
+            text-align: right;
+        }
+        .quote-header .price {
+            font-size: 32px;
+            font-weight: 700;
+        }
+        .quote-header .change {
+            font-size: 18px;
+            margin-top: 4px;
+        }
+        .change.positive { color: #3fb950; }
+        .change.negative { color: #f85149; }
+        
+        .quote-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 24px;
+        }
+        .quote-stat {
+            background: #0d1117;
+            padding: 16px;
+            border-radius: 8px;
+        }
+        .quote-stat .label {
+            font-size: 12px;
+            color: #8b949e;
+            text-transform: uppercase;
+        }
+        .quote-stat .value {
+            font-size: 20px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        
+        .chart-container {
+            margin-top: 24px;
+            height: 300px;
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        
+        .chart-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .chart-tab {
+            background: none;
+            border: none;
+            color: #8b949e;
+            padding: 6px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .chart-tab.active {
+            background: #21262d;
+            color: #e6edf3;
+        }
+        
+        .add-ticker {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .add-ticker input {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛠️ Alpha Terminal <span style="font-weight:normal;font-size:14px;color:#8b949e;">| <a href="omon.html" style="color:#58a6ff;text-decoration:none;">OMON</a></span></h1>
+        <div class="time" id="time">--:--:--</div>
+    </div>
+    
+    <div class="toolbar">
+        <input type="text" class="search" id="search" placeholder="Search ticker...">
+        <button class="btn" onclick="addTicker()">+ Add</button>
+        <button class="btn btn-secondary" onclick="refresh()">↻ Refresh</button>
+        <span style="color: #8b949e; font-size: 14px; margin-left: auto;">Delayed data (15 min)</span>
+    </div>
+    
+    <div class="main">
+        <div class="sidebar">
+            <h3>Watchlist</h3>
+            <div id="watchlist"></div>
+            <div class="add-ticker">
+                <input type="text" class="search" id="addTickerInput" placeholder="Symbol">
+                <button class="btn" onclick="addToWatchlist()">Add</button>
+            </div>
+        </div>
+        
+        <div class="panel" id="quotePanel">
+            <div class="quote-header">
+                <div>
+                    <div class="ticker" id="qtTicker">--</div>
+                    <div class="name" id="qtName">Select a ticker</div>
+                </div>
+                <div class="price-block">
+                    <div class="price" id="qtPrice">--</div>
+                    <div class="change" id="qtChange">--</div>
+                </div>
+            </div>
+            
+            <div class="quote-grid">
+                <div class="quote-stat">
+                    <div class="label">Open</div>
+                    <div class="value" id="qtOpen">--</div>
+                </div>
+                <div class="quote-stat">
+                    <div class="label">High</div>
+                    <div class="value" id="qtHigh">--</div>
+                </div>
+                <div class="quote-stat">
+                    <div class="label">Low</div>
+                    <div class="value" id="qtLow">--</div>
+                </div>
+                <div class="quote-stat">
+                    <div class="label">Volume</div>
+                    <div class="value" id="qtVolume">--</div>
+                </div>
+                <div class="quote-stat">
+                    <div class="label">52W High</div>
+                    <div class="value" id="qt52wHigh">--</div>
+                </div>
+                <div class="quote-stat">
+                    <div class="label">52W Low</div>
+                    <div class="value" id="qt52wLow">--</div>
+                </div>
+                <div class="quote-stat">
+                    <div class="label">Mkt Cap</div>
+                    <div class="value" id="qtMktCap">--</div>
+                </div>
+                <div class="quote-stat">
+                    <div class="label">P/E</div>
+                    <div class="value" id="qtPE">--</div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-tabs">
+                    <button class="chart-tab" onclick="setTimeframe('1D')">1D</button>
+                    <button class="chart-tab" onclick="setTimeframe('1W')">1W</button>
+                    <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
+                    <button class="chart-tab" onclick="setTimeframe('3M')">3M</button>
+                    <button class="chart-tab" onclick="setTimeframe('YTD')">YTD</button>
+                    <button class="chart-tab" onclick="setTimeframe('1Y')">1Y</button>
+                    <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
+                </div>
+                <canvas id="chart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let quotes = {};
+        let watchlist = JSON.parse(localStorage.getItem('watchlist')) || ['SPY', 'QQQ', 'IWM', 'TLT', 'GLD'];
+        let currentTicker = 'SPY';
+        let chart = null;
+        let timeframe = '1M';
+        
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('time').textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+        
+        // Fetch quotes
+        async function fetchQuotes() {
+            const tickers = watchlist.join(',');
+            try {
+                const res = await fetch(`http://localhost:9090/api/quotes?tickers=${tickers}`);
+                quotes = await res.json();
+                renderWatchlist();
+                if (quotes[currentTicker]) renderQuote(currentTicker);
+            } catch (e) {
+                console.error('Fetch error:', e);
+            }
+        }
+        
+        // Render watchlist
+        function renderWatchlist() {
+            const el = document.getElementById('watchlist');
+            el.innerHTML = watchlist.map(t => {
+                const q = quotes[t] || {};
+                const price = q.price || '--';
+                const change = q.change_pct ? q.change_pct.toFixed(2) + '%' : '--';
+                const cls = q.change_pct > 0 ? 'positive' : q.change_pct < 0 ? 'negative' : '';
+                return `
+                    <div class="watchlist-item ${t === currentTicker ? 'active' : ''}" onclick="selectTicker('${t}')">
+                        <span class="ticker">${t}</span>
+                        <span class="price">${price}</span>
+                        <span class="change ${cls}" style="margin-left: 8px;">${change}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Select ticker
+        function selectTicker(t) {
+            currentTicker = t;
+            renderWatchlist();
+            renderQuote(t);
+            fetchChart(t, timeframe);
+        }
+        
+        // Render quote
+        function renderQuote(t) {
+            const q = quotes[t] || {};
+            document.getElementById('qtTicker').textContent = t;
+            document.getElementById('qtName').textContent = q.name || '--';
+            document.getElementById('qtPrice').textContent = q.price ? '$' + q.price.toFixed(2) : '--';
+            
+            const changeEl = document.getElementById('qtChange');
+            if (q.change != null) {
+                const sign = q.change >= 0 ? '+' : '';
+                changeEl.textContent = sign + q.change.toFixed(2) + ' (' + sign + q.change_pct.toFixed(2) + '%)';
+                changeEl.className = 'change ' + (q.change >= 0 ? 'positive' : 'negative');
+            } else {
+                changeEl.textContent = '--';
+                changeEl.className = 'change';
+            }
+            
+            document.getElementById('qtOpen').textContent = q.open ? '$' + q.open.toFixed(2) : '--';
+            document.getElementById('qtHigh').textContent = q.high ? '$' + q.high.toFixed(2) : '--';
+            document.getElementById('qtLow').textContent = q.low ? '$' + q.low.toFixed(2) : '--';
+            document.getElementById('qtVolume').textContent = q.volume ? formatNumber(q.volume) : '--';
+            document.getElementById('qt52wHigh').textContent = q['52w_high'] ? '$' + q['52w_high'].toFixed(2) : '--';
+            document.getElementById('qt52wLow').textContent = q['52w_low'] ? '$' + q['52w_low'].toFixed(2) : '--';
+            document.getElementById('qtMktCap').textContent = q.market_cap ? formatNumber(q.market_cap) : '--';
+            document.getElementById('qtPE').textContent = q.pe_ratio ? q.pe_ratio.toFixed(2) : '--';
+        }
+        
+        // Format number
+        function formatNumber(n) {
+            if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+            if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+            return n;
+        }
+        
+        // Add ticker
+        function addTicker() {
+            const input = document.getElementById('search');
+            const t = input.value.toUpperCase().trim();
+            if (t && !watchlist.includes(t)) {
+                watchlist.push(t);
+                localStorage.setItem('watchlist', JSON.stringify(watchlist));
+                fetchQuotes();
+            }
+            input.value = '';
+        }
+        
+        function addToWatchlist() {
+            const input = document.getElementById('addTickerInput');
+            const t = input.value.toUpperCase().trim();
+            if (t && !watchlist.includes(t)) {
+                watchlist.push(t);
+                localStorage.setItem('watchlist', JSON.stringify(watchlist));
+                fetchQuotes();
+            }
+            input.value = '';
+        }
+        
+        // Refresh
+        function refresh() {
+            fetchQuotes();
+        }
+        
+        // Timeframe
+        function setTimeframe(tf) {
+            timeframe = tf;
+            document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            fetchChart(currentTicker, tf);
+        }
+        
+        // Fetch chart
+        async function fetchChart(t, tf) {
+            try {
+                const res = await fetch(`http://localhost:9090/api/chart?ticker=${t}&tf=${tf}`);
+                const data = await res.json();
+                renderChart(data);
+            } catch (e) {
+                console.error('Chart error:', e);
+            }
+        }
+        
+        // Render chart
+        function renderChart(data) {
+            const ctx = document.getElementById('chart').getContext('2d');
+            if (chart) chart.destroy();
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        {
+                            label: 'Price',
+                            data: data.prices,
+                            borderColor: '#58a6ff',
+                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                            fill: true,
+                            tension: 0.1,
+                            pointRadius: 0,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Volume',
+                            data: data.volumes,
+                            type: 'bar',
+                            backgroundColor: 'rgba(139, 148, 158, 0.5)',
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            position: 'left',
+                            grid: { color: '#30363d' },
+                            ticks: { color: '#8b949e' }
+                        },
+                        y1: {
+                            position: 'right',
+                            grid: { display: false },
+                            ticks: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Init
+        fetchQuotes();
+        fetchChart(currentTicker, timeframe);
+        setInterval(fetchQuotes, 30000);
+    </script>
+</body>
+</html>
