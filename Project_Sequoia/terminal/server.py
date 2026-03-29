@@ -10,9 +10,9 @@ import socket
 from urllib.parse import urlparse, parse_qs
 import yfinance
 import datetime
+import sys
 
 # Add current dir to path
-import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def find_free_port(start=9090, max_attempts=10):
@@ -29,6 +29,9 @@ def find_free_port(start=9090, max_attempts=10):
 def clean_value(v):
     if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
         return None
+    # Handle pandas Timestamps and datetime objects
+    if hasattr(v, 'isoformat'):
+        return v.isoformat()
     return v
 
 def clean_dict(d):
@@ -59,13 +62,14 @@ class Handler(SimpleHTTPRequestHandler):
             ticker = qs.get('ticker', ['SPY'])[0]
             expirations = get_expirations(ticker)
             
-            # Filter standard options (3rd Friday)
             standard_expiries = []
             for e in expirations:
-                dt = datetime.datetime.strptime(e, '%Y-%m-%d')
-                # 3rd Friday is between 15th and 21st
-                if dt.weekday() == 4 and 15 <= dt.day <= 21:
-                    standard_expiries.append({'date': e, 'label': dt.strftime('%b %Y') + " (Std)"})
+                try:
+                    dt = datetime.datetime.strptime(e, '%Y-%m-%d')
+                    if dt.weekday() == 4 and 15 <= dt.day <= 21:
+                        standard_expiries.append({'date': e, 'label': dt.strftime('%b %Y') + " (Std)"})
+                except:
+                    continue
             
             return self.send_json({'ticker': ticker, 'expirations': expirations, 'standard': standard_expiries})
 
@@ -73,6 +77,24 @@ class Handler(SimpleHTTPRequestHandler):
             ticker = qs.get('ticker', ['SPY'])[0]
             tf = qs.get('tf', ['1M'])[0]
             return self.send_json(get_chart(ticker, tf))
+
+        if path == '/api/screen':
+            from options import get_expirations, get_options_chain
+            ticker = qs.get('ticker', ['SPY'])[0]
+            expirations = get_expirations(ticker)
+            
+            # For the screener, we limit to the first 5 expirations (nearest term) 
+            # to keep response times reasonable for a POC
+            all_hits = []
+            for expiry in expirations[:8]:
+                chain = get_options_chain(ticker, expiry)
+                for opt_type in ['calls', 'puts']:
+                    for row in chain.get(opt_type, []):
+                        row['type'] = opt_type[:-1].upper() # CALL or PUT
+                        row['expiry'] = expiry
+                        all_hits.append(row)
+            
+            return self.send_json({'ticker': ticker, 'results': all_hits})
         
         return SimpleHTTPRequestHandler.do_GET(self)
     

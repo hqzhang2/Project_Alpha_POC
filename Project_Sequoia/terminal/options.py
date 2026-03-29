@@ -1,17 +1,21 @@
 """
-Yahoo Finance Options Fetcher
-KAN-23: Yahoo Finance Options Data
+Yahoo Finance Options Fetcher with Greeks (KAN-26)
 """
 import json
 import math
 import time
+import datetime
 from typing import Optional
 import yfinance
+import sys
+import os
 
+# Add current dir to path for local imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from greeks import calculate_greeks
 
 _options_cache = {}
 _cache_ttl = 30
-
 
 def get_expirations(ticker: str) -> list[str]:
     """Fetch available expiration dates."""
@@ -19,7 +23,6 @@ def get_expirations(ticker: str) -> list[str]:
         return list(yfinance.Ticker(ticker).options)
     except:
         return []
-
 
 def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -> dict:
     """Fetch options chain for a ticker and specific expiry."""
@@ -43,11 +46,19 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
 
         options = ticker_obj.option_chain(expiry)
         
-        if not options:
-            return {"ticker": ticker.upper(), "error": "No options data"}
+        # Get spot price for Greeks
+        info = ticker_obj.info
+        spot = info.get("currentPrice", info.get("regularMarketPrice"))
         
-        # Get expiry dates from options
-        # yfinance returns calls/puts directly
+        # Calculate Time to Maturity (T)
+        expiry_dt = datetime.datetime.strptime(expiry, '%Y-%m-%d')
+        # Standardize to end of day
+        expiry_dt = expiry_dt.replace(hour=23, minute=59, second=59)
+        delta_t = expiry_dt - datetime.datetime.now()
+        T = max(0.0001, delta_t.total_seconds() / (365.25 * 24 * 3600))
+        
+        r = 0.045 # 4.5% risk-free rate proxy
+
         calls = options.calls.copy() if options.calls is not None else None
         puts = options.puts.copy() if options.puts is not None else None
         
@@ -64,48 +75,48 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
             'inTheMoney': 'itm'
         }
         
-        if calls is not None:
-            calls = calls.rename(columns=rename_map)
-            calls = calls[['strike', 'bid', 'ask', 'last', 'vol', 'oi', 'iv', 'itm']]
-        
-        if puts is not None:
-            puts = puts.rename(columns=rename_map)
-            puts = puts[['strike', 'bid', 'ask', 'last', 'vol', 'oi', 'iv', 'itm']]
-        
-        # Clean NaN values
-        def clean_val(v):
-            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-                return None
-            return v
-        
-        calls_clean = []
-        if calls is not None:
-            for row in calls.to_dict('records'):
-                calls_clean.append({k: clean_val(v) for k, v in row.items()})
-        
-        puts_clean = []
-        if puts is not None:
-            for row in puts.to_dict('records'):
-                puts_clean.append({k: clean_val(v) for k, v in row.items()})
-        
+        def process_df(df, opt_type):
+            if df is None: return []
+            df = df.rename(columns=rename_map)
+            records = df.to_dict('records')
+            
+            clean_records = []
+            for row in records:
+                # Clean NaN
+                row = {k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v) for k, v in row.items()}
+                
+                # Calculate Greeks
+                sigma = row.get('iv', 0)
+                if sigma and spot and row.get('strike'):
+                    try:
+                        g = calculate_greeks(spot, row['strike'], T, r, sigma, opt_type)
+                        row.update(g)
+                    except:
+                        row.update({'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0})
+                else:
+                    row.update({'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0})
+                
+                clean_records.append(row)
+            return clean_records
+
         result = {
             "ticker": ticker.upper(),
-            "calls": calls_clean,
-            "puts": puts_clean,
+            "expiry": expiry,
+            "spot": spot,
+            "calls": process_df(calls, 'call'),
+            "puts": process_df(puts, 'put'),
             "timestamp": now
         }
         
-        _options_cache[ticker] = (result, now)
+        _options_cache[cache_key] = (result, now)
         return result
         
     except Exception as e:
         return {"ticker": ticker.upper(), "error": str(e)}
 
-
 def get_options_json(ticker: str) -> str:
     """Return options as JSON string."""
     return json.dumps(get_options_chain(ticker))
-
 
 if __name__ == "__main__":
     # Test

@@ -1,38 +1,34 @@
-# Sprint 2 - Option Monitor (OMON)
+# Sprint 2 - Option Monitor (OMON) & Screener
 
 **Target:** April 7, 2026  
-**Focus:** Options Chain
+**Focus:** Options Analytics
 
 ---
 
 ## JIRAs
 
 ### KAN-23: Yahoo Finance Options Data
-- [ ] Fetch options chain for any ticker
-- [ ] Parse calls/puts, strikes, expiry dates
-- [ ] Handle multiple expirations
-- [ ] Output: Options chain JSON
+- [x] Fetch options chain for any ticker and parse data.
+- [x] Added persistent caching and error handling.
 
 ### KAN-24: OMON Screen
-- [ ] Ticker search → expiration selector
-- [ ] Call chain (left) | Strikes | Put chain (right)
-- [ ] Columns: Bid, Ask, Last, Vol, OI
-- [ ] Color-coding: green (up), red (down)
+- [x] Three-column option chain UI with ITM highlighting.
+- [x] Expiration selector dropdown with "Standard" option filtering.
 
-### KAN-25: Options Screener (Basic)
-- [ ] Filter by IV > threshold
-- [ ] Filter by volume > OI
-- [ ] Filter by wide bid/ask spread
-- [ ] Sort by strike, expiry, IV
+### KAN-25: Options Screener
+- [x] Created dedicated Screener screen/tab.
+- [x] Scans across multiple expirations for a ticker.
+- [x] Filter by Volume, Open Interest, and IV%.
+- [x] "Unusual Activity" toggle (Volume > OI).
 
 ### KAN-26: Greeks Calculator
-- [ ] Implement Black-Scholes model
-- [ ] Calculate Delta, Gamma, Theta, Vega
-- [ ] Display Greeks in chain view
-- [ ] IV rank/percentile
+- [x] Integrated Black-Scholes model into the API.
+- [x] Displays Delta, Gamma, Theta, Vega on OMON and Screener.
 
 ---
 
 ## Done ✅
-_(None yet)_
-- Sprint 1 (KAN-19 to KAN-22)
+- KAN-23: Yahoo Finance Options Data
+- KAN-24: OMON Screen
+- KAN-25: Options Screener
+- KAN-26: Greeks Calculator

@@ -47,15 +47,17 @@
         .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
         
         .chain-container { display: block; background: #161b22; border-radius: 8px; overflow-x: auto; }
-        .chain-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .chain-table th { padding: 8px 4px; background: #21262d; color: #8b949e; position: sticky; top: 0; z-index: 10; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #30363d; }
-        .chain-table td { padding: 6px 4px; text-align: right; border-bottom: 1px solid #21262d; }
-        .chain-table .strike-cell { background: #0d1117; font-weight: 700; text-align: center; color: #e6edf3; width: 80px; }
+        .chain-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .chain-table th { padding: 8px 2px; background: #21262d; color: #8b949e; position: sticky; top: 0; z-index: 10; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #30363d; }
+        .chain-table td { padding: 6px 2px; text-align: right; border-bottom: 1px solid #21262d; }
+        .chain-table .strike-cell { background: #0d1117; font-weight: 700; text-align: center; color: #e6edf3; width: 80px; font-size: 13px; }
         .chain-table tr:hover td { background: #21262d; }
         .chain-table .call-side { border-right: 1px solid #30363d; }
         .chain-table .put-side { border-left: 1px solid #30363d; }
         .itm-call { background: rgba(63, 185, 80, 0.05); }
         .itm-put { background: rgba(248, 81, 73, 0.05); }
+        
+        .greek { color: #58a6ff; font-weight: 500; }
         
         .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;}
         .info-bar .ticker { font-size: 24px; font-weight: 700; }
@@ -71,6 +73,7 @@
         <div class="nav">
             <a href="dashboard.html">Dashboard</a>
             <a href="omon.html" class="active">OMON</a>
+            <a href="screener.html">Screener</a>
         </div>
     </div>
     
@@ -113,7 +116,6 @@
                 const select = document.getElementById('expirySelect');
                 select.innerHTML = '';
                 
-                // Show standard expiries first
                 data.standard.forEach(e => {
                     const opt = document.createElement('option');
                     opt.value = e.date;
@@ -152,9 +154,7 @@
                 const res = await fetch(`http://localhost:9090/api/options?ticker=${ticker}&expiry=${expiry}`);
                 optionsData = await res.json();
                 
-                const quoteRes = await fetch(`http://localhost:9090/api/quotes?tickers=${ticker}`);
-                const quoteData = await quoteRes.json();
-                spotPrice = quoteData[ticker]?.price || 0;
+                spotPrice = optionsData.spot || 0;
                 
                 document.getElementById('qtTicker').textContent = ticker;
                 document.getElementById('qtSpot').textContent = 'Spot: $' + spotPrice.toFixed(2);
@@ -192,14 +192,16 @@
                 <table class="chain-table">
                     <thead>
                         <tr>
-                            <th colspan="6" style="color:#3fb950;border-bottom:2px solid #3fb950;">CALLS</th>
+                            <th colspan="10" style="color:#3fb950;border-bottom:2px solid #3fb950;">CALLS</th>
                             <th class="strike-cell">STRIKE</th>
-                            <th colspan="6" style="color:#f85149;border-bottom:2px solid #f85149;">PUTS</th>
+                            <th colspan="10" style="color:#f85149;border-bottom:2px solid #f85149;">PUTS</th>
                         </tr>
                         <tr>
+                            <th class="greek">Vega</th><th class="greek">Theta</th><th class="greek">Gamma</th><th class="greek">Delta</th>
                             <th>IV</th><th>OI</th><th>Vol</th><th>Last</th><th>Bid</th><th>Ask</th>
                             <th class="strike-cell">Price</th>
                             <th>Bid</th><th>Ask</th><th>Last</th><th>Vol</th><th>OI</th><th>IV</th>
+                            <th class="greek">Delta</th><th class="greek">Gamma</th><th class="greek">Theta</th><th class="greek">Vega</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -213,19 +215,29 @@
                 
                 html += `
                     <tr>
+                        <td class="call-side ${c_itm} greek">${c.vega?.toFixed(3) || '-'}</td>
+                        <td class="call-side ${c_itm} greek">${c.theta?.toFixed(3) || '-'}</td>
+                        <td class="call-side ${c_itm} greek">${c.gamma?.toFixed(4) || '-'}</td>
+                        <td class="call-side ${c_itm} greek">${c.delta?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm}">${fmtPct(c.iv)}</td>
                         <td class="call-side ${c_itm}">${fmtNum(c.oi)}</td>
                         <td class="call-side ${c_itm}">${fmtNum(c.vol)}</td>
                         <td class="call-side ${c_itm}">${c.last?.toFixed(2) || '-'}</td>
                         <td class="call-side ${c_itm}">${c.bid?.toFixed(2) || '-'}</td>
                         <td class="call-side ${c_itm}">${c.ask?.toFixed(2) || '-'}</td>
+                        
                         <td class="strike-cell">${s.toFixed(1)}</td>
+                        
                         <td class="put-side ${p_itm}">${p.bid?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${p.ask?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${p.last?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.vol)}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.oi)}</td>
                         <td class="put-side ${p_itm}">${fmtPct(p.iv)}</td>
+                        <td class="put-side ${p_itm} greek">${p.delta?.toFixed(3) || '-'}</td>
+                        <td class="put-side ${p_itm} greek">${p.gamma?.toFixed(4) || '-'}</td>
+                        <td class="put-side ${p_itm} greek">${p.theta?.toFixed(3) || '-'}</td>
+                        <td class="put-side ${p_itm} greek">${p.vega?.toFixed(3) || '-'}</td>
                     </tr>
                 `;
             });
@@ -250,7 +262,6 @@
             if (e.key === 'Enter') fetchExpirations();
         });
 
-        // Init
         fetchExpirations();
     </script>
 </body>

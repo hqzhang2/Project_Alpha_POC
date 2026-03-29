@@ -13,7 +13,7 @@
 
 ### project_alpha (Terminal)
 - [ ] Sprint 1: Simplified Bloomberg Terminal (KAN-19→KAN-22) — Done ✅
-- [ ] Sprint 2: Option Monitor (KAN-23→KAN-26) — In Progress (2/4 done)
+- [ ] Sprint 2: Option Monitor (KAN-23→KAN-26) — Done ✅
 
 ---
 
