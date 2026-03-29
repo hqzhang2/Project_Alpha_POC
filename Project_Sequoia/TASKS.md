@@ -63,3 +63,22 @@
 - **Time budget:** Max 1 hour/day
 - **Trading style:** Long-term, no day trading
 - **Discord:** Team actively responding to questions (tested with TLT/TLTW/TOTL)
+---
+
+## 🚧 Sprint 4: Financial Analyzer (Mar 29, 2026)
+
+### Tasks
+- [ ] KAN-33: SEC EDGAR Integration
+- [ ] KAN-34: Graham Metrics Scoring  
+- [ ] KAN-35: Add More Tickers
+- [ ] KAN-36: SEC First Run Caching
+
+### Watchlist (Testing)
+| Ticker | Score | Rating |
+|--------|-------|---------|
+| AAPL | 4 | ⭐ Hold |
+| TSLA | 4 | ⭐ Hold |
+| MSFT | 4 | ⭐ Hold |
+| GOOGL | 6 | ⭐⭐ Buy |
+| AMZN | 2 | ⚠️ Speculative |
+| NVDA | 6 | ⭐⭐ Buy |

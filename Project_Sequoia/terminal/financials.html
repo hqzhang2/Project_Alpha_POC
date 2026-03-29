@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal - Financial Analyzer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 100px; }
+        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #2ea043; }
+        .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+        .btn-secondary:hover { background: #30363d; }
+        
+        .watchlist-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; min-width: 150px; }
+        .watchlist-bar { display: flex; align-items: center; gap: 8px; }
+        .watchlist-bar label { color: #8b949e; font-size: 12px; }
+        .watchlist-edit { display: flex; gap: 8px; margin-left: 12px; }
+        .watchlist-edit input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 10px; border-radius: 4px; width: 100px; font-size: 13px; }
+        
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+        
+        .tabs { display: flex; gap: 4px; background: #161b22; padding: 8px 24px; border-radius: 8px; }
+        .tab { background: transparent; border: none; color: #8b949e; padding: 10px 20px; cursor: pointer; border-radius: 6px; font-size: 14px; }
+        .tab.active { background: #238636; color: white; }
+        
+        .period-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; margin-left: auto; }
+        .period-select label { color: #8b949e; font-size: 12px; margin-right: 8px; }
+        
+        .data-table-container { background: #161b22; border-radius: 8px; overflow-x: auto; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .data-table th { padding: 12px 8px; background: #21262d; color: #8b949e; text-align: left; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #30363d; position: sticky; top: 0; }
+        .data-table td { padding: 10px 8px; border-bottom: 1px solid #21262d; text-align: left; }
+        .data-table .num { text-align: left; font-family: 'Monaco', monospace; }
+        
+        /* Color coding */
+        .data-table .positive { color: #3fb950; }
+        .data-table .negative { color: #f85149; }
+        .data-table .neutral { color: #8b949e; }
+        
+        /* Column headers color */
+        .data-table th.income-col { border-left: 3px solid #58a6ff; }
+        .data-table th.balance-col { border-left: 3px solid #a371f7; }
+        .data-table th.cashflow-col { border-left: 3px solid #f0883e; }
+        
+        .data-table td.income-col { border-left: 1px solid #30363d; }
+        .data-table td.balance-col { border-left: 1px solid #30363d; }
+        .data-table td.cashflow-col { border-left: 1px solid #30363d; }
+        
+        .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+        .info-bar .ticker { font-size: 24px; font-weight: 700; }
+        .info-bar .name { font-size: 14px; color: #8b949e; }
+        
+        .loading { padding: 40px; text-align: center; color: #8b949e; }
+        
+        .kpi-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+        .kpi-card { background: #161b22; border-radius: 8px; padding: 16px; }
+        .kpi-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; }
+        .kpi-card .value { font-size: 18px; font-weight: 600; margin-top: 4px; }
+        
+        .score-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 600; }
+        .score-badge.strong-buy { background: rgba(63, 185, 80, 0.2); color: #3fb950; }
+        .score-badge.buy { background: rgba(63, 185, 80, 0.15); color: #3fb950; }
+        .score-badge.hold { background: rgba(139, 148, 158, 0.15); color: #8b949e; }
+        .score-badge.speculative { background: rgba(210, 153, 34, 0.15); color: #d29934; }
+        .score-badge.avoid { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+        
+        select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛠️ Alpha Terminal</h1>
+        <div class="nav">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="omon.html">OMON</a>
+            <a href="screener.html">Option Screener</a>
+            <a href="ratio.html">Ratio Analysis</a>
+            <a href="financials.html" class="active">Financials</a>
+        </div>
+    </div>
+    
+    <div class="toolbar">
+        <div class="watchlist-bar">
+            <label>Watchlist:</label>
+            <select id="watchlistSelect" class="watchlist-select" onchange="loadFromWatchlist()">
+                <option value="">-- Select --</option>
+            </select>
+            <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 12px;">✕</button>
+        </div>
+        <div class="watchlist-edit">
+            <input type="text" id="newTicker" placeholder="Add ticker" class="search">
+            <button class="btn" onclick="addToWatchlist()" style="padding: 6px 12px;">+</button>
+        </div>
+        
+        <input type="text" class="search" id="ticker" placeholder="SPY" value="AAPL">
+        <button class="btn" onclick="loadFinancials()">Load</button>
+        
+        <div class="period-select">
+            <label>Period:</label>
+            <select id="periodSelect" onchange="loadFinancials()">
+                <option value="Q">Quarterly (4)</option>
+                <option value="Q" data-count="8">Quarterly (8)</option>
+                <option value="Q" data-count="10">Quarterly (10)</option>
+                <option value="FY">Annual (5)</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="omain">
+        <div class="info-bar" id="infoBar">
+            <div>
+                <div class="ticker" id="qtTicker">AAPL</div>
+                <div class="name" id="qtName">Apple Inc.</div>
+            </div>
+            <div id="ratingBadge"></div>
+        </div>
+        
+        <div class="kpi-cards" id="kpiCards"></div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="setTab('income')">Income Statement</button>
+            <button class="tab" onclick="setTab('balance')">Balance Sheet</button>
+            <button class="tab" onclick="setTab('cashflow')">Cash Flow</button>
+        </div>
+        
+        <div class="data-table-container" id="dataContainer">
+            <div class="loading">Enter ticker and click Load</div>
+        </div>
+    </div>
+    
+    <script>
+        let financialsData = null;
+        let currentTab = 'income';
+        let watchlist = [];
+        
+        function renderWatchlist() {
+            const select = document.getElementById('watchlistSelect');
+            const current = document.getElementById('ticker').value.toUpperCase().trim();
+            select.innerHTML = '<option value="">-- Select --</option>';
+            watchlist.forEach(item => {
+                const opt = document.createElement('option');
+                opt.value = item.ticker;
+                opt.textContent = item.ticker;
+                if (item.ticker === current) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+        
+        async function fetchWatchlist() {
+            try {
+                const res = await fetch('http://localhost:9090/api/financials/watchlist?action=list');
+                watchlist = await res.json();
+                renderWatchlist();
+            } catch(e) { console.error(e); }
+        }
+        
+        async function addToWatchlist() {
+            const ticker = document.getElementById('newTicker').value.toUpperCase().trim();
+            if (ticker) {
+                await fetch(`http://localhost:9090/api/financials/watchlist?action=add&ticker=${ticker}`);
+                fetchWatchlist();
+            }
+            document.getElementById('newTicker').value = '';
+        }
+        
+        async function removeFromWatchlist() {
+            const ticker = document.getElementById('watchlistSelect').value;
+            if (ticker) {
+                await fetch(`http://localhost:9090/api/financials/watchlist?action=remove&ticker=${ticker}`);
+                fetchWatchlist();
+            }
+        }
+        
+        function loadFromWatchlist() {
+            const ticker = document.getElementById('watchlistSelect').value;
+            if (ticker) {
+                document.getElementById('ticker').value = ticker;
+                loadFinancials();
+            }
+        }
+        
+        function setTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            if (financialsData) renderTable();
+        }
+        
+        function fmtNum(n) {
+            if (n === null || n === undefined || isNaN(n)) return '-';
+            if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(2) + 'B';
+            if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2) + 'M';
+            if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(2) + 'K';
+            return n.toFixed(2);
+        }
+        
+        function getColorClass(val, isPct=false) {
+            if (val === null || isNaN(val) || val === '-') return 'neutral';
+            if (val > 0) return 'positive';
+            if (val < 0) return 'negative';
+            return 'neutral';
+        }
+        
+        async function loadFinancials() {
+            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
+            const periodSelect = document.getElementById('periodSelect');
+            const selectedOption = periodSelect.options[periodSelect.selectedIndex];
+            const periods = selectedOption.getAttribute('data-count') || 10;
+            const periodType = selectedOption.value;
+            if (!ticker) return;
+            
+            renderWatchlist();
+            document.getElementById('dataContainer').innerHTML = '<div class="loading">Loading...</div>';
+            
+            try {
+                const res = await fetch(`http://localhost:9090/api/financials?ticker=${ticker}&periods=${periods}&type=${periodType}`);
+                if (!res.ok) throw new Error('Failed to fetch');
+                financialsData = await res.json();
+                
+                document.getElementById('qtTicker').textContent = ticker;
+                document.getElementById('qtName').textContent = financialsData.info?.name || '--';
+                
+                renderKPIs();
+                renderTable();
+            } catch (e) {
+                console.error(e);
+                document.getElementById('dataContainer').innerHTML = '<div class="loading">Error: ' + e.message + '</div>';
+            }
+        }
+        
+        function renderKPIs() {
+            const m = financialsData.metrics || {};
+            const kpis = [
+                { label: 'Score', value: m.score || 0 },
+                { label: 'P/E', value: ((financialsData.info && financialsData.info.pe_ratio) ? financialsData.info.pe_ratio.toFixed(1) : (m.pe_ratio ? m.pe_ratio.toFixed(1) : '-')) },
+                { label: 'Net Margin', value: m.net_margin ? m.net_margin.toFixed(1) + '%' : '-' },
+                { label: 'Current Ratio', value: m.current_ratio ? m.current_ratio.toFixed(2) : '-' },
+                { label: 'EPS Growth', value: m.eps_growth ? m.eps_growth.toFixed(1) + '%' : '-' }
+            ];
+            
+            const kpiContainer = document.getElementById('kpiCards');
+            kpiContainer.innerHTML = kpis.map(k => `
+                <div class="kpi-card">
+                    <div class="label">${k.label}</div>
+                    <div class="value">${k.value}</div>
+                </div>
+            `).join('');
+            
+            // Rating badge
+            const badge = document.getElementById('ratingBadge');
+            let badgeClass = 'hold';
+            if (m.rating) {
+                if (m.rating.includes('Strong Buy')) badgeClass = 'strong-buy';
+                else if (m.rating.includes('Buy')) badgeClass = 'buy';
+                else if (m.rating.includes('Hold')) badgeClass = 'hold';
+                else if (m.rating.includes('Spec')) badgeClass = 'speculative';
+                else badgeClass = 'avoid';
+            }
+            badge.innerHTML = `<span class="score-badge ${badgeClass}">${m.rating || 'N/A'}</span>`;
+        }
+        
+        function renderTable() {
+            const data = financialsData[currentTab] || [];
+            const container = document.getElementById('dataContainer');
+            
+            if (data.length === 0) {
+                container.innerHTML = '<div class="loading">No data available</div>';
+                return;
+            }
+            
+            let html = '<table class="data-table"><thead><tr>';
+            
+            // Column headers based on tab
+            const headers = {
+                income: ['Period', 'Type', 'Revenue', 'Cost', 'Gross Profit', 'Op Income', 'Net Income', 'EPS', 'EBIT', 'EBITDA'],
+                balance: ['Period', 'Type', 'Total Assets', 'Current Assets', 'Cash', 'Liabilities', 'Current Liab', 'Debt', 'Equity'],
+                cashflow: ['Period', 'Type', 'Operating CF', 'Investing CF', 'Financing CF', 'Free CF', 'Capex', 'Dividends']
+            };
+            
+            const colClass = currentTab === 'income' ? 'income-col' : currentTab === 'balance' ? 'balance-col' : 'cashflow-col';
+            
+            headers[currentTab].forEach((h, i) => {
+                html += `<th class="${i === 0 ? '' : colClass}">${h}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            data.forEach((row, idx) => {
+                const isQ = row.type === 'Q';
+                html += `<tr><td>${row.period}</td><td>${row.type}</td>`;
+                
+                if (currentTab === 'income') {
+                    const revGrowth = idx < data.length - 1 ? ((row.revenue - data[idx+1].revenue)/data[idx+1].revenue*100) : null;
+                    html += `<td class="num ${getColorClass(revGrowth, true)}">${fmtNum(row.revenue)}${revGrowth !== null ? ' <small>(' + (revGrowth>0?'+':'') + revGrowth.toFixed(1) + '%)</small>' : ''}</td>`;
+                    html += `<td class="num">${fmtNum((row.revenue && row.gross_profit ? row.revenue - row.gross_profit : null))}</td>`;
+                    html += `<td class="num ${getColorClass(row.gross_profit)}">${fmtNum(row.gross_profit)}</td>`;
+                    html += `<td class="num ${getColorClass(row.operating_income)}">${fmtNum(row.operating_income)}</td>`;
+                    html += `<td class="num ${getColorClass(row.net_income)}">${fmtNum(row.net_income)}</td>`;
+                    html += `<td class="num ${getColorClass(row.eps)}">${fmtNum(row.eps)}</td>`;
+                    html += `<td class="num ${getColorClass(row.ebit)}">${fmtNum(row.ebit)}</td>`;
+                    html += `<td class="num ${getColorClass(row.ebitda)}">${fmtNum(row.ebitda)}</td>`;
+                } else if (currentTab === 'balance') {
+                    html += `<td class="num">${fmtNum(row.total_assets)}</td>`;
+                    html += `<td class="num">${fmtNum(row.current_assets)}</td>`;
+                    html += `<td class="num">${fmtNum(row.cash)}</td>`;
+                    html += `<td class="num">${fmtNum(row.total_liabilities)}</td>`;
+                    html += `<td class="num">${fmtNum(row.current_liabilities)}</td>`;
+                    html += `<td class="num">${fmtNum(row.debt)}</td>`;
+                    html += `<td class="num">${fmtNum(row.equity)}</td>`;
+                } else {
+                    html += `<td class="num ${getColorClass(row.operating_cf)}">${fmtNum(row.operating_cf)}</td>`;
+                    html += `<td class="num ${getColorClass(row.investing_cf)}">${fmtNum(row.investing_cf)}</td>`;
+                    html += `<td class="num ${getColorClass(row.financing_cf)}">${fmtNum(row.financing_cf)}</td>`;
+                    html += `<td class="num ${getColorClass(row.free_cf)}">${fmtNum(row.free_cf)}</td>`;
+                    html += `<td class="num ${getColorClass(row.capex)}">${fmtNum(row.capex)}</td>`;
+                    html += `<td class="num ${getColorClass(row.dividends)}">${fmtNum(row.dividends)}</td>`;
+                }
+                
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+        
+        fetchWatchlist();
+        loadFinancials();
+    </script>
+</body>
+</html>
