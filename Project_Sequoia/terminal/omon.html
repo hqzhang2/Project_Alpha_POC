@@ -6,43 +6,19 @@
     <title>Alpha Terminal - OMON</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0d1117;
-            color: #e6edf3;
-            min-height: 100vh;
-        }
-        .header {
-            background: #161b22;
-            padding: 16px 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #30363d;
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
         .header h1 { font-size: 20px; font-weight: 600; }
         .nav { display: flex; gap: 16px; }
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
         
-        .toolbar {
-            background: #161b22;
-            padding: 12px 24px;
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            border-bottom: 1px solid #30363d;
-        }
-        .search {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            color: #e6edf3;
-            padding: 8px 12px;
-            border-radius: 6px;
-            width: 120px;
-        }
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 120px; }
         .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .btn:hover { background: #2ea043; }
+        .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+        .btn-secondary:hover { background: #30363d; }
         
         .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
         
@@ -56,15 +32,19 @@
         .chain-table .put-side { border-left: 1px solid #30363d; }
         .itm-call { background: rgba(63, 185, 80, 0.05); }
         .itm-put { background: rgba(248, 81, 73, 0.05); }
-        
         .greek { color: #58a6ff; font-weight: 500; }
         
-        .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;}
+        .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
         .info-bar .ticker { font-size: 24px; font-weight: 700; }
         .info-bar .spot { font-size: 24px; }
         .loading { padding: 40px; text-align: center; color: #8b949e; }
-
         select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 6px; border-radius: 4px; }
+        
+        .watchlist-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; min-width: 150px; }
+        .watchlist-bar { display: flex; align-items: center; gap: 8px; }
+        .watchlist-bar label { color: #8b949e; font-size: 12px; }
+        .watchlist-edit { display: flex; gap: 8px; margin-left: 12px; }
+        .watchlist-edit input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 10px; border-radius: 4px; width: 100px; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -79,6 +59,17 @@
     </div>
     
     <div class="toolbar">
+        <div class="watchlist-bar">
+            <label>Watchlist:</label>
+            <select id="watchlistSelect" class="watchlist-select" onchange="loadFromWatchlist()">
+                <option value="">-- Select --</option>
+            </select>
+            <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 12px;">✕</button>
+        </div>
+        <div class="watchlist-edit">
+            <input type="text" id="newTicker" placeholder="Add ticker" class="search">
+            <button class="btn" onclick="addToWatchlist()" style="padding: 6px 12px;">+</button>
+        </div>
         <input type="text" class="search" id="ticker" placeholder="SPY" value="SPY">
         <button class="btn" onclick="fetchExpirations()">Load</button>
         <select id="expirySelect" onchange="loadOptions()"></select>
@@ -88,6 +79,7 @@
         <div class="info-bar">
             <div class="ticker" id="qtTicker">SPY</div>
             <div class="spot" id="qtSpot">Spot: --</div>
+            <div class="last-trade" id="qtLast" style="font-size:14px;color:#8b949e;">--</div>
             <div>
                 <label style="color:#8b949e;font-size:12px;">View:</label>
                 <select id="viewMode" onchange="renderChain()">
@@ -105,10 +97,58 @@
     <script>
         let optionsData = null;
         let spotPrice = 0;
+        let watchlist = JSON.parse(localStorage.getItem('omonWatchlist')) || ['SPY', 'QQQ', 'IWM', 'TLT'];
+        
+        function saveWatchlist() {
+            localStorage.setItem('omonWatchlist', JSON.stringify(watchlist));
+            renderWatchlist();
+        }
+        
+        function renderWatchlist() {
+            const select = document.getElementById('watchlistSelect');
+            const current = document.getElementById('ticker').value.toUpperCase().trim();
+            select.innerHTML = '<option value="">-- Select --</option>';
+            watchlist.forEach(ticker => {
+                const opt = document.createElement('option');
+                opt.value = ticker;
+                opt.textContent = ticker;
+                if (ticker === current) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+        
+        function loadFromWatchlist() {
+            const ticker = document.getElementById('watchlistSelect').value;
+            if (ticker) {
+                document.getElementById('ticker').value = ticker;
+                fetchExpirations();
+            }
+        }
+        
+        function addToWatchlist() {
+            const ticker = document.getElementById('newTicker').value.toUpperCase().trim();
+            if (ticker && !watchlist.includes(ticker)) {
+                watchlist.push(ticker);
+                saveWatchlist();
+            }
+            document.getElementById('newTicker').value = '';
+        }
+        
+        function removeFromWatchlist() {
+            const ticker = document.getElementById('watchlistSelect').value;
+            if (ticker) {
+                const idx = watchlist.indexOf(ticker);
+                if (idx > -1) {
+                    watchlist.splice(idx, 1);
+                    saveWatchlist();
+                }
+            }
+        }
         
         async function fetchExpirations() {
             const ticker = document.getElementById('ticker').value.toUpperCase().trim();
             if (!ticker) return;
+            renderWatchlist();
             
             try {
                 const res = await fetch(`http://localhost:9090/api/expirations?ticker=${ticker}`);
@@ -130,20 +170,20 @@
                     divider.textContent = "──────────";
                     select.appendChild(divider);
                 }
-
+                
                 data.expirations.forEach(e => {
                     const opt = document.createElement('option');
                     opt.value = e;
                     opt.textContent = e;
                     select.appendChild(opt);
                 });
-
+                
                 loadOptions();
             } catch (e) {
                 console.error(e);
             }
         }
-
+        
         async function loadOptions() {
             const ticker = document.getElementById('ticker').value.toUpperCase().trim();
             const expiry = document.getElementById('expirySelect').value;
@@ -159,6 +199,15 @@
                 
                 document.getElementById('qtTicker').textContent = ticker;
                 document.getElementById('qtSpot').textContent = 'Spot: $' + spotPrice.toFixed(2);
+                
+                const quoteRes = await fetch(`http://localhost:9090/api/quotes?tickers=${ticker}`);
+                const quoteData = await quoteRes.json();
+                const quote = quoteData[ticker];
+                if (quote) {
+                    const changeSign = quote.change >= 0 ? '+' : '';
+                    document.getElementById('qtLast').textContent = 
+                        `Last: $${quote.price.toFixed(2)} (${changeSign}${quote.change.toFixed(2)} / ${changeSign}${quote.change_pct.toFixed(2)}%)`;
+                }
                 
                 renderChain();
             } catch (e) {
@@ -188,6 +237,9 @@
             calls.forEach(c => callMap[c.strike] = c);
             const putMap = {};
             puts.forEach(p => putMap[p.strike] = p);
+            
+            function fmtNum(n) { return n ? n.toLocaleString() : '-'; }
+            function fmtPct(n) { return n ? (n*100).toFixed(1) + '%' : '-'; }
             
             let html = `
                 <table class="chain-table">
@@ -247,22 +299,7 @@
             document.getElementById('chainContainer').innerHTML = html;
         }
         
-        function fmtNum(n) {
-            if (n == null || isNaN(n)) return '-';
-            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-            return n;
-        }
-        
-        function fmtPct(n) {
-            if (n == null || isNaN(n)) return '-';
-            return (n * 100).toFixed(1) + '%';
-        }
-        
-        document.getElementById('ticker').addEventListener('keypress', e => {
-            if (e.key === 'Enter') fetchExpirations();
-        });
-
+        renderWatchlist();
         fetchExpirations();
     </script>
 </body>

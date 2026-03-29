@@ -14,9 +14,12 @@ import sys
 
 # Add current dir to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import config
+import config
 from indicators import calculate_rsi, calculate_macd, calculate_bollinger_bands
 
-def find_free_port(start=9090, max_attempts=10):
+def find_free_port(start=config.DEFAULT_PORT, max_attempts=10):
     for port in range(start, start + max_attempts):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -90,7 +93,29 @@ class Handler(SimpleHTTPRequestHandler):
                         all_hits.append(row)
             return self.send_json({'ticker': ticker, 'results': all_hits})
         
+        if path == '/api/chart':
+            return self.send_json(self.get_chart_data(qs.get('ticker', ['SPY'])[0], qs.get('tf', ['1Y'])[0]))
+        
         return SimpleHTTPRequestHandler.do_GET(self)
+
+    def get_chart_data(self, ticker, tf):
+        period = config.TIMEFRAME_MAP.get(tf, '1y')
+        
+        try:
+            data = yf.Ticker(ticker).history(period=period)
+            if data.empty:
+                return {'labels': [], 'prices': [], 'volumes': [], 'error': 'No data'}
+            
+            return {
+                'labels': [x.strftime('%Y-%m-%d %H:%M') for x in data.index],
+                'prices': data['Close'].tolist(),
+                'volumes': data['Volume'].tolist(),
+                'high': data['High'].tolist(),
+                'low': data['Low'].tolist(),
+                'open': data['Open'].tolist()
+            }
+        except Exception as e:
+            return {'labels': [], 'prices': [], 'error': f"Failed to fetch {ticker}: {str(e)}"}
 
     def get_ratio_data(self, t1, t2, tf, sma_period):
         # Increased fetch period to 3 years to ensure 200 SMA is stable at the start of a 1Y or 2Y view
@@ -144,16 +169,20 @@ class Handler(SimpleHTTPRequestHandler):
             't2_name': t2
         }
     
-    def send_json(self, data):
-        self.send_response(200)
+    def send_json(self, data, error=None):
+        if error:
+            self.send_response(500)
+            data = {'error': str(error)}
+        else:
+            self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(clean_dict(data)).encode())
 
-def run(port=9090):
+def run(port=config.DEFAULT_PORT):
     os.chdir(os.path.dirname(os.path.abspath(__file__)) or '.')
-    server = HTTPServer(('', port), Handler)
+    server = HTTPServer((config.HOST, port), Handler)
     print(f'Alpha Terminal: http://localhost:{port}')
     server.serve_forever()
 

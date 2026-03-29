@@ -12,15 +12,15 @@
 - [ ] Test pre-market report workflow
 
 ### project_alpha (Terminal)
-- [ ] Sprint 1: Simplified Bloomberg Terminal (KAN-19→KAN-22) — Done ✅
-- [ ] Sprint 2: Option Monitor (KAN-23→KAN-26) — Done ✅
-### project_alpha (Ratios)
-- [ ] Sprint 3: Ratio Analysis (KAN-27→KAN-30) — In Progress (2/4 done)
+- [x] Sprint 3: Ratio Analysis (KAN-27→KAN-30) — Done ✅
+- [x] KAN-32: Ratio Watchlist Management — Done ✅
+- [x] KAN-31: Tidy up and refactor Alpha Terminal codebase — Done ✅
 
 ---
 
-## In Progress
+## ✅ Sprint 3 Complete (Mar 29, 2026)
 
+### Post-Release
 - [ ] Define entry zones / price targets for watchlist securities
 
 ---
@@ -59,7 +59,7 @@
 
 ## Notes
 
-- **Models:** MiniMax for complex (Strategist, Macro, Quant, Risk), Gemini Flash for simpler (Equity, FICC)
+- **Models:** All agents now using Gemini 3 Flash (per user request Mar 29, 2026)
 - **Time budget:** Max 1 hour/day
 - **Trading style:** Long-term, no day trading
 - **Discord:** Team actively responding to questions (tested with TLT/TLTW/TOTL)

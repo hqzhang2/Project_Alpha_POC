@@ -13,13 +13,12 @@
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
         
-        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 16px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
-        .filter-group { display: flex; align-items: center; gap: 8px; }
-        .filter-group label { font-size: 12px; color: #8b949e; text-transform: uppercase; }
-        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 100px; }
-        .filter-input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 8px; border-radius: 4px; width: 60px; font-size: 13px; }
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 80px; }
         .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .btn:hover { background: #2ea043; }
+        .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+        .btn-secondary:hover { background: #30363d; }
         
         .omain { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
         .chart-container { background: #161b22; border-radius: 8px; padding: 20px; height: 400px; }
@@ -28,6 +27,20 @@
         .chart-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
         .chart-tab { background: none; border: none; color: #8b949e; padding: 6px 12px; cursor: pointer; border-radius: 4px; }
         .chart-tab.active { background: #21262d; color: #e6edf3; }
+        
+        .watchlist-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; min-width: 180px; }
+        .watchlist-bar { display: flex; align-items: center; gap: 8px; }
+        .watchlist-bar label { color: #8b949e; font-size: 12px; }
+        .watchlist-edit { display: flex; gap: 8px; margin-left: 12px; }
+        .watchlist-edit input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 10px; border-radius: 4px; width: 80px; font-size: 13px; }
+        .filter-input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 8px; border-radius: 4px; width: 60px; font-size: 13px; }
+        
+        .data-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+        .data-card { background: #161b22; border-radius: 8px; padding: 16px; }
+        .data-card .label { font-size: 12px; color: #8b949e; text-transform: uppercase; }
+        .data-card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+        .data-card .value.up { color: #3fb950; }
+        .data-card .value.down { color: #f85149; }
     </style>
 </head>
 <body>
@@ -42,14 +55,28 @@
     </div>
     
     <div class="toolbar">
-        <div class="filter-group">
-            <label>Pair</label>
+        <div class="watchlist-bar">
+            <label>Watchlist:</label>
+            <select id="watchlistSelect" class="watchlist-select" onchange="loadFromWatchlist()">
+                <option value="">-- Select --</option>
+            </select>
+            <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 12px;">✕</button>
+        </div>
+        <div class="watchlist-edit">
+            <input type="text" id="newT1" placeholder="T1" class="search">
+            <span style="color:#8b949e;">/</span>
+            <input type="text" id="newT2" placeholder="T2" class="search">
+            <button class="btn" onclick="addToWatchlist()" style="padding: 6px 12px;">+</button>
+        </div>
+        
+        <div class="filter-group" style="margin-left: 12px;">
+            <label style="color:#8b949e;font-size:12px;">Pair:</label>
             <input type="text" class="search" id="t1" value="XLE">
             <span style="color:#8b949e;">/</span>
             <input type="text" class="search" id="t2" value="SPY">
         </div>
         <div class="filter-group">
-            <label>SMA</label>
+            <label style="color:#8b949e;font-size:12px;">SMA</label>
             <select id="smaInput" class="filter-input" onchange="fetchRatio()">
                 <option value="5">5</option>
                 <option value="10">10</option>
@@ -59,7 +86,7 @@
                 <option value="200" selected>200</option>
             </select>
         </div>
-        <button class="btn" onclick="fetchRatio()">Analyze Ratio</button>
+        <button class="btn" onclick="fetchRatio()">Analyze</button>
         
         <div class="chart-tabs" style="margin-bottom:0; margin-left: auto;">
             <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
@@ -72,6 +99,25 @@
     </div>
     
     <div class="omain">
+        <div class="data-cards" id="dataCards">
+            <div class="data-card">
+                <div class="label">Current Ratio</div>
+                <div class="value" id="currentRatio">--</div>
+            </div>
+            <div class="data-card">
+                <div class="label">Change %</div>
+                <div class="value" id="changePct">--</div>
+            </div>
+            <div class="data-card">
+                <div class="label">SMA(200)</div>
+                <div class="value" id="smaValue">--</div>
+            </div>
+            <div class="data-card">
+                <div class="label">Signal</div>
+                <div class="value" id="signalValue">--</div>
+            </div>
+        </div>
+        
         <div class="chart-container">
             <canvas id="ratioChart"></canvas>
         </div>
@@ -89,18 +135,64 @@
         let rsiChart = null;
         let macdChart = null;
         let timeframe = '1Y';
+        let watchlist = JSON.parse(localStorage.getItem('ratioWatchlist')) || [
+            {t1: 'XLE', t2: 'SPY'},
+            {t1: 'TLT', t2: 'SPY'},
+            {t1: 'GLD', t2: 'SPY'}
+        ];
 
-        async function fetchRatio() {
-            const t1 = document.getElementById('t1').value.toUpperCase();
-            const t2 = document.getElementById('t2').value.toUpperCase();
-            const sma = document.getElementById('smaInput').value;
+        function saveWatchlist() {
+            localStorage.setItem('ratioWatchlist', JSON.stringify(watchlist));
+            renderWatchlist();
+        }
+
+        function renderWatchlist() {
+            const select = document.getElementById('watchlistSelect');
+            const currentT1 = document.getElementById('t1').value.toUpperCase().trim();
+            const currentT2 = document.getElementById('t2').value.toUpperCase().trim();
+            const currentPair = `${currentT1}/${currentT2}`;
             
-            try {
-                const res = await fetch(`http://localhost:9090/api/ratio?t1=${t1}&t2=${t2}&tf=${timeframe}&sma=${sma}`);
-                const data = await res.json();
-                renderCharts(data);
-            } catch (e) {
-                console.error(e);
+            select.innerHTML = '<option value="">-- Select --</option>';
+            watchlist.forEach(item => {
+                const pair = `${item.t1}/${item.t2}`;
+                const opt = document.createElement('option');
+                opt.value = pair;
+                opt.textContent = pair;
+                if (pair === currentPair) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        function addToWatchlist() {
+            const t1 = document.getElementById('newT1').value.toUpperCase();
+            const t2 = document.getElementById('newT2').value.toUpperCase();
+            if (t1 && t2 && !watchlist.some(w => w.t1 === t1 && w.t2 === t2)) {
+                watchlist.push({t1, t2});
+                saveWatchlist();
+            }
+            document.getElementById('newT1').value = '';
+            document.getElementById('newT2').value = '';
+        }
+
+        function removeFromWatchlist() {
+            const pair = document.getElementById('watchlistSelect').value;
+            if (pair) {
+                const [t1, t2] = pair.split('/');
+                const idx = watchlist.findIndex(w => w.t1 === t1 && w.t2 === t2);
+                if (idx > -1) {
+                    watchlist.splice(idx, 1);
+                    saveWatchlist();
+                }
+            }
+        }
+
+        function loadFromWatchlist() {
+            const pair = document.getElementById('watchlistSelect').value;
+            if (pair) {
+                const [t1, t2] = pair.split('/');
+                document.getElementById('t1').value = t1;
+                document.getElementById('t2').value = t2;
+                fetchRatio();
             }
         }
 
@@ -111,63 +203,87 @@
             fetchRatio();
         }
 
-        function renderCharts(data) {
-            if (ratioChart) ratioChart.destroy();
-            if (rsiChart) rsiChart.destroy();
-            if (macdChart) macdChart.destroy();
-
-            const commonOptions = {
-                responsive: true, maintainAspectRatio: false,
-                scales: { 
-                    y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }, 
-                    x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' }, display: false } 
-                },
-                plugins: { legend: { labels: { color: '#e6edf3' } } }
-            };
-
-            const ctx1 = document.getElementById('ratioChart').getContext('2d');
-            ratioChart = new Chart(ctx1, {
-                type: 'line',
-                data: {
-                    labels: data.labels,
-                    datasets: [
-                        { label: 'Ratio', data: data.ratio, borderColor: '#58a6ff', tension: 0.1, pointRadius: 0 },
-                        { label: `${document.getElementById('smaInput').value} SMA`, data: data.sma, borderColor: '#f85149', borderDash: [5, 5], tension: 0.1, pointRadius: 0 },
-                        { label: 'Upper BB', data: data.upper, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0, fill: false },
-                        { label: 'Lower BB', data: data.lower, borderColor: 'rgba(139, 148, 158, 0.3)', pointRadius: 0, fill: false }
-                    ]
-                },
-                options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: `${data.t1_name} / ${data.t2_name} Ratio`, color: '#e6edf3' } } }
-            });
-
-            const ctx2 = document.getElementById('rsiChart').getContext('2d');
-            rsiChart = new Chart(ctx2, {
-                type: 'line',
-                data: {
-                    labels: data.labels,
-                    datasets: [{ label: 'RSI (14)', data: data.rsi, borderColor: '#d29922', tension: 0.1, pointRadius: 0 }]
-                },
-                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, min: 0, max: 100 } } }
-            });
-
-            const ctx3 = document.getElementById('macdChart').getContext('2d');
-            macdChart = new Chart(ctx3, {
-                type: 'line',
-                data: {
-                    labels: data.labels,
-                    datasets: [
-                        { label: 'MACD', data: data.macd, borderColor: '#58a6ff', pointRadius: 0, tension: 0.1 },
-                        { label: 'Signal', data: data.macd_signal, borderColor: '#f85149', pointRadius: 0, tension: 0.1 },
-                        { label: 'Hist', data: data.macd_hist, type: 'bar', backgroundColor: (ctx) => {
-                            const val = ctx.raw;
-                            return val >= 0 ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)';
-                        }}
-                    ]
-                },
-                options: { ...commonOptions, scales: { ...commonOptions.scales, x: { ...commonOptions.scales.x, display: true } } }
-            });
+        async function fetchRatio() {
+            const t1 = document.getElementById('t1').value.toUpperCase();
+            const t2 = document.getElementById('t2').value.toUpperCase();
+            const sma = document.getElementById('smaInput').value;
+            
+            renderWatchlist();
+            
+            try {
+                const res = await fetch(`http://localhost:9090/api/ratio?t1=${t1}&t2=${t2}&tf=${timeframe}&sma=${sma}`);
+                const data = await res.json();
+                
+                if (data.ratio && data.ratio.length > 0) {
+                    const curr = data.ratio[data.ratio.length - 1];
+                    const prev = data.ratio[0];
+                    const change = ((curr - prev) / prev * 100).toFixed(2);
+                    
+                    document.getElementById('currentRatio').textContent = curr.toFixed(4);
+                    document.getElementById('changePct').textContent = (change > 0 ? '+' : '') + change + '%';
+                    document.getElementById('changePct').className = 'value ' + (change >= 0 ? 'up' : 'down');
+                    
+                    const smaVal = data.sma[data.sma.length - 1];
+                    document.getElementById('smaValue').textContent = smaVal ? smaVal.toFixed(4) : '--';
+                    document.getElementById('smaValue').className = 'value ' + (curr > smaVal ? 'up' : 'down');
+                    
+                    const rsi = data.rsi[data.rsi.length - 1];
+                    const signal = rsi < 30 ? 'OVERSOLD' : rsi > 70 ? 'OVERBOUGHT' : 'NEUTRAL';
+                    document.getElementById('signalValue').textContent = signal;
+                    document.getElementById('signalValue').className = 'value ' + (signal === 'OVERSOLD' ? 'up' : signal === 'OVERBOUGHT' ? 'down' : '');
+                }
+                
+                const ctxR = document.getElementById('ratioChart').getContext('2d');
+                const ctxRSI = document.getElementById('rsiChart').getContext('2d');
+                const ctxMACD = document.getElementById('macdChart').getContext('2d');
+                
+                if (ratioChart) ratioChart.destroy();
+                if (rsiChart) rsiChart.destroy();
+                if (macdChart) macdChart.destroy();
+                
+                ratioChart = new Chart(ctxR, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels,
+                        datasets: [
+                            { label: `${t1}/${t2}`, data: data.ratio, borderColor: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.1)', fill: true },
+                            { label: 'SMA(' + sma + ')', data: data.sma, borderColor: '#f0883e', borderDash: [5, 5], pointRadius: 0 },
+                            { label: 'BB Upper', data: data.upper, borderColor: 'rgba(139, 148, 158, 0.3)', borderDash: [2, 2], pointRadius: 0 },
+                            { label: 'BB Lower', data: data.lower, borderColor: 'rgba(139, 148, 158, 0.3)', borderDash: [2, 2], pointRadius: 0 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8b949e' } }, title: { display: true, text: `${t1}/${t2} Ratio Analysis`, color: '#e6edf3' } } }
+                });
+                
+                rsiChart = new Chart(ctxRSI, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{ label: 'RSI(14)', data: data.rsi, borderColor: '#a371f7', backgroundColor: 'rgba(163, 113, 247, 0.1)', fill: true }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8b949e' } }, title: { display: true, text: 'RSI (14)', color: '#e6edf3' } }, scales: { y: { min: 0, max: 100 } } }
+                });
+                
+                macdChart = new Chart(ctxMACD, {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels,
+                        datasets: [
+                            { label: 'MACD', data: data.macd, borderColor: '#58a6ff' },
+                            { label: 'Signal', data: data.macd_signal, borderColor: '#f0883e' },
+                            { label: 'Histogram', data: data.macd_hist, backgroundColor: data.macd_hist.map(v => v >= 0 ? '#3fb950' : '#f85149') }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8b949e' } }, title: { display: true, text: 'MACD (12, 26, 9)', color: '#e6edf3' } } }
+                });
+                
+            } catch (e) {
+                console.error(e);
+                alert('Error loading ratio data');
+            }
         }
-
+        
+        renderWatchlist();
         fetchRatio();
     </script>
 </body>
