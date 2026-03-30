@@ -67,10 +67,14 @@
 
 ## 🚧 Sprint 4: Financial Analyzer (Mar 29, 2026)
 
-### Tasks
+### Completed
+- [x] KAN-34: Graham Metrics Scoring (Intelligent Investor)
+- [x] KAN-35: Add More Tickers (AAPL, TSLA, MSFT, GOOGL, AMZN, NVDA)
+
+### In Progress
 - [ ] KAN-33: SEC EDGAR Integration
-- [ ] KAN-34: Graham Metrics Scoring  
-- [ ] KAN-35: Add More Tickers
+
+### To Do
 - [ ] KAN-36: SEC First Run Caching
 
 ### Watchlist (Testing)

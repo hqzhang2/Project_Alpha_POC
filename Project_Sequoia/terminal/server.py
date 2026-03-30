@@ -31,10 +31,20 @@ def find_free_port(start=config.DEFAULT_PORT, max_attempts=10):
     return start
 
 def clean_value(v):
+    from decimal import Decimal
+    import numpy as np
     if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
         return None
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, (np.integer, np.floating)):
+        return v.item()
+    if isinstance(v, np.ndarray):
+        return v.tolist()
     if hasattr(v, 'isoformat'):
         return v.isoformat()
+    if hasattr(v, 'keys'):  # dict-like (including frozendict)
+        return clean_dict(dict(v))
     return v
 
 def clean_dict(d):
@@ -45,11 +55,22 @@ def clean_dict(d):
     return clean_value(d)
 
 class Handler(SimpleHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type')
+        self.end_headers()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
         
+        # Handle static files
+        if not path.startswith('/api/'):
+            return SimpleHTTPRequestHandler.do_GET(self)
+
         if path == '/api/ratio':
             t1 = qs.get('t1', ['XLE'])[0]
             t2 = qs.get('t2', ['SPY'])[0]
@@ -96,7 +117,122 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/chart':
             return self.send_json(self.get_chart_data(qs.get('ticker', ['SPY'])[0], qs.get('tf', ['1Y'])[0]))
         
-        return SimpleHTTPRequestHandler.do_GET(self)
+        if path == '/api/financials':
+            # Force fresh import
+            import importlib
+            import sys
+            if 'financials' in sys.modules:
+                del sys.modules['financials']
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("financials", os.path.dirname(os.path.abspath(__file__)) + "/financials.py")
+            financials = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(financials)
+            ticker = qs.get('ticker', ['SPY'])[0]
+            periods = int(qs.get('periods', [10])[0])
+            period_type = qs.get('type', ['Q'])[0]
+            return self.send_json(financials.get_financials(ticker, periods, period_type))
+        
+        if path.startswith('/api/sec/financials'):
+            # Use SEC EDGAR data - force fresh import to get latest fields
+            import importlib
+            import sys
+            if 'sec_financials' in sys.modules:
+                del sys.modules['sec_financials']
+            # Clear any cached module
+            for mod in list(sys.modules.keys()):
+                if 'sec_financials' in mod:
+                    del sys.modules[mod]
+            
+            # Get the directory where server.py is located
+            server_dir = os.path.dirname(os.path.realpath(__file__))
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "sec_financials", 
+                server_dir + "/sec_financials.py"
+            )
+            sec_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sec_mod)
+            
+            ticker = qs.get('ticker', ['SPY'])[0]
+            periods = int(qs.get('periods', [8])[0])
+            period_type = qs.get('type', ['Q'])[0]
+            
+            # Handle watchlist actions via this endpoint as well for convenience
+            action = qs.get('action', [None])[0]
+            if action == 'add':
+                sec_mod.add_to_watchlist(ticker)
+                return self.send_json({'status': 'added', 'ticker': ticker})
+            elif action == 'remove':
+                sec_mod.remove_from_watchlist(ticker)
+                return self.send_json({'status': 'removed', 'ticker': ticker})
+            elif action == 'watchlist':
+                return self.send_json(sec_mod.get_watchlist())
+            
+            # Fetch SEC data
+            sec_data = sec_mod.fetch_financials(ticker, periods, period_type)
+            
+            # If SEC data is missing fields, fill with Yahoo Finance
+            if 'income' in sec_data or 'balance' in sec_data:
+                import yfinance as yf
+                try:
+                    yt = yf.Ticker(ticker)
+                    
+                    # Fill missing balance sheet data
+                    if sec_data.get('balance'):
+                        bs = yt.balance_sheet.T.head(periods)
+                        for i in range(len(sec_data['balance'])):
+                            if i < len(bs):
+                                b_row = bs.iloc[i]
+                                # Map Yahoo columns to our schema (direct column access)
+                                fill_map = {
+                                    'term_debt': b_row.get('Long Term Debt'),
+                                    'short_term_debt': b_row.get('Current Debt'),
+                                    'ppe': b_row.get('Net PPE'),
+                                    'marketable_securities': b_row.get('Marketable Securities')
+                                }
+                                for scol, val in fill_map.items():
+                                    if (scol not in sec_data['balance'][i] or sec_data['balance'][i].get(scol) is None) and val is not None and not pd.isna(val):
+                                        sec_data['balance'][i][scol] = val
+                                        sec_data['balance'][i][scol + '_yahoo'] = True
+                    
+                    # Fill missing cashflow data
+                    if sec_data.get('cashflow'):
+                        cf = yt.cashflow.T.head(periods)
+                        for i in range(len(sec_data['cashflow'])):
+                            if i < len(cf):
+                                c_row = cf.iloc[i]
+                                fill_map = {
+                                    'operating_cf': c_row.get('Operating Cash Flow'),
+                                    'capex': c_row.get('Capital Expenditure'),
+                                    'free_cf': c_row.get('Free Cash Flow'),
+                                    'depreciation': c_row.get('Depreciation')
+                                }
+                                for scol, val in fill_map.items():
+                                    if (scol not in sec_data['cashflow'][i] or sec_data['cashflow'][i].get(scol) is None) and val is not None and not pd.isna(val):
+                                        sec_data['cashflow'][i][scol] = val
+                                        sec_data['cashflow'][i][scol + '_yahoo'] = True
+                except Exception as e:
+                    print(f"Yahoo fill error: {e}")
+            
+            return self.send_json(sec_data)
+        
+        if path == '/api/financials/refresh':
+            from financials import pull_financials
+            ticker = qs.get('ticker', ['SPY'])[0]
+            pull_financials(ticker)
+            return self.send_json({'status': 'ok', 'message': f'Pulled fresh data for {ticker}'})
+        
+        if path == '/api/financials/watchlist':
+            from financials import get_watchlist, add_to_watchlist, remove_from_watchlist
+            action = qs.get('action', ['list'])[0]
+            ticker = qs.get('ticker', [None])[0]
+            if action == 'add' and ticker:
+                add_to_watchlist(ticker)
+            elif action == 'remove' and ticker:
+                remove_from_watchlist(ticker)
+            return self.send_json(get_watchlist())
+        
+        self.send_error(404, "API not found")
 
     def get_chart_data(self, ticker, tf):
         period = config.TIMEFRAME_MAP.get(tf, '1y')
@@ -187,4 +323,5 @@ def run(port=config.DEFAULT_PORT):
     server.serve_forever()
 
 if __name__ == '__main__':
-    run()
+    port = 9098
+    run(port)

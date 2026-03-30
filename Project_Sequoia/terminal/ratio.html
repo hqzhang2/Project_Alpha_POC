@@ -9,6 +9,7 @@
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
         .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
         .header h1 { font-size: 20px; font-weight: 600; }
+        
         .nav { display: flex; gap: 16px; }
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
@@ -17,8 +18,10 @@
         .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 80px; }
         .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .btn:hover { background: #2ea043; }
-        .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+        .btn-secondary { background: #21262d; border: 1px solid #30363d; color: #e6edf3; }
         .btn-secondary:hover { background: #30363d; }
+        .btn-outline { background: transparent; border: 1px solid #30363d; color: #e6edf3; }
+        .btn-outline:hover { background: #21262d; }
         
         .omain { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
         .chart-container { background: #161b22; border-radius: 8px; padding: 20px; height: 400px; }
@@ -45,12 +48,16 @@
 </head>
 <body>
     <div class="header">
-        <h1>🛠️ Alpha Terminal</h1>
-        <div class="nav">
-            <a href="dashboard.html">Dashboard</a>
-            <a href="omon.html">OMON</a>
-            <a href="screener.html">Option Screener</a>
-            <a href="ratio.html" class="active">Ratio Analysis</a>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1>🛠️ Alpha Terminal</h1>
+            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+        </div>
+        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
+            <a href="dashboard.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Dashboard</a>
+            <a href="omon.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">OMON</a>
+            <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
+            <a href="ratio.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
+            <a href="financials.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
         </div>
     </div>
     
@@ -131,6 +138,15 @@
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            const timeEl = document.getElementById('time');
+            if (timeEl) timeEl.textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
         let ratioChart = null;
         let rsiChart = null;
         let macdChart = null;
@@ -148,8 +164,12 @@
 
         function renderWatchlist() {
             const select = document.getElementById('watchlistSelect');
-            const currentT1 = document.getElementById('t1').value.toUpperCase().trim();
-            const currentT2 = document.getElementById('t2').value.toUpperCase().trim();
+            const t1El = document.getElementById('t1');
+            const t2El = document.getElementById('t2');
+            if (!t1El || !t2El) return;
+            
+            const currentT1 = t1El.value.toUpperCase().trim();
+            const currentT2 = t2El.value.toUpperCase().trim();
             const currentPair = `${currentT1}/${currentT2}`;
             
             select.innerHTML = '<option value="">-- Select --</option>';
@@ -211,7 +231,7 @@
             renderWatchlist();
             
             try {
-                const res = await fetch(`http://localhost:9090/api/ratio?t1=${t1}&t2=${t2}&tf=${timeframe}&sma=${sma}`);
+                const res = await fetch(`http://localhost:9098/api/ratio?t1=${t1}&t2=${t2}&tf=${timeframe}&sma=${sma}`);
                 const data = await res.json();
                 
                 if (data.ratio && data.ratio.length > 0) {

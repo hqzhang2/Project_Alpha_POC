@@ -4,7 +4,7 @@ Alpha Terminal Configuration
 import os
 
 # Server config
-DEFAULT_PORT = 9090
+DEFAULT_PORT = 9098
 HOST = '0.0.0.0'
 
 # Yahoo Finance config

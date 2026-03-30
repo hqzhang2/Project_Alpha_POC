@@ -9,22 +9,26 @@
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
         .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
         .header h1 { font-size: 20px; font-weight: 600; }
+        
         .nav { display: flex; gap: 16px; }
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
         
         .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
         .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 100px; }
+        .select-input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; }
         .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .btn:hover { background: #2ea043; }
-        .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+        .btn-secondary { background: #21262d; border: 1px solid #30363d; color: #e6edf3; }
         .btn-secondary:hover { background: #30363d; }
+        .btn-outline { background: transparent; border: 1px solid #30363d; color: #e6edf3; }
+        .btn-outline:hover { background: #21262d; }
         
         .watchlist-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; min-width: 150px; }
         .watchlist-bar { display: flex; align-items: center; gap: 8px; }
         .watchlist-bar label { color: #8b949e; font-size: 12px; }
         .watchlist-edit { display: flex; gap: 8px; margin-left: 12px; }
-        .watchlist-edit input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 10px; border-radius: 4px; width: 100px; font-size: 13px; }
+        .watchlist-edit input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 10px; border-radius: 4px; width: 80px; font-size: 13px; }
         
         .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
         
@@ -32,59 +36,41 @@
         .tab { background: transparent; border: none; color: #8b949e; padding: 10px 20px; cursor: pointer; border-radius: 6px; font-size: 14px; }
         .tab.active { background: #238636; color: white; }
         
-        .period-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; margin-left: auto; }
-        .period-select label { color: #8b949e; font-size: 12px; margin-right: 8px; }
-        
-        .data-table-container { background: #161b22; border-radius: 8px; overflow-x: auto; }
+        .data-table-container { background: #161b22; border-radius: 8px; overflow-x: auto; border: 1px solid #30363d; }
         .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .data-table th { padding: 12px 8px; background: #21262d; color: #8b949e; text-align: left; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #30363d; position: sticky; top: 0; }
-        .data-table td { padding: 10px 8px; border-bottom: 1px solid #21262d; text-align: left; }
-        .data-table .num { text-align: left; font-family: 'Monaco', monospace; }
-        
-        /* Color coding */
-        .data-table .positive { color: #3fb950; }
+        .data-table th { padding: 12px 8px; background: #21262d; color: #8b949e; text-align: left; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #30363d; position: sticky; top: 0; white-space: nowrap; }
+        .data-table td { padding: 10px 8px; border-bottom: 1px solid #21262d; text-align: left; white-space: nowrap; }
+        .data-table .num { font-family: 'Monaco', monospace; }
+        .data-table td.yahoo-source { color: #f0883e; }
         .data-table .negative { color: #f85149; }
-        .data-table .neutral { color: #8b949e; }
         
-        /* Column headers color */
-        .data-table th.income-col { border-left: 3px solid #58a6ff; }
-        .data-table th.balance-col { border-left: 3px solid #a371f7; }
-        .data-table th.cashflow-col { border-left: 3px solid #f0883e; }
-        
-        .data-table td.income-col { border-left: 1px solid #30363d; }
-        .data-table td.balance-col { border-left: 1px solid #30363d; }
-        .data-table td.cashflow-col { border-left: 1px solid #30363d; }
-        
-        .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+        .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #30363d; }
         .info-bar .ticker { font-size: 24px; font-weight: 700; }
-        .info-bar .name { font-size: 14px; color: #8b949e; }
+        .info-bar .price.yahoo { font-size: 20px; font-weight: 700; color: #f0883e; margin-left: 8px; }
+        .info-bar .source { color: #8b949e; font-size: 12px; }
         
+        .valuation-card { background: #161b22; padding: 16px; border-radius: 8px; border: 1px solid #30363d; display: flex; gap: 24px; align-items: center; }
+        .valuation-score { font-size: 32px; font-weight: 700; color: #3fb950; }
+        .valuation-label { font-size: 14px; color: #8b949e; margin-bottom: 4px; }
+        .valuation-rating { font-size: 18px; font-weight: 600; }
+        .graham-num { font-family: 'Monaco', monospace; font-size: 20px; color: #e6edf3; }
+
         .loading { padding: 40px; text-align: center; color: #8b949e; }
-        
-        .kpi-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
-        .kpi-card { background: #161b22; border-radius: 8px; padding: 16px; }
-        .kpi-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; }
-        .kpi-card .value { font-size: 18px; font-weight: 600; margin-top: 4px; }
-        
-        .score-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 600; }
-        .score-badge.strong-buy { background: rgba(63, 185, 80, 0.2); color: #3fb950; }
-        .score-badge.buy { background: rgba(63, 185, 80, 0.15); color: #3fb950; }
-        .score-badge.hold { background: rgba(139, 148, 158, 0.15); color: #8b949e; }
-        .score-badge.speculative { background: rgba(210, 153, 34, 0.15); color: #d29934; }
-        .score-badge.avoid { background: rgba(248, 81, 73, 0.15); color: #f85149; }
-        
-        select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 6px; border-radius: 4px; }
+        .error { padding: 40px; text-align: center; color: #f85149; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🛠️ Alpha Terminal</h1>
-        <div class="nav">
-            <a href="dashboard.html">Dashboard</a>
-            <a href="omon.html">OMON</a>
-            <a href="screener.html">Option Screener</a>
-            <a href="ratio.html">Ratio Analysis</a>
-            <a href="financials.html" class="active">Financials</a>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1>🛠️ Alpha Terminal</h1>
+            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+        </div>
+        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
+            <a href="dashboard.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Dashboard</a>
+            <a href="omon.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">OMON</a>
+            <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
+            <a href="ratio.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
+            <a href="financials.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
         </div>
     </div>
     
@@ -100,31 +86,41 @@
             <input type="text" id="newTicker" placeholder="Add ticker" class="search">
             <button class="btn" onclick="addToWatchlist()" style="padding: 6px 12px;">+</button>
         </div>
-        
-        <input type="text" class="search" id="ticker" placeholder="SPY" value="AAPL">
+        <input type="text" class="search" id="ticker" value="AAPL" placeholder="Ticker">
+        <select class="select-input" id="periodType" onchange="loadFinancials()">
+            <option value="Q">Quarterly (Q)</option>
+            <option value="FY">Annual (FY)</option>
+        </select>
+        <select class="select-input" id="periods" onchange="loadFinancials()">
+            <option value="4">4 Periods</option>
+            <option value="8" selected>8 Periods</option>
+            <option value="12">12 Periods</option>
+            <option value="16">16 Periods</option>
+        </select>
         <button class="btn" onclick="loadFinancials()">Load</button>
-        
-        <div class="period-select">
-            <label>Period:</label>
-            <select id="periodSelect" onchange="loadFinancials()">
-                <option value="Q">Quarterly (4)</option>
-                <option value="Q" data-count="8">Quarterly (8)</option>
-                <option value="Q" data-count="10">Quarterly (10)</option>
-                <option value="FY">Annual (5)</option>
-            </select>
-        </div>
     </div>
     
     <div class="omain">
-        <div class="info-bar" id="infoBar">
+        <div class="info-bar">
             <div>
-                <div class="ticker" id="qtTicker">AAPL</div>
-                <div class="name" id="qtName">Apple Inc.</div>
+                <div class="ticker" id="qtTicker">AAPL <span id="qtPrice" class="price yahoo"></span></div>
+                <div class="source" id="qtSource">Source: SEC EDGAR (XBRL)</div>
             </div>
-            <div id="ratingBadge"></div>
+            <div class="valuation-card" id="valuationCard" style="display:none">
+                <div>
+                    <div class="valuation-label">Valuation Score</div>
+                    <div class="valuation-score" id="valScore">0</div>
+                </div>
+                <div>
+                    <div class="valuation-label">Graham Number</div>
+                    <div class="graham-num" id="grahamNum">$0.00</div>
+                </div>
+                <div>
+                    <div class="valuation-label">Intelligent Investor Rating</div>
+                    <div class="valuation-rating" id="valRating">N/A</div>
+                </div>
+            </div>
         </div>
-        
-        <div class="kpi-cards" id="kpiCards"></div>
         
         <div class="tabs">
             <button class="tab active" onclick="setTab('income')">Income Statement</button>
@@ -133,139 +129,149 @@
         </div>
         
         <div class="data-table-container" id="dataContainer">
-            <div class="loading">Enter ticker and click Load</div>
+            <div class="loading">Loading...</div>
         </div>
     </div>
     
     <script>
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            const timeEl = document.getElementById('time');
+            if (timeEl) timeEl.textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
         let financialsData = null;
         let currentTab = 'income';
-        let watchlist = [];
         
-        function renderWatchlist() {
-            const select = document.getElementById('watchlistSelect');
-            const current = document.getElementById('ticker').value.toUpperCase().trim();
-            select.innerHTML = '<option value="">-- Select --</option>';
-            watchlist.forEach(item => {
-                const opt = document.createElement('option');
-                opt.value = item.ticker;
-                opt.textContent = item.ticker;
-                if (item.ticker === current) opt.selected = true;
-                select.appendChild(opt);
-            });
-        }
-        
-        async function fetchWatchlist() {
+        async function loadFinancials(tickerOverride) {
+            const tickerInput = document.getElementById('ticker');
+            if (tickerOverride) tickerInput.value = tickerOverride;
+            
+            const ticker = tickerInput.value.toUpperCase().trim();
+            const type = document.getElementById('periodType').value;
+            const periods = document.getElementById('periods').value;
+            
+            if (!ticker) return;
+            
+            document.getElementById('dataContainer').innerHTML = '<div class="loading">Loading ' + ticker + '...</div>';
+            document.getElementById('qtTicker').innerHTML = ticker + ' <span id="qtPrice" class="price yahoo"></span>';
+            
+            // Fetch quote price in parallel
+            fetch(`http://localhost:9098/api/quotes?tickers=${ticker}`)
+                .then(r => r.json())
+                .then(q => {
+                    const quote = q[ticker];
+                    if (quote && quote.price) {
+                        const changeSign = quote.change >= 0 ? '+' : '';
+                        document.getElementById('qtPrice').textContent = `($${quote.price.toFixed(2)} ${changeSign}${quote.change.toFixed(2)} / ${changeSign}${quote.change_pct.toFixed(2)}%)`;
+                    }
+                })
+                .catch(() => {});
+            
             try {
-                const res = await fetch('http://localhost:9090/api/financials/watchlist?action=list');
-                watchlist = await res.json();
-                renderWatchlist();
-            } catch(e) { console.error(e); }
-        }
-        
-        async function addToWatchlist() {
-            const ticker = document.getElementById('newTicker').value.toUpperCase().trim();
-            if (ticker) {
-                await fetch(`http://localhost:9090/api/financials/watchlist?action=add&ticker=${ticker}`);
-                fetchWatchlist();
+                const url = `http://localhost:9098/api/sec/financials?ticker=${ticker}&periods=${periods}&type=${type}`;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                financialsData = await res.json();
+                
+                if (financialsData.error) {
+                    document.getElementById('dataContainer').innerHTML = '<div class="error">' + financialsData.error + '</div>';
+                    return;
+                }
+                
+                document.getElementById('qtSource').textContent = 'Source: ' + (financialsData.source || 'SEC EDGAR');
+                
+                // Render Valuation Metrics
+                if (financialsData.metrics) {
+                    document.getElementById('valuationCard').style.display = 'flex';
+                    document.getElementById('valScore').textContent = financialsData.metrics.valuation_score || 0;
+                    document.getElementById('valRating').textContent = financialsData.metrics.rating || 'N/A';
+                    document.getElementById('grahamNum').textContent = financialsData.metrics.graham_number ? '$' + financialsData.metrics.graham_number.toFixed(2) : 'N/A';
+                }
+
+                renderTable();
+            } catch(e) {
+                document.getElementById('dataContainer').innerHTML = '<div class="error">Error: ' + e.message + '</div>';
             }
-            document.getElementById('newTicker').value = '';
         }
-        
-        async function removeFromWatchlist() {
-            const ticker = document.getElementById('watchlistSelect').value;
-            if (ticker) {
-                await fetch(`http://localhost:9090/api/financials/watchlist?action=remove&ticker=${ticker}`);
-                fetchWatchlist();
-            }
-        }
-        
-        function loadFromWatchlist() {
+
+        async function loadFromWatchlist() {
             const ticker = document.getElementById('watchlistSelect').value;
             if (ticker) {
                 document.getElementById('ticker').value = ticker;
-                loadFinancials();
+                loadFinancials(ticker);
             }
+        }
+
+        async function addToWatchlist() {
+            const input = document.getElementById('newTicker');
+            const ticker = input.value.toUpperCase().trim();
+            if (!ticker) return;
+            await fetch(`http://localhost:9098/api/sec/financials?ticker=${ticker}&action=add`);
+            input.value = '';
+            loadWatchlist();
+        }
+
+        async function removeFromWatchlist() {
+            const ticker = document.getElementById('watchlistSelect').value;
+            if (ticker) {
+                await fetch(`http://localhost:9098/api/sec/financials?ticker=${ticker}&action=remove`);
+                loadWatchlist();
+            }
+        }
+
+        async function loadWatchlist() {
+            try {
+                const res = await fetch('http://localhost:9098/api/sec/financials?action=watchlist');
+                const list = await res.json();
+                
+                // Update dropdown
+                const select = document.getElementById('watchlistSelect');
+                const currentVal = select.value;
+                select.innerHTML = '<option value="">-- Select --</option>';
+                list.forEach(item => {
+                    const opt = document.createElement('option');
+                    opt.value = item.ticker;
+                    opt.textContent = item.ticker;
+                    select.appendChild(opt);
+                });
+                if (currentVal) select.value = currentVal;
+                
+            } catch(e) { console.error("Watchlist error", e); }
         }
         
         function setTab(tab) {
             currentTab = tab;
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
-            if (financialsData) renderTable();
+            renderTable();
         }
         
-        function fmtNum(n) {
+        function fmtNum(n, decimals = 2) {
             if (n === null || n === undefined || isNaN(n)) return '-';
-            if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(2) + 'B';
-            if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2) + 'M';
-            if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(2) + 'K';
-            return n.toFixed(2);
+            const abs = Math.abs(n);
+            if (abs >= 1e9) return (n/1e9).toFixed(decimals) + 'B';
+            if (abs >= 1e6) return (n/1e6).toFixed(decimals) + 'M';
+            if (abs >= 1e3) return (n/1e3).toFixed(decimals) + 'K';
+            return n.toFixed(decimals);
         }
         
-        function getColorClass(val, isPct=false) {
-            if (val === null || isNaN(val) || val === '-') return 'neutral';
-            if (val > 0) return 'positive';
-            if (val < 0) return 'negative';
-            return 'neutral';
+        function fmtShares(n) {
+            if (n === null || n === undefined || isNaN(n)) return '-';
+            return (n/1e9).toFixed(2) + 'B';
         }
         
-        async function loadFinancials() {
-            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
-            const periodSelect = document.getElementById('periodSelect');
-            const selectedOption = periodSelect.options[periodSelect.selectedIndex];
-            const periods = selectedOption.getAttribute('data-count') || 10;
-            const periodType = selectedOption.value;
-            if (!ticker) return;
-            
-            renderWatchlist();
-            document.getElementById('dataContainer').innerHTML = '<div class="loading">Loading...</div>';
-            
-            try {
-                const res = await fetch(`http://localhost:9090/api/financials?ticker=${ticker}&periods=${periods}&type=${periodType}`);
-                if (!res.ok) throw new Error('Failed to fetch');
-                financialsData = await res.json();
-                
-                document.getElementById('qtTicker').textContent = ticker;
-                document.getElementById('qtName').textContent = financialsData.info?.name || '--';
-                
-                renderKPIs();
-                renderTable();
-            } catch (e) {
-                console.error(e);
-                document.getElementById('dataContainer').innerHTML = '<div class="loading">Error: ' + e.message + '</div>';
-            }
+        function fmtEPS(n) {
+            if (n === null || n === undefined || isNaN(n)) return '-';
+            return '$' + n.toFixed(2);
         }
         
-        function renderKPIs() {
-            const m = financialsData.metrics || {};
-            const kpis = [
-                { label: 'Score', value: m.score || 0 },
-                { label: 'P/E', value: ((financialsData.info && financialsData.info.pe_ratio) ? financialsData.info.pe_ratio.toFixed(1) : (m.pe_ratio ? m.pe_ratio.toFixed(1) : '-')) },
-                { label: 'Net Margin', value: m.net_margin ? m.net_margin.toFixed(1) + '%' : '-' },
-                { label: 'Current Ratio', value: m.current_ratio ? m.current_ratio.toFixed(2) : '-' },
-                { label: 'EPS Growth', value: m.eps_growth ? m.eps_growth.toFixed(1) + '%' : '-' }
-            ];
-            
-            const kpiContainer = document.getElementById('kpiCards');
-            kpiContainer.innerHTML = kpis.map(k => `
-                <div class="kpi-card">
-                    <div class="label">${k.label}</div>
-                    <div class="value">${k.value}</div>
-                </div>
-            `).join('');
-            
-            // Rating badge
-            const badge = document.getElementById('ratingBadge');
-            let badgeClass = 'hold';
-            if (m.rating) {
-                if (m.rating.includes('Strong Buy')) badgeClass = 'strong-buy';
-                else if (m.rating.includes('Buy')) badgeClass = 'buy';
-                else if (m.rating.includes('Hold')) badgeClass = 'hold';
-                else if (m.rating.includes('Spec')) badgeClass = 'speculative';
-                else badgeClass = 'avoid';
-            }
-            badge.innerHTML = `<span class="score-badge ${badgeClass}">${m.rating || 'N/A'}</span>`;
+        function getColor(val) {
+            if (val === null || val === undefined || isNaN(val)) return '';
+            return val >= 0 ? 'positive' : 'negative';
         }
         
         function renderTable() {
@@ -277,53 +283,63 @@
                 return;
             }
             
-            let html = '<table class="data-table"><thead><tr>';
-            
-            // Column headers based on tab
             const headers = {
-                income: ['Period', 'Type', 'Revenue', 'Cost', 'Gross Profit', 'Op Income', 'Net Income', 'EPS', 'EBIT', 'EBITDA'],
-                balance: ['Period', 'Type', 'Total Assets', 'Current Assets', 'Cash', 'Liabilities', 'Current Liab', 'Debt', 'Equity'],
-                cashflow: ['Period', 'Type', 'Operating CF', 'Investing CF', 'Financing CF', 'Free CF', 'Capex', 'Dividends']
+                income: ['Period', 'Revenue', 'COGS', 'Gross', 'G%', 'R&D', 'SG&A', 'OpEx', 'Op Inc', 'Op%', 'Pre-Tax', 'Tax', 'Net Inc', 'N%', 'EPS', 'Shares', 'SBC'],
+                balance: ['Period', 'Assets', 'Cash', 'Mkt Sec', 'AR', 'Inv', 'PPE', 'Curr Liab', 'AP', 'ST Debt', 'LT Debt', 'Equity', 'D/E', 'C/R'],
+                cashflow: ['Period', 'OpCF', 'InvCF', 'FinCF', 'FCF', 'FCF%', 'Capex', 'D&A', 'SBC', 'Div', 'Buyback', 'Tax']
             };
             
-            const colClass = currentTab === 'income' ? 'income-col' : currentTab === 'balance' ? 'balance-col' : 'cashflow-col';
-            
-            headers[currentTab].forEach((h, i) => {
-                html += `<th class="${i === 0 ? '' : colClass}">${h}</th>`;
-            });
+            let html = '<table class="data-table"><thead><tr>';
+            headers[currentTab].forEach(h => html += '<th>' + h + '</th>');
             html += '</tr></thead><tbody>';
             
-            data.forEach((row, idx) => {
-                const isQ = row.type === 'Q';
-                html += `<tr><td>${row.period}</td><td>${row.type}</td>`;
+            data.forEach(row => {
+                html += '<tr><td>' + row.period + ' (' + row.type + ')</td>';
                 
                 if (currentTab === 'income') {
-                    const revGrowth = idx < data.length - 1 ? ((row.revenue - data[idx+1].revenue)/data[idx+1].revenue*100) : null;
-                    html += `<td class="num ${getColorClass(revGrowth, true)}">${fmtNum(row.revenue)}${revGrowth !== null ? ' <small>(' + (revGrowth>0?'+':'') + revGrowth.toFixed(1) + '%)</small>' : ''}</td>`;
-                    html += `<td class="num">${fmtNum((row.revenue && row.gross_profit ? row.revenue - row.gross_profit : null))}</td>`;
-                    html += `<td class="num ${getColorClass(row.gross_profit)}">${fmtNum(row.gross_profit)}</td>`;
-                    html += `<td class="num ${getColorClass(row.operating_income)}">${fmtNum(row.operating_income)}</td>`;
-                    html += `<td class="num ${getColorClass(row.net_income)}">${fmtNum(row.net_income)}</td>`;
-                    html += `<td class="num ${getColorClass(row.eps)}">${fmtNum(row.eps)}</td>`;
-                    html += `<td class="num ${getColorClass(row.ebit)}">${fmtNum(row.ebit)}</td>`;
-                    html += `<td class="num ${getColorClass(row.ebitda)}">${fmtNum(row.ebitda)}</td>`;
+                    html += '<td class="num">' + fmtNum(row.revenue) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.cost_of_revenue) + '</td>';
+                    html += '<td class="num ' + getColor(row.gross_profit) + '">' + fmtNum(row.gross_profit) + '</td>';
+                    html += '<td class="num">' + (row.gross_margin_pct || '-') + '%</td>';
+                    html += '<td class="num">' + fmtNum(row.rd_expense) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.sga_expense) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.operating_expenses) + '</td>';
+                    html += '<td class="num ' + getColor(row.operating_income) + '">' + fmtNum(row.operating_income) + '</td>';
+                    html += '<td class="num">' + (row.operating_margin_pct || '-') + '%</td>';
+                    html += '<td class="num">' + fmtNum(row.income_before_tax) + '</td>';
+                    html += '<td class="num negative">' + fmtNum(row.provision_for_tax) + '</td>';
+                    html += '<td class="num ' + getColor(row.net_income) + '">' + fmtNum(row.net_income) + '</td>';
+                    html += '<td class="num">' + (row.net_margin_pct || '-') + '%</td>';
+                    html += '<td class="num">' + fmtEPS(row.eps_diluted) + '</td>';
+                    html += '<td class="num">' + fmtShares(row.diluted_shares) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.stock_comp) + '</td>';
                 } else if (currentTab === 'balance') {
-                    html += `<td class="num">${fmtNum(row.total_assets)}</td>`;
-                    html += `<td class="num">${fmtNum(row.current_assets)}</td>`;
-                    html += `<td class="num">${fmtNum(row.cash)}</td>`;
-                    html += `<td class="num">${fmtNum(row.total_liabilities)}</td>`;
-                    html += `<td class="num">${fmtNum(row.current_liabilities)}</td>`;
-                    html += `<td class="num">${fmtNum(row.debt)}</td>`;
-                    html += `<td class="num">${fmtNum(row.equity)}</td>`;
+                    html += '<td class="num">' + fmtNum(row.total_assets) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.cash) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.marketable_securities) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.accounts_receivable) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.inventory) + '</td>';
+                    html += '<td class="num' + (row.ppe_yahoo ? ' yahoo-source' : '') + '">' + fmtNum(row.ppe) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.current_liabilities) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.accounts_payable) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.short_term_debt) + '</td>';
+                    html += '<td class="num' + (row.term_debt_yahoo ? ' yahoo-source' : '') + '">' + fmtNum(row.term_debt) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.total_equity) + '</td>';
+                    html += '<td class="num">' + (row.debt_to_equity || '-') + '</td>';
+                    html += '<td class="num">' + (row.current_ratio || '-') + '</td>';
                 } else {
-                    html += `<td class="num ${getColorClass(row.operating_cf)}">${fmtNum(row.operating_cf)}</td>`;
-                    html += `<td class="num ${getColorClass(row.investing_cf)}">${fmtNum(row.investing_cf)}</td>`;
-                    html += `<td class="num ${getColorClass(row.financing_cf)}">${fmtNum(row.financing_cf)}</td>`;
-                    html += `<td class="num ${getColorClass(row.free_cf)}">${fmtNum(row.free_cf)}</td>`;
-                    html += `<td class="num ${getColorClass(row.capex)}">${fmtNum(row.capex)}</td>`;
-                    html += `<td class="num ${getColorClass(row.dividends)}">${fmtNum(row.dividends)}</td>`;
+                    html += '<td class="num ' + getColor(row.operating_cf) + (row.operating_cf_yahoo ? ' yahoo-source' : '') + '">' + fmtNum(row.operating_cf) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.investing_cf) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.financing_cf) + '</td>';
+                    html += '<td class="num ' + getColor(row.free_cf) + (row.free_cf_yahoo ? ' yahoo-source' : '') + '">' + fmtNum(row.free_cf) + '</td>';
+                    html += '<td class="num">' + (row.fcf_to_ocf || '-') + '%</td>';
+                    html += '<td class="num negative' + (row.capex_yahoo ? ' yahoo-source' : '') + '">' + fmtNum(row.capex) + '</td>';
+                    html += '<td class="num' + (row.depreciation_yahoo ? ' yahoo-source' : '') + '">' + fmtNum(row.depreciation) + '</td>';
+                    html += '<td class="num">' + fmtNum(row.stock_compensation) + '</td>';
+                    html += '<td class="num negative">' + fmtNum(row.dividends) + '</td>';
+                    html += '<td class="num negative">' + fmtNum(row.share_repurchases) + '</td>';
+                    html += '<td class="num negative">' + fmtNum(row.taxes_paid) + '</td>';
                 }
-                
                 html += '</tr>';
             });
             
@@ -331,8 +347,8 @@
             container.innerHTML = html;
         }
         
-        fetchWatchlist();
         loadFinancials();
+        loadWatchlist();
     </script>
 </body>
 </html>

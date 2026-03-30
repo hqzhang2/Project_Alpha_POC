@@ -1,5 +1,0 @@
-/Users/chuck/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
-  warnings.warn(
-127.0.0.1 - - [28/Mar/2026 22:35:50] "GET /ratio.html HTTP/1.1" 200 -
-127.0.0.1 - - [28/Mar/2026 22:36:00] "GET /ratio.html HTTP/1.1" 200 -
-127.0.0.1 - - [28/Mar/2026 22:36:00] "GET /api/ratio?t1=XLE&t2=SPY&tf=1Y&sma=200 HTTP/1.1" 200 -

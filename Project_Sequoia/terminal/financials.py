@@ -38,13 +38,15 @@ def get_financials(ticker, max_periods=10, period_type='Q'):
                 'period': period,
                 'type': ptype,
                 'revenue': to_float(row.get('Total Revenue')),
+                'cost_of_revenue': to_float(row.get('Cost Of Revenue')),
                 'gross_profit': to_float(row.get('Gross Profit')),
                 'operating_income': to_float(row.get('Operating Income')),
+                'operating_expenses': to_float(row.get('Operating Expenses')),
                 'net_income': to_float(row.get('Net Income')),
+                'gaap_net_income': to_float(row.get('Net Income')),  # Use Net Income as GAAP
                 'eps': to_float(row.get('Diluted EPS') or row.get('Basic EPS')),
                 'ebit': to_float(row.get('EBIT')),
-                'ebitda': to_float(row.get('EBITDA')),
-                'cost_of_revenue': to_float(row.get('Cost Of Revenue'))
+                'ebitda': to_float(row.get('EBITDA'))
             })
     
     # Process balance
@@ -62,10 +64,21 @@ def get_financials(ticker, max_periods=10, period_type='Q'):
                 'total_assets': to_float(row.get('Total Assets')),
                 'current_assets': to_float(row.get('Current Assets')),
                 'cash': to_float(row.get('Cash And Cash Equivalents')),
+                'short_term_investments': to_float(row.get('Short-Term Investments')),
+                'inventory': to_float(row.get('Inventory')),
+                'net_receivables': to_float(row.get('Net Receivables')),
                 'total_liabilities': to_float(row.get('Total Liabilities')),
                 'current_liabilities': to_float(row.get('Current Liabilities')),
-                'debt': to_float(row.get('Long Term Debt')),
-                'equity': to_float(row.get('Total Stockholder Equity'))
+                'payable': to_float(row.get('Payable')),
+                'short_term_debt': to_float(row.get('Short-Term Debt')),
+                'long_term_debt': to_float(row.get('Long-Term Debt')),
+                'total_equity': to_float(row.get('Total Stockholder Equity')),
+                'common_stock': to_float(row.get('Common Stock')),
+                'additional_paid_in_capital': to_float(row.get('Additional Paid-In Capital')),
+                'treasury_stock': to_float(row.get('Treasury Stock')),
+                'retained_earnings': to_float(row.get('Retained Earnings')),
+                'accumulated_other_comprehensive': to_float(row.get('Accumulated Other Comprehensive Income')),
+                'book_value': to_float(row.get('Tangible Book Value'))
             })
     
     # Process cashflow
@@ -85,7 +98,7 @@ def get_financials(ticker, max_periods=10, period_type='Q'):
                 'financing_cf': to_float(row.get('Financing Cash Flow')),
                 'free_cf': to_float(row.get('Free Cash Flow')),
                 'capex': to_float(row.get('Capital Expenditure')),
-                'dividends': to_float(row.get('Dividends Paid'))
+                'dividends': to_float(row.get('Stock Dividend Paid'))
             })
     
     # Stock info

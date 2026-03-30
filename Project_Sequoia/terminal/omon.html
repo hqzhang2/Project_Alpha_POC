@@ -17,7 +17,7 @@
         .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 120px; }
         .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .btn:hover { background: #2ea043; }
-        .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+        .btn-secondary { background: #21262d; border: 1px solid #30363d; color: #e6edf3; }
         .btn-secondary:hover { background: #30363d; }
         
         .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
@@ -49,12 +49,16 @@
 </head>
 <body>
     <div class="header">
-        <h1>🛠️ Alpha Terminal</h1>
-        <div class="nav">
-            <a href="dashboard.html">Dashboard</a>
-            <a href="omon.html" class="active">OMON</a>
-            <a href="screener.html">Option Screener</a>
-            <a href="ratio.html">Ratio Analysis</a>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1>🛠️ Alpha Terminal</h1>
+            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+        </div>
+        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
+            <a href="dashboard.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Dashboard</a>
+            <a href="omon.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">OMON</a>
+            <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
+            <a href="ratio.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
+            <a href="financials.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
         </div>
     </div>
     
@@ -80,6 +84,7 @@
             <div class="ticker" id="qtTicker">SPY</div>
             <div class="spot" id="qtSpot">Spot: --</div>
             <div class="last-trade" id="qtLast" style="font-size:14px;color:#8b949e;">--</div>
+            <div id="qtExpiryDisplay" style="font-size:18px;font-weight:600;color:#58a6ff;">--</div>
             <div>
                 <label style="color:#8b949e;font-size:12px;">View:</label>
                 <select id="viewMode" onchange="renderChain()">
@@ -95,6 +100,15 @@
     </div>
     
     <script>
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            const timeEl = document.getElementById('time');
+            if (timeEl) timeEl.textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
         let optionsData = null;
         let spotPrice = 0;
         let watchlist = JSON.parse(localStorage.getItem('omonWatchlist')) || ['SPY', 'QQQ', 'IWM', 'TLT'];
@@ -106,7 +120,9 @@
         
         function renderWatchlist() {
             const select = document.getElementById('watchlistSelect');
-            const current = document.getElementById('ticker').value.toUpperCase().trim();
+            const tickerEl = document.getElementById('ticker');
+            if (!tickerEl) return;
+            const current = tickerEl.value.toUpperCase().trim();
             select.innerHTML = '<option value="">-- Select --</option>';
             watchlist.forEach(ticker => {
                 const opt = document.createElement('option');
@@ -151,7 +167,7 @@
             renderWatchlist();
             
             try {
-                const res = await fetch(`http://localhost:9090/api/expirations?ticker=${ticker}`);
+                const res = await fetch(`http://localhost:9098/api/expirations?ticker=${ticker}`);
                 const data = await res.json();
                 
                 const select = document.getElementById('expirySelect');
@@ -192,15 +208,16 @@
             document.getElementById('chainContainer').innerHTML = '<div class="loading">Loading...</div>';
             
             try {
-                const res = await fetch(`http://localhost:9090/api/options?ticker=${ticker}&expiry=${expiry}`);
+                const res = await fetch(`http://localhost:9098/api/options?ticker=${ticker}&expiry=${expiry}`);
                 optionsData = await res.json();
                 
                 spotPrice = optionsData.spot || 0;
                 
                 document.getElementById('qtTicker').textContent = ticker;
                 document.getElementById('qtSpot').textContent = 'Spot: $' + spotPrice.toFixed(2);
+                document.getElementById('qtExpiryDisplay').textContent = expiry;
                 
-                const quoteRes = await fetch(`http://localhost:9090/api/quotes?tickers=${ticker}`);
+                const quoteRes = await fetch(`http://localhost:9098/api/quotes?tickers=${ticker}`);
                 const quoteData = await quoteRes.json();
                 const quote = quoteData[ticker];
                 if (quote) {

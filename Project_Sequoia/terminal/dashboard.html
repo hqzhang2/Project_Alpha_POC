@@ -21,7 +21,10 @@
             border-bottom: 1px solid #30363d;
         }
         .header h1 { font-size: 20px; font-weight: 600; }
-        .header .time { color: #8b949e; font-size: 14px; }
+        
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
         
         .toolbar {
             background: #161b22;
@@ -54,6 +57,7 @@
         .btn-secondary {
             background: #21262d;
             border: 1px solid #30363d;
+            color: #e6edf3;
         }
         .btn-secondary:hover { background: #30363d; }
         
@@ -183,14 +187,17 @@
 </head>
 <body>
     <div class="header">
-        <h1>🛠️ Alpha Terminal</h1>
-        <div class="nav" style="display: flex; gap: 16px; margin-left: 20px;">
-            <a href="dashboard.html" class="active" style="color: #e6edf3; text-decoration: none; padding: 8px 16px; background: #21262d; border-radius: 6px;">Dashboard</a>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1>🛠️ Alpha Terminal</h1>
+            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+        </div>
+        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
+            <a href="dashboard.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Dashboard</a>
             <a href="omon.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">OMON</a>
             <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
             <a href="ratio.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
+            <a href="financials.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
         </div>
-        <div class="time" id="time" style="color: #8b949e; font-size: 14px; margin-left: auto;">--:--:--</div>
     </div>
     
     <div class="toolbar">
@@ -283,7 +290,8 @@
         // Update time
         function updateTime() {
             const now = new Date();
-            document.getElementById('time').textContent = now.toLocaleTimeString();
+            const timeEl = document.getElementById('time');
+            if (timeEl) timeEl.textContent = now.toLocaleTimeString();
         }
         setInterval(updateTime, 1000);
         updateTime();
@@ -292,7 +300,7 @@
         async function fetchQuotes() {
             const tickers = watchlist.join(',');
             try {
-                const res = await fetch(`http://localhost:9090/api/quotes?tickers=${tickers}`);
+                const res = await fetch(`http://localhost:9098/api/quotes?tickers=${tickers}`);
                 quotes = await res.json();
                 renderWatchlist();
                 if (quotes[currentTicker]) renderQuote(currentTicker);
@@ -402,7 +410,7 @@
         // Fetch chart
         async function fetchChart(t, tf) {
             try {
-                const res = await fetch(`http://localhost:9090/api/chart?ticker=${t}&tf=${tf}`);
+                const res = await fetch(`http://localhost:9098/api/chart?ticker=${t}&tf=${tf}`);
                 const data = await res.json();
                 renderChart(data);
             } catch (e) {
