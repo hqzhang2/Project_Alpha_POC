@@ -58,6 +58,7 @@
             <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
             <a href="ratio.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
             <a href="financials.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
+            <a href="estimates.html">Earnings Estimates</a>
         </div>
     </div>
     
@@ -69,14 +70,8 @@
             </select>
             <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 12px;">✕</button>
         </div>
-        <div class="watchlist-edit">
-            <input type="text" id="newT1" placeholder="T1" class="search">
-            <span style="color:#8b949e;">/</span>
-            <input type="text" id="newT2" placeholder="T2" class="search">
-            <button class="btn" onclick="addToWatchlist()" style="padding: 6px 12px;">+</button>
-        </div>
         
-        <div class="filter-group" style="margin-left: 12px;">
+        <div class="filter-group" style="margin-left: 24px;">
             <label style="color:#8b949e;font-size:12px;">Pair:</label>
             <input type="text" class="search" id="t1" value="XLE">
             <span style="color:#8b949e;">/</span>
@@ -94,15 +89,7 @@
             </select>
         </div>
         <button class="btn" onclick="fetchRatio()">Analyze</button>
-        
-        <div class="chart-tabs" style="margin-bottom:0; margin-left: auto;">
-            <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
-            <button class="chart-tab" onclick="setTimeframe('3M')">3M</button>
-            <button class="chart-tab" onclick="setTimeframe('6M')">6M</button>
-            <button class="chart-tab" onclick="setTimeframe('YTD')">YTD</button>
-            <button class="chart-tab active" onclick="setTimeframe('1Y')">1Y</button>
-            <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
-        </div>
+        <button class="btn" onclick="addToWatchlist()" style="padding: 8px 12px;">+</button>
     </div>
     
     <div class="omain">
@@ -125,7 +112,15 @@
             </div>
         </div>
         
-        <div class="chart-container">
+        <div class="chart-container" style="position: relative;">
+            <div class="chart-tabs" style="position: absolute; top: 15px; right: 20px; z-index: 10; margin-bottom:0;">
+                <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
+                <button class="chart-tab" onclick="setTimeframe('3M')">3M</button>
+                <button class="chart-tab" onclick="setTimeframe('6M')">6M</button>
+                <button class="chart-tab" onclick="setTimeframe('YTD')">YTD</button>
+                <button class="chart-tab active" onclick="setTimeframe('1Y')">1Y</button>
+                <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
+            </div>
             <canvas id="ratioChart"></canvas>
         </div>
         <div class="sub-chart">
@@ -184,14 +179,12 @@
         }
 
         function addToWatchlist() {
-            const t1 = document.getElementById('newT1').value.toUpperCase();
-            const t2 = document.getElementById('newT2').value.toUpperCase();
+            const t1 = document.getElementById('t1').value.toUpperCase();
+            const t2 = document.getElementById('t2').value.toUpperCase();
             if (t1 && t2 && !watchlist.some(w => w.t1 === t1 && w.t2 === t2)) {
                 watchlist.push({t1, t2});
                 saveWatchlist();
             }
-            document.getElementById('newT1').value = '';
-            document.getElementById('newT2').value = '';
         }
 
         function removeFromWatchlist() {
@@ -267,9 +260,9 @@
                         labels: data.labels,
                         datasets: [
                             { label: `${t1}/${t2}`, data: data.ratio, borderColor: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.1)', fill: true },
-                            { label: 'SMA(' + sma + ')', data: data.sma, borderColor: '#f0883e', borderDash: [5, 5], pointRadius: 0 },
-                            { label: 'BB Upper', data: data.upper, borderColor: 'rgba(139, 148, 158, 0.3)', borderDash: [2, 2], pointRadius: 0 },
-                            { label: 'BB Lower', data: data.lower, borderColor: 'rgba(139, 148, 158, 0.3)', borderDash: [2, 2], pointRadius: 0 }
+                            { label: 'SMA(' + sma + ')', data: data.sma, borderColor: '#f0883e', borderDash: [5, 5], borderWidth: 1, pointRadius: 0 },
+                            { label: 'BB Upper', data: data.upper, borderColor: '#58a6ff', borderDash: [2, 2], borderWidth: 1, pointRadius: 0 },
+                            { label: 'BB Lower', data: data.lower, borderColor: '#58a6ff', borderDash: [2, 2], borderWidth: 1, pointRadius: 0 }
                         ]
                     },
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8b949e' } }, title: { display: true, text: `${t1}/${t2} Ratio Analysis`, color: '#e6edf3' } } }

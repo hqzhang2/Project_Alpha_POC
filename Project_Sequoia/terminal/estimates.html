@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal - Earnings Estimates</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 150px; }
+        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #2ea043; }
+        
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+        
+        .section-title { font-size: 14px; font-weight: 600; color: #58a6ff; text-transform: uppercase; margin-bottom: 12px; border-left: 3px solid #58a6ff; padding-left: 8px; }
+        
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        
+        .table-container { background: #161b22; border-radius: 8px; border: 1px solid #30363d; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #21262d; color: #8b949e; text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 1px solid #30363d; }
+        td { padding: 10px 12px; border-bottom: 1px solid #21262d; }
+        .num { text-align: right; font-family: 'Monaco', monospace; }
+        .positive { color: #3fb950; }
+        .negative { color: #f85149; }
+        .highlight { color: #f0883e; font-weight: 600; }
+        
+        .loading { padding: 40px; text-align: center; color: #8b949e; }
+        .error { color: #f85149; padding: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1>🛠️ Alpha Terminal</h1>
+            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+        </div>
+        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="omon.html">OMON</a>
+            <a href="screener.html">Option Screener</a>
+            <a href="ratio.html">Ratio Analysis</a>
+            <a href="financials.html">Financial Analyzer</a>
+            <a href="estimates.html" class="active">Earnings Estimates</a>
+        </div>
+    </div>
+    
+    <div class="toolbar">
+        <div class="watchlist-bar">
+            <label style="color:#8b949e;font-size:12px;">Watchlist:</label>
+            <select id="watchlistSelect" class="watchlist-select" style="background:#0d1117;color:#e6edf3;border:1px solid #30363d;padding:8px 12px;border-radius:6px;min-width:150px;" onchange="loadFromWatchlist()">
+                <option value="">-- Select --</option>
+            </select>
+        </div>
+        <input type="text" class="search" id="ticker" value="AAPL" placeholder="Ticker" style="margin-left: 12px;">
+        <button class="btn" onclick="loadEstimates()">Load EE</button>
+        <button class="btn btn-secondary" onclick="addToWatchlist()" style="padding: 8px 12px;">+</button>
+    </div>
+    
+    <div class="omain" id="mainContent">
+        <div class="loading">Enter ticker and click Load EE</div>
+    </div>
+
+    <script>
+        function updateTime() {
+            const now = new Date();
+            const timeEl = document.getElementById('time');
+            if (timeEl) timeEl.textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        async function loadEstimates() {
+            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
+            if (!ticker) return;
+            
+            const container = document.getElementById('mainContent');
+            container.innerHTML = '<div class="loading">Fetching Bloomberg EE Data...</div>';
+            
+            try {
+                const res = await fetch(`http://localhost:9098/api/estimates?ticker=${ticker}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                renderEE(data);
+            } catch (e) {
+                container.innerHTML = `<div class="error">Network Error: ${e.message}</div>`;
+            }
+        }
+
+        function renderEE(data) {
+            let html = '';
+            
+            // 1. Consensus Summary Table
+            html += `<div>
+                <div class="section-title">Consensus Estimates (EE Summary)</div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Period</th>
+                                <th class="num">EPS Avg</th>
+                                <th class="num">Low</th>
+                                <th class="num">High</th>
+                                <th class="num">Growth</th>
+                                <th class="num">Analysts</th>
+                                <th class="num">Rev Avg</th>
+                                <th class="num">Rev Growth</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+            
+            data.summary.forEach(s => {
+                html += `
+                    <tr>
+                        <td class="highlight">${s.period}</td>
+                        <td class="num highlight">${s.eps_avg?.toFixed(2) || '-'}</td>
+                        <td class="num">${s.eps_low?.toFixed(2) || '-'}</td>
+                        <td class="num">${s.eps_high?.toFixed(2) || '-'}</td>
+                        <td class="num ${s.eps_growth >= 0 ? 'positive' : 'negative'}">${(s.eps_growth * 100).toFixed(1)}%</td>
+                        <td class="num">${s.analysts || '-'}</td>
+                        <td class="num">${fmtLarge(s.rev_avg)}</td>
+                        <td class="num ${s.rev_growth >= 0 ? 'positive' : 'negative'}">${(s.rev_growth * 100).toFixed(1)}%</td>
+                    </tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+
+            // 2. Grid for Trends and History
+            html += `<div class="grid-container">`;
+            
+            // History (Surprise)
+            html += `<div>
+                <div class="section-title">Earnings History & Surprise</div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Quarter</th>
+                                <th class="num">Actual</th>
+                                <th class="num">Estimate</th>
+                                <th class="num">Surprise</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+            data.history.forEach(h => {
+                const surprise = h.surprise * 100;
+                // Parse ISO date string and format as YYYY-MM-DD
+                const displayDate = h.quarter ? h.quarter.split('T')[0] : h.quarter;
+                html += `
+                    <tr>
+                        <td>${displayDate}</td>
+                        <td class="num highlight">${h.actual?.toFixed(2) || '-'}</td>
+                        <td class="num">${h.estimate?.toFixed(2) || '-'}</td>
+                        <td class="num ${surprise >= 0 ? 'positive' : 'negative'}">${surprise.toFixed(1)}%</td>
+                    </tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+
+            // Trends
+            html += `<div>
+                <div class="section-title">EPS Revision Trend</div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Period</th>
+                                <th class="num">Current</th>
+                                <th class="num">7D Ago</th>
+                                <th class="num">30D Ago</th>
+                                <th class="num">90D Ago</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+            data.trends.forEach(t => {
+                html += `
+                    <tr>
+                        <td class="highlight">${t.period}</td>
+                        <td class="num highlight">${t.current?.toFixed(2) || '-'}</td>
+                        <td class="num">${t['7days']?.toFixed(2) || '-'}</td>
+                        <td class="num">${t['30days']?.toFixed(2) || '-'}</td>
+                        <td class="num">${t['90days']?.toFixed(2) || '-'}</td>
+                    </tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+
+            html += `</div>`; // Close grid
+            
+            document.getElementById('mainContent').innerHTML = html;
+        }
+
+        function fmtLarge(n) {
+            if (n === null || n === undefined) return '-';
+            if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+            if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+            return n.toLocaleString();
+        }
+
+        // Trigger load on enter
+        document.getElementById('ticker').addEventListener('keypress', e => {
+            if (e.key === 'Enter') loadEstimates();
+        });
+
+        // Watchlist logic (persistent localStorage)
+        let watchlist = JSON.parse(localStorage.getItem('estimatesWatchlist')) || ['AAPL', 'MSFT', 'GOOGL'];
+
+        function saveWatchlist() {
+            localStorage.setItem('estimatesWatchlist', JSON.stringify(watchlist));
+            renderWatchlist();
+        }
+
+        function renderWatchlist() {
+            const select = document.getElementById('watchlistSelect');
+            const current = document.getElementById('ticker').value.toUpperCase().trim();
+            select.innerHTML = '<option value="">-- Select --</option>';
+            watchlist.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                if (t === current) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        function loadFromWatchlist() {
+            const ticker = document.getElementById('watchlistSelect').value;
+            if (ticker) {
+                document.getElementById('ticker').value = ticker;
+                loadEstimates();
+            }
+        }
+
+        function addToWatchlist() {
+            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
+            if (ticker && !watchlist.includes(ticker)) {
+                watchlist.push(ticker);
+                saveWatchlist();
+            }
+        }
+
+        // Init
+        renderWatchlist();
+    </script>
+</body>
+</html>

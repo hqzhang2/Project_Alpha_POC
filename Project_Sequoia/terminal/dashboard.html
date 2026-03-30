@@ -91,7 +91,9 @@
         .watchlist-item:hover { background: #21262d; }
         .watchlist-item.active { background: #21262d; border-left: 2px solid #58a6ff; }
         .watchlist-item .ticker { font-weight: 600; }
-        .watchlist-item .price { color: #8b949e; font-size: 14px; }
+        .watchlist-item .price { color: #8b949e; font-size: 14px; transition: color 0.3s ease; }
+        .watchlist-item.price-up .price { color: #3fb950; }
+        .watchlist-item.price-down .price { color: #f85149; }
         
         .panel {
             background: #161b22;
@@ -106,22 +108,23 @@
             margin-bottom: 24px;
         }
         .quote-header .ticker {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: 700;
         }
         .quote-header .name {
             color: #8b949e;
             margin-top: 4px;
+            font-size: 16px;
         }
         .quote-header .price-block {
             text-align: right;
         }
         .quote-header .price {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: 700;
         }
         .quote-header .change {
-            font-size: 18px;
+            font-size: 20px;
             margin-top: 4px;
         }
         .change.positive { color: #3fb950; }
@@ -197,12 +200,12 @@
             <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
             <a href="ratio.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
             <a href="financials.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
+            <a href="estimates.html">Earnings Estimates</a>
         </div>
     </div>
     
     <div class="toolbar">
         <input type="text" class="search" id="search" placeholder="Search ticker...">
-        <button class="btn" onclick="addTicker()">+ Add</button>
         <button class="btn btn-secondary" onclick="refresh()">↻ Refresh</button>
         <span style="color: #8b949e; font-size: 14px; margin-left: auto;">Delayed data (15 min)</span>
     </div>
@@ -301,7 +304,18 @@
             const tickers = watchlist.join(',');
             try {
                 const res = await fetch(`http://localhost:9098/api/quotes?tickers=${tickers}`);
-                quotes = await res.json();
+                const newQuotes = await res.json();
+                
+                // Process for "flash" updates
+                Object.keys(newQuotes).forEach(ticker => {
+                    const oldPrice = quotes[ticker]?.price;
+                    const newPrice = newQuotes[ticker]?.price;
+                    if (oldPrice && newPrice && oldPrice !== newPrice) {
+                        newQuotes[ticker].flash = newPrice > oldPrice ? 'price-up' : 'price-down';
+                    }
+                });
+                
+                quotes = newQuotes;
                 renderWatchlist();
                 if (quotes[currentTicker]) renderQuote(currentTicker);
             } catch (e) {
@@ -314,17 +328,26 @@
             const el = document.getElementById('watchlist');
             el.innerHTML = watchlist.map(t => {
                 const q = quotes[t] || {};
-                const price = q.price || '--';
+                const price = q.price ? q.price.toFixed(2) : '--';
                 const change = q.change_pct ? q.change_pct.toFixed(2) + '%' : '--';
                 const cls = q.change_pct > 0 ? 'positive' : q.change_pct < 0 ? 'negative' : '';
+                const flash = q.flash || '';
+                
                 return `
-                    <div class="watchlist-item ${t === currentTicker ? 'active' : ''}" onclick="selectTicker('${t}')">
+                    <div class="watchlist-item ${t === currentTicker ? 'active' : ''} ${flash}" onclick="selectTicker('${t}')">
                         <span class="ticker">${t}</span>
                         <span class="price">${price}</span>
                         <span class="change ${cls}" style="margin-left: 8px;">${change}</span>
                     </div>
                 `;
             }).join('');
+
+            // Clear flash after animation
+            setTimeout(() => {
+                document.querySelectorAll('.watchlist-item').forEach(el => {
+                    el.classList.remove('price-up', 'price-down');
+                });
+            }, 1000);
         }
         
         // Select ticker
@@ -471,7 +494,7 @@
         // Init
         fetchQuotes();
         fetchChart(currentTicker, timeframe);
-        setInterval(fetchQuotes, 30000);
+        setInterval(fetchQuotes, 5000); // Live-ish update every 5 seconds
     </script>
 </body>
 </html>

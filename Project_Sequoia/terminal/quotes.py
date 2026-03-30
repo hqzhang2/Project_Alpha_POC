@@ -7,9 +7,9 @@ import time
 from typing import Optional
 import yfinance
 
-# Cache for quotes (30s TTL)
+# Cache for quotes (5s TTL for live-ish feel)
 _cache = {}
-_cache_ttl = 30
+_cache_ttl = 5
 
 
 def get_quote(ticker: str, use_cache: bool = True) -> dict:

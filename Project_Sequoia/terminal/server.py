@@ -117,6 +117,11 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/chart':
             return self.send_json(self.get_chart_data(qs.get('ticker', ['SPY'])[0], qs.get('tf', ['1Y'])[0]))
         
+        if path == '/api/estimates':
+            from estimates import get_estimates
+            ticker = qs.get('ticker', ['SPY'])[0]
+            return self.send_json(get_estimates(ticker))
+        
         if path == '/api/financials':
             # Force fresh import
             import importlib
