@@ -402,26 +402,10 @@
             document.getElementById('qt52wLow').textContent = q['52w_low'] ? '$' + q['52w_low'].toFixed(2) : '--';
             document.getElementById('qtMktCap').textContent = q.market_cap ? formatNumber(q.market_cap) : '--';
             document.getElementById('qtPE').textContent = q.pe_ratio ? q.pe_ratio.toFixed(2) : '--';
-            document.getElementById('qtDivYield').textContent = q.dividend_yield ? (q.dividend_yield * 100).toFixed(2) + '%' : '--';
+            document.getElementById('qtDivYield').textContent = q.dividend_yield ? q.dividend_yield.toFixed(2) + '%' : '--';
             
-            // Update chart performance header
-            const perfEl = document.getElementById('chartPerf');
-            if (perfEl) {
-                let perfHTML = '';
-                if (q.ytd_return !== undefined) {
-                    const ytdClass = q.ytd_return >= 0 ? 'positive' : 'negative';
-                    perfHTML += `<span class="${ytdClass}">YTD: ${q.ytd_return.toFixed(2)}%</span> `;
-                }
-                if (q['1yr_return'] !== undefined) {
-                    const yr1Class = q['1yr_return'] >= 0 ? 'positive' : 'negative';
-                    perfHTML += `<span class="${yr1Class}">1Y: ${q['1yr_return'].toFixed(2)}%</span> `;
-                }
-                if (q['5yr_return'] !== undefined) {
-                    const yr5Class = q['5yr_return'] >= 0 ? 'positive' : 'negative';
-                    perfHTML += `<span class="${yr5Class}">5Y: ${q['5yr_return'].toFixed(2)}%</span>`;
-                }
-                perfEl.innerHTML = perfHTML;
-            }
+            // Update chart performance header for current timeframe
+            updatePerformanceDisplay(timeframe);
         }
         
         // Format number
@@ -490,6 +474,21 @@
             const activeTab = tabs.find(t => t.textContent === tf);
             if (activeTab) activeTab.classList.add('active');
             fetchChart(currentTicker, tf);
+            updatePerformanceDisplay(tf);
+        }
+        
+        // Update performance display based on selected timeframe
+        function updatePerformanceDisplay(tf) {
+            const q = quotes[currentTicker];
+            const perfEl = document.getElementById('chartPerf');
+            if (!perfEl || !q) return;
+            
+            const ret = q['ret_' + tf.toLowerCase().replace('ytd', 'ytd').replace('1d', '1d').replace('1w', '1w').replace('1m', '1m').replace('3m', '3m').replace('1y', '1y').replace('5y', '5y')];
+            if (ret !== undefined) {
+                const cls = ret >= 0 ? 'positive' : 'negative';
+                const label = tf === '1D' ? 'Today' : tf === '1W' ? '1W' : tf === '1M' ? '1M' : tf === '3M' ? '3M' : tf === 'YTD' ? 'YTD' : tf === '1Y' ? '1Y' : '5Y';
+                perfEl.innerHTML = `<span class="${cls}">${label}: ${ret.toFixed(2)}%</span>`;
+            }
         }
         
         // Fetch chart
