@@ -7,7 +7,7 @@ import os
 
 # Add the terminal directory to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from server_v2 import ChartDataProcessor
+from server import ChartDataProcessor
 
 class TestChartDataProcessor(unittest.TestCase):
 
