@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alpha Terminal - Financial Analyzer</title>
+    <title>Alpha Terminal - Financial Analysis</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
@@ -70,7 +70,7 @@
             <a href="omon.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">OMON</a>
             <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
             <a href="ratio.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
-            <a href="financials.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
+            <a href="financials.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analysis</a>
             <a href="estimates.html">Earnings Estimates</a>
         </div>
     </div>
@@ -83,10 +83,6 @@
             </select>
             <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 12px;">✕</button>
         </div>
-        <div class="watchlist-edit">
-            <input type="text" id="newTicker" placeholder="Add ticker" class="search">
-            <button class="btn" onclick="addToWatchlist()" style="padding: 6px 12px;">+</button>
-        </div>
         <input type="text" class="search" id="ticker" value="AAPL" placeholder="Ticker">
         <select class="select-input" id="periodType" onchange="loadFinancials()">
             <option value="Q">Quarterly (Q)</option>
@@ -98,6 +94,7 @@
             <option value="12">12 Periods</option>
             <option value="16">16 Periods</option>
         </select>
+        <button class="btn" onclick="addFromTickerInput()">+</button>
         <button class="btn" onclick="loadFinancials()">Load</button>
     </div>
     
@@ -205,6 +202,15 @@
                 document.getElementById('ticker').value = ticker;
                 loadFinancials(ticker);
             }
+        }
+
+        async function addFromTickerInput() {
+            const input = document.getElementById('ticker');
+            const ticker = input.value.toUpperCase().trim();
+            if (!ticker) return;
+            // Add to watchlist
+            await fetch(`http://localhost:9098/api/sec/financials?ticker=${ticker}&action=add`);
+            loadWatchlist();
         }
 
         async function addToWatchlist() {
