@@ -25,6 +25,25 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
         ticker_obj = yfinance.Ticker(ticker)
         info = ticker_obj.info
         
+        # Get historical data for performance calculation
+        try:
+            hist = ticker_obj.history(period="5y")
+            if len(hist) > 0:
+                latest_price = hist['Close'].iloc[-1]
+                # YTD performance
+                ytd_start = hist[hist.index >= '2026-01-01']
+                ytd_return = ((latest_price / ytd_start['Close'].iloc[0]) - 1) * 100 if len(ytd_start) > 1 else 0
+                # 1Y performance
+                one_yr = hist[hist.index >= '2025-03-31']
+                one_yr_return = ((latest_price / one_yr['Close'].iloc[0]) - 1) * 100 if len(one_yr) > 1 else 0
+                # 5Y performance
+                five_yr = hist[hist.index >= '2021-03-31']
+                five_yr_return = ((latest_price / five_yr['Close'].iloc[0]) - 1) * 100 if len(five_yr) > 1 else 0
+            else:
+                ytd_return = one_yr_return = five_yr_return = 0
+        except:
+            ytd_return = one_yr_return = five_yr_return = 0
+        
         quote = {
             "ticker": ticker.upper(),
             "name": info.get("shortName", info.get("longName", ticker)),
@@ -38,9 +57,12 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
             "avg_volume": info.get("averageVolume"),
             "market_cap": info.get("marketCap"),
             "pe_ratio": info.get("trailingPE"),
-            " dividend_yield": info.get("dividendYield"),
+            "dividend_yield": info.get("dividendYield"),
             "52w_high": info.get("fiftyTwoWeekHigh"),
             "52w_low": info.get("fiftyTwoWeekLow"),
+            "ytd_return": ytd_return,
+            "1yr_return": one_yr_return,
+            "5yr_return": five_yr_return,
             "timestamp": now
         }
         

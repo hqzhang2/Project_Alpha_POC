@@ -165,6 +165,19 @@
             gap: 8px;
             margin-bottom: 16px;
         }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .chart-performance {
+            color: #8b949e;
+            font-size: 13px;
+            font-family: monospace;
+        }
+        .chart-performance .positive { color: #3fb950; }
+        .chart-performance .negative { color: #f85149; }
         .chart-tab {
             background: none;
             border: none;
@@ -264,17 +277,24 @@
                     <div class="label">P/E</div>
                     <div class="value" id="qtPE">--</div>
                 </div>
+                <div class="quote-stat">
+                    <div class="label">Div Yield</div>
+                    <div class="value" id="qtDivYield">--</div>
+                </div>
             </div>
             
             <div class="chart-container">
-                <div class="chart-tabs">
-                    <button class="chart-tab" onclick="setTimeframe('1D')">1D</button>
-                    <button class="chart-tab" onclick="setTimeframe('1W')">1W</button>
-                    <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
-                    <button class="chart-tab" onclick="setTimeframe('3M')">3M</button>
-                    <button class="chart-tab" onclick="setTimeframe('YTD')">YTD</button>
-                    <button class="chart-tab" onclick="setTimeframe('1Y')">1Y</button>
-                    <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
+                <div class="chart-header">
+                    <div class="chart-tabs">
+                        <button class="chart-tab" onclick="setTimeframe('1D')">1D</button>
+                        <button class="chart-tab" onclick="setTimeframe('1W')">1W</button>
+                        <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
+                        <button class="chart-tab" onclick="setTimeframe('3M')">3M</button>
+                        <button class="chart-tab" onclick="setTimeframe('YTD')">YTD</button>
+                        <button class="chart-tab" onclick="setTimeframe('1Y')">1Y</button>
+                        <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
+                    </div>
+                    <div class="chart-performance" id="chartPerf"></div>
                 </div>
                 <canvas id="chart"></canvas>
             </div>
@@ -382,6 +402,26 @@
             document.getElementById('qt52wLow').textContent = q['52w_low'] ? '$' + q['52w_low'].toFixed(2) : '--';
             document.getElementById('qtMktCap').textContent = q.market_cap ? formatNumber(q.market_cap) : '--';
             document.getElementById('qtPE').textContent = q.pe_ratio ? q.pe_ratio.toFixed(2) : '--';
+            document.getElementById('qtDivYield').textContent = q.dividend_yield ? (q.dividend_yield * 100).toFixed(2) + '%' : '--';
+            
+            // Update chart performance header
+            const perfEl = document.getElementById('chartPerf');
+            if (perfEl) {
+                let perfHTML = '';
+                if (q.ytd_return !== undefined) {
+                    const ytdClass = q.ytd_return >= 0 ? 'positive' : 'negative';
+                    perfHTML += `<span class="${ytdClass}">YTD: ${q.ytd_return.toFixed(2)}%</span> `;
+                }
+                if (q['1yr_return'] !== undefined) {
+                    const yr1Class = q['1yr_return'] >= 0 ? 'positive' : 'negative';
+                    perfHTML += `<span class="${yr1Class}">1Y: ${q['1yr_return'].toFixed(2)}%</span> `;
+                }
+                if (q['5yr_return'] !== undefined) {
+                    const yr5Class = q['5yr_return'] >= 0 ? 'positive' : 'negative';
+                    perfHTML += `<span class="${yr5Class}">5Y: ${q['5yr_return'].toFixed(2)}%</span>`;
+                }
+                perfEl.innerHTML = perfHTML;
+            }
         }
         
         // Format number
