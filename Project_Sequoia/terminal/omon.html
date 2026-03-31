@@ -32,6 +32,8 @@
         .chain-table .put-side { border-left: 1px solid #30363d; }
         .itm-call { background: rgba(63, 185, 80, 0.05); }
         .itm-put { background: rgba(248, 81, 73, 0.05); }
+        .atm-row td { background: rgba(88, 166, 255, 0.15); font-weight: 600; }
+        .atm-row .strike-cell { color: #58a6ff; }
         .greek { color: #58a6ff; font-weight: 500; }
         
         .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
@@ -278,14 +280,26 @@
                     <tbody>
             `;
             
+            // Find ATM strike (closest to spot)
+            let atmStrike = null;
+            let minDiff = Infinity;
+            sortedStrikes.forEach(s => {
+                const diff = Math.abs(s - spotPrice);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    atmStrike = s;
+                }
+            });
+
             sortedStrikes.forEach(s => {
                 const c = callMap[s] || {};
                 const p = putMap[s] || {};
                 const c_itm = s < spotPrice ? 'itm-call' : '';
                 const p_itm = s > spotPrice ? 'itm-put' : '';
+                const isATM = s === atmStrike ? ' atm-row' : '';
                 
                 html += `
-                    <tr>
+                    <tr class="${isATM}">
                         <td class="call-side ${c_itm} greek">${c.vega?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.theta?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.gamma?.toFixed(4) || '-'}</td>

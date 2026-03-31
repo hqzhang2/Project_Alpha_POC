@@ -6,6 +6,7 @@ import math
 import time
 import datetime
 from typing import Optional
+from functools import partial
 import yfinance
 import sys
 import os
@@ -17,6 +18,18 @@ from greeks import calculate_greeks
 from scipy.stats import norm
 from scipy.optimize import brentq
 import numpy as np
+
+# Custom JSON encoder to handle pandas Timestamps and numpy types
+class SafeJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, 'item'):  # numpy types
+            return obj.item()
+        if hasattr(obj, 'to_pydatetime'):  # pandas Timestamp
+            return obj.to_pydatetime().isoformat()
+        return super().default(obj)
+
+def json_dumps(data):
+    return json.dumps(data, cls=SafeJSONEncoder)
 
 
 _options_cache = {}
@@ -45,6 +58,25 @@ def calculate_implied_volatility(option_price, S, K, T, r, option_type="call"):
     if option_price < intrinsic * 0.9:  # Allow 10% buffer
         option_price = intrinsic
     
+    # For very short expiry (< 7 days), IV calculation is unreliable due to time decay dominance
+    # Use moneyness-based heuristic instead
+    if T < 7/365:
+        moneyness = S / K
+        if option_type == "call":
+            if moneyness > 1.1:  # Deep ITM
+                return 0.15  # Low IV expected
+            elif moneyness < 0.9:  # Deep OTM
+                return 0.40  # Higher IV for OTM
+            else:
+                return 0.25
+        else:
+            if moneyness < 0.9:  # Deep ITM (put)
+                return 0.15
+            elif moneyness > 1.1:  # Deep OTM (put)
+                return 0.40
+            else:
+                return 0.25
+    
     def black_scholes_price(sigma):
         try:
             d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
@@ -55,20 +87,20 @@ def calculate_implied_volatility(option_price, S, K, T, r, option_type="call"):
                 price = K*np.exp(-r*T)*norm.cdf(-d2) - S*norm.cdf(-d1)
             return price
         except Exception as e:
-            # print(f"BS error: {e}")
             return None
     
     try:
-        # Debug: verify objective function works
-        for test_sigma in [0.1, 0.3, 0.5]:
-            bs_price = black_scholes_price(test_sigma)
-            # print(f"DEBUG IV: sigma={test_sigma}, BS_price={bs_price}, target={option_price}, diff={bs_price - option_price if bs_price else 'error'}")
-        
-        iv = brentq(lambda sigma: black_scholes_price(sigma) - option_price, 0.01, 3.0)
-        return iv
+        # Use brentq for root finding
+        from scipy.optimize import brentq
+        result = brentq(
+            lambda sig: (black_scholes_price(sig) or 0) - option_price,
+            0.001, 2.0
+        )
+        return result
     except Exception as e:
-        # print(f"DEBUG IV brentq failed: {e} for price={option_price}, S={S}, K={K}, T={T}")
-        return None
+        # Fallback: use moneyness-based estimate
+        moneyness = S / K
+        return 0.25 if 0.9 <= moneyness <= 1.1 else 0.20
 
 
 def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -> dict:
@@ -84,6 +116,10 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
     try:
         ticker_obj = yfinance.Ticker(ticker)
         
+        # Clear yfinance internal cache to avoid stale data (check attr first)
+        if hasattr(yfinance, 'cache') and hasattr(yfinance.cache, 'clear'):
+            yfinance.cache.clear()
+        
         # Use first available expiry if none provided
         if not expiry:
             all_expiries = ticker_obj.options
@@ -93,9 +129,15 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
 
         options = ticker_obj.option_chain(expiry)
         
-        # Get spot price for Greeks
+        # Get spot price for Greeks - prefer regularMarketPrice for ETFs
         info = ticker_obj.info
-        spot = info.get("currentPrice", info.get("regularMarketPrice"))
+        spot = info.get("regularMarketPrice", info.get("currentPrice"))
+        if not spot or spot < 0:
+            # Try fast_info for ETF
+            try:
+                spot = ticker_obj.fast_info.get('last_price')
+            except:
+                pass
         
         # Calculate Time to Maturity (T)
         expiry_dt = datetime.datetime.strptime(expiry, '%Y-%m-%d')

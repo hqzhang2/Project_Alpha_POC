@@ -154,7 +154,7 @@
         
         .chart-container {
             margin-top: 24px;
-            height: 300px;
+            height: 400px;
             background: #0d1117;
             border-radius: 8px;
             padding: 16px;
@@ -206,8 +206,7 @@
     
     <div class="toolbar">
         <input type="text" class="search" id="search" placeholder="Search ticker...">
-        <button class="btn btn-secondary" onclick="refresh()">↻ Refresh</button>
-        <span style="color: #8b949e; font-size: 14px; margin-left: auto;">Delayed data (15 min)</span>
+        <button class="btn" onclick="addTicker()">Load</button>
     </div>
     
     <div class="main">
@@ -288,7 +287,7 @@
         let watchlist = JSON.parse(localStorage.getItem('watchlist')) || ['SPY', 'QQQ', 'IWM', 'TLT', 'GLD'];
         let currentTicker = 'SPY';
         let chart = null;
-        let timeframe = '1M';
+        let timeframe = '1D';
         
         // Update time
         function updateTime() {
@@ -403,6 +402,9 @@
                 localStorage.setItem('watchlist', JSON.stringify(watchlist));
                 fetchQuotes();
             }
+            if (t) {
+                selectTicker(t);
+            }
             input.value = '';
         }
         
@@ -420,13 +422,16 @@
         // Refresh
         function refresh() {
             fetchQuotes();
+            fetchChart(currentTicker, timeframe);
         }
         
         // Timeframe
         function setTimeframe(tf) {
             timeframe = tf;
             document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
+            const tabs = Array.from(document.querySelectorAll('.chart-tab'));
+            const activeTab = tabs.find(t => t.textContent === tf);
+            if (activeTab) activeTab.classList.add('active');
             fetchChart(currentTicker, tf);
         }
         
@@ -446,36 +451,71 @@
             const ctx = document.getElementById('chart').getContext('2d');
             if (chart) chart.destroy();
             
+            const datasets = [
+                {
+                    label: 'Price',
+                    data: data.prices,
+                    borderColor: '#58a6ff',
+                    backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                    fill: true,
+                    tension: 0.1,
+                    pointRadius: 0,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Volume',
+                    data: data.volumes,
+                    type: 'bar',
+                    backgroundColor: 'rgba(139, 148, 158, 0.5)',
+                    yAxisID: 'y1'
+                }
+            ];
+
+            // Add Last Close line if available
+            if (data.last_close) {
+                datasets.push({
+                    label: 'Last Close',
+                    data: new Array(data.labels.length).fill(data.last_close),
+                    borderColor: 'rgba(248, 81, 73, 0.8)',
+                    borderDash: [5, 5],
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: false,
+                    yAxisID: 'y'
+                });
+            }
+            
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: data.labels,
-                    datasets: [
-                        {
-                            label: 'Price',
-                            data: data.prices,
-                            borderColor: '#58a6ff',
-                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                            fill: true,
-                            tension: 0.1,
-                            pointRadius: 0,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: 'Volume',
-                            data: data.volumes,
-                            type: 'bar',
-                            backgroundColor: 'rgba(139, 148, 158, 0.5)',
-                            yAxisID: 'y1'
-                        }
-                    ]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
                     scales: {
-                        x: { display: false },
+                        x: { 
+                            display: timeframe === '1D',
+                            grid: { display: false },
+                            ticks: {
+                                color: '#8b949e',
+                                maxRotation: 0,
+                                autoSkip: false,
+                                callback: function(val, index) {
+                                    const label = this.getLabelForValue(val);
+                                    if (label === '09:30' || (label && label.indexOf(':00') !== -1)) return label;
+                                    return null;
+                                }
+                            }
+                        },
                         y: {
                             position: 'left',
                             grid: { color: '#30363d' },
@@ -492,8 +532,10 @@
         }
         
         // Init
-        fetchQuotes();
-        fetchChart(currentTicker, timeframe);
+        window.onload = function() {
+            setTimeframe('1D');
+            fetchQuotes();
+        };
         setInterval(fetchQuotes, 5000); // Live-ish update every 5 seconds
     </script>
 </body>

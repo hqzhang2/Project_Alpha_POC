@@ -84,8 +84,44 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(get_quotes(qs.get('tickers', ['SPY'])[0].split(',')))
         
         if path == '/api/options':
-            from options import get_options_chain
-            return self.send_json(get_options_chain(qs.get('ticker', ['SPY'])[0], qs.get('expiry', [None])[0]))
+            import sys
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) or '.')
+            import options
+            options._options_cache.clear()  # Force fresh fetch
+            from options import get_options_chain, SafeJSONEncoder
+            ticker = (qs.get('ticker', []) + qs.get('symbol', []))[0] or 'SPY'
+            return self.send_json(get_options_chain(ticker, qs.get('expiry', [None])[0], use_cache=False))
+            
+            # Get options via Yahoo Finance v8 API (avoids yfinance caching)
+            url = f"https://query1.finance.yahoo.com/v7/finance/options/{ticker}"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                data = resp.json()
+                
+                opts = data.get('optionChain', {}).get('result', [{}])[0]
+                if not opts:
+                    return self.send_json({'ticker': ticker, 'error': 'No options data'})
+                
+                exp_date = opts.get('expirationDates', [])
+                expiry = qs.get('expiry', [None])[0]
+                if not expiry and exp_date:
+                    import datetime
+                    expiry = datetime.datetime.fromtimestamp(exp_date[0]).strftime('%Y-%m-%d')
+                
+                chains = opts.get('options', [{}])[0]
+                
+                result = {
+                    'ticker': ticker,
+                    'expiry': expiry,
+                    'spot': opts.get('quote', {}).get('regularMarketPrice'),
+                    'calls': chains.get('calls', []),
+                    'puts': chains.get('puts', [])
+                }
+                return self.send_json(result)
+            except Exception as e:
+                return self.send_json({'ticker': ticker, 'error': str(e)[:200]})
         
         if path == '/api/expirations':
             from options import get_expirations
@@ -240,6 +276,60 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(404, "API not found")
 
     def get_chart_data(self, ticker, tf):
+        if tf == '1D':
+            # Intraday data for precisely 9:30 AM to 4:00 PM ET
+            try:
+                # Use 1m interval for better accuracy
+                ticker_obj = yf.Ticker(ticker)
+                # Fetch more than 1 day to ensure we have yesterday's close
+                data = ticker_obj.history(period='5d', interval='1m')
+                
+                if data.empty:
+                    return {'labels': [], 'prices': [], 'volumes': [], 'error': 'No data'}
+                
+                # Get last close (previous trading day's close)
+                # Filter out today's dates first to find the last close from history
+                today_date = data.index[-1].date()
+                hist_data = data[data.index.date < today_date]
+                if not hist_data.empty:
+                    last_close = hist_data['Close'].iloc[-1]
+                else:
+                    # Fallback if only today's data is present
+                    last_close = data['Open'].iloc[0]
+                
+                # Filter for today's market hours (9:30 AM - 4:00 PM)
+                today_data = data[data.index.date == today_date]
+                market_data = today_data.between_time('09:30', '16:00')
+                
+                if market_data.empty:
+                    # If today's market hasn't opened yet, return the time axis skeleton
+                    times = pd.date_range("09:30", "16:00", freq="1min")
+                    return {
+                        'labels': [t.strftime('%H:%M') for t in times],
+                        'prices': [],
+                        'volumes': [],
+                        'last_close': last_close
+                    }
+
+                # Ensure labels span the full 9:30 to 16:00 range even if data is partial
+                full_range = pd.date_range(
+                    start=market_data.index[0].replace(hour=9, minute=30),
+                    end=market_data.index[0].replace(hour=16, minute=0),
+                    freq='1min'
+                )
+                
+                # Reindex to ensure 16:00 exists in the labels list
+                market_data = market_data.reindex(full_range)
+
+                return {
+                    'labels': [x.strftime('%H:%M') for x in market_data.index],
+                    'prices': market_data['Close'].tolist(),
+                    'volumes': market_data['Volume'].tolist(),
+                    'last_close': last_close
+                }
+            except Exception as e:
+                return {'labels': [], 'prices': [], 'error': f"Failed to fetch {ticker}: {str(e)}"}
+        
         period = config.TIMEFRAME_MAP.get(tf, '1y')
         
         try:
@@ -319,7 +409,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(clean_dict(data)).encode())
+        self.wfile.write(json.dumps(clean_dict(data), cls=SafeJSONEncoder).encode())
+
+from options import SafeJSONEncoder
 
 def run(port=config.DEFAULT_PORT):
     os.chdir(os.path.dirname(os.path.abspath(__file__)) or '.')
