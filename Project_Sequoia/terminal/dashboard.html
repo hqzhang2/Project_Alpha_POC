@@ -207,6 +207,7 @@
     <div class="toolbar">
         <input type="text" class="search" id="search" placeholder="Search ticker...">
         <button class="btn" onclick="addTicker()">Load</button>
+        <button class="btn btn-secondary" onclick="addToWatchlistFromSearch()">+</button>
     </div>
     
     <div class="main">
@@ -393,8 +394,18 @@
             return n;
         }
         
-        // Add ticker
-        function addTicker() {
+        // Load chart only (does NOT add to watchlist)
+        function loadChartOnly() {
+            const input = document.getElementById('search');
+            const t = input.value.toUpperCase().trim();
+            if (t) {
+                selectTicker(t);
+            }
+            input.value = '';
+        }
+        
+        // Add ticker from search to watchlist (does NOT load chart)
+        function addToWatchlistFromSearch() {
             const input = document.getElementById('search');
             const t = input.value.toUpperCase().trim();
             if (t && !watchlist.includes(t)) {
@@ -402,6 +413,13 @@
                 localStorage.setItem('watchlist', JSON.stringify(watchlist));
                 fetchQuotes();
             }
+            input.value = '';
+        }
+        
+        // Load chart only (does NOT add to watchlist)
+        function addTicker() {
+            const input = document.getElementById('search');
+            const t = input.value.toUpperCase().trim();
             if (t) {
                 selectTicker(t);
             }
