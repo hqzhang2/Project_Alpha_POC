@@ -170,6 +170,23 @@ class Handler(SimpleHTTPRequestHandler):
             # 5. Financials (SEC)
             if path.startswith('/api/sec/financials'):
                 import sec_financials
+                action = qs.get('action', [None])[0]
+                
+                # Handle watchlist actions
+                if action == 'watchlist':
+                    return self.send_json(sec_financials.get_watchlist())
+                if action == 'add':
+                    ticker = qs.get('ticker', [None])[0]
+                    if ticker:
+                        sec_financials.add_to_watchlist(ticker)
+                    return self.send_json({'status': 'added'})
+                if action == 'remove':
+                    ticker = qs.get('ticker', [None])[0]
+                    if ticker:
+                        sec_financials.remove_from_watchlist(ticker)
+                    return self.send_json({'status': 'removed'})
+                
+                # Default: fetch financials
                 ticker = qs.get('ticker', ['SPY'])[0]
                 periods = int(qs.get('periods', [8])[0])
                 period_type = qs.get('type', ['Q'])[0]
