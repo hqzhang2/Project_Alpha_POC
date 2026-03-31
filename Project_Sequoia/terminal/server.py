@@ -1,5 +1,5 @@
 """
-Alpha Terminal Server - Version 1.3.0
+Alpha Terminal Server - Version 1.3.1
 Refactored for maintainability and testability.
 """
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -18,7 +18,7 @@ from decimal import Decimal
 # Add current dir to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Import config
+# Import config and indicators
 try:
     import config
     from indicators import calculate_rsi, calculate_macd, calculate_bollinger_bands
@@ -67,13 +67,10 @@ class ChartDataProcessor:
                 return {'labels': [], 'prices': [], 'volumes': [], 'error': 'No data'}
             
             today_date = data.index[-1].date()
-            
-            # Use string-based slicing which is most robust in pandas for DatetimeIndex
             today_str = today_date.strftime('%Y-%m-%d')
             today_data = data.loc[today_str]
             market_data = today_data.between_time('09:30', '16:00')
             
-            # Last close from data strictly before today
             hist_data = data.loc[:today_str].iloc[:-len(today_data)] if not today_data.empty else data.iloc[:-1]
             last_close = hist_data['Close'].iloc[-1] if not hist_data.empty else data['Open'].iloc[0]
             
@@ -132,14 +129,87 @@ class Handler(SimpleHTTPRequestHandler):
         path, qs = parsed.path, parse_qs(parsed.query)
         if not path.startswith('/api/'): return SimpleHTTPRequestHandler.do_GET(self)
         try:
+            # 1. Ratio Analysis
+            if path == '/api/ratio':
+                t1 = qs.get('t1', ['XLE'])[0]
+                t2 = qs.get('t2', ['SPY'])[0]
+                tf = qs.get('tf', ['1Y'])[0]
+                sma_p = int(qs.get('sma', [20])[0])
+                return self.send_json(self.get_ratio_data(t1, t2, tf, sma_p))
+
+            # 2. Quotes
             if path == '/api/quotes':
                 from quotes import get_quotes
                 return self.send_json(get_quotes(qs.get('tickers', ['SPY'])[0].split(',')))
+            
+            # 3. Options (OMON)
+            if path == '/api/options':
+                import options
+                ticker = (qs.get('ticker', []) + qs.get('symbol', []))[0] or 'SPY'
+                return self.send_json(options.get_options_chain(ticker, qs.get('expiry', [None])[0], use_cache=False))
+            
+            if path == '/api/expirations':
+                from options import get_expirations
+                ticker = qs.get('ticker', ['SPY'])[0]
+                expirations = get_expirations(ticker)
+                standard = []
+                for e in expirations:
+                    try:
+                        dt = datetime.datetime.strptime(e, '%Y-%m-%d')
+                        if dt.weekday() == 4 and 15 <= dt.day <= 21:
+                            standard.append({'date': e, 'label': dt.strftime('%b %Y') + " (Std)"})
+                    except: continue
+                return self.send_json({'ticker': ticker, 'expirations': expirations, 'standard': standard})
+
+            # 4. Charts (Dashboard)
             if path == '/api/chart':
-                ticker, tf = qs.get('ticker', ['SPY'])[0], qs.get('tf', ['1D'])[0]
+                ticker = qs.get('ticker', ['SPY'])[0]
+                tf = qs.get('tf', ['1D'])[0]
                 return self.send_json(ChartDataProcessor.get_1d_chart(ticker) if tf == '1D' else ChartDataProcessor.get_historical_chart(ticker, tf))
+
+            # 5. Financials (SEC)
+            if path.startswith('/api/sec/financials'):
+                import sec_financials
+                ticker = qs.get('ticker', ['SPY'])[0]
+                periods = int(qs.get('periods', [8])[0])
+                period_type = qs.get('type', ['Q'])[0]
+                return self.send_json(sec_financials.fetch_financials(ticker, periods, period_type))
+
             self.send_error(404, "API not found")
-        except Exception as e: self.send_json({}, error=e)
+        except Exception as e:
+            self.send_json({}, error=e)
+
+    def get_ratio_data(self, t1, t2, tf, sma_period):
+        fetch_period = '3y' if tf != '5Y' else 'max'
+        d1 = yf.Ticker(t1).history(period=fetch_period)['Close']
+        d2 = yf.Ticker(t2).history(period=fetch_period)['Close']
+        df = pd.DataFrame({'t1': d1, 't2': d2}).dropna()
+        df['ratio'] = df['t1'] / df['t2']
+        df['sma'] = df['ratio'].rolling(window=sma_period).mean()
+        df['rsi'] = calculate_rsi(df['ratio'])
+        macd, signal, hist = calculate_macd(df['ratio'])
+        upper, lower = calculate_bollinger_bands(df['ratio'])
+        df['macd'], df['macd_signal'], df['macd_hist'] = macd, signal, hist
+        df['upper'], df['lower'] = upper, lower
+        period_map = {'1M': 30, '3M': 90, '6M': 180, 'YTD': 'ytd', '1Y': 365, '5Y': 1825}
+        days = period_map.get(tf, 365)
+        if days == 'ytd':
+            start_date = pd.Timestamp(year=datetime.date.today().year, month=1, day=1)
+            if df.index.tz: start_date = start_date.tz_localize(df.index.tz)
+            display_df = df[df.index >= start_date]
+        else: display_df = df.tail(days)
+        return {
+            'labels': [x.strftime('%Y-%m-%d') for x in display_df.index],
+            'ratio': display_df['ratio'].tolist(),
+            'sma': display_df['sma'].tolist(),
+            'rsi': display_df['rsi'].tolist(),
+            'macd': display_df['macd'].tolist(),
+            'macd_signal': display_df['macd_signal'].tolist(),
+            'macd_hist': display_df['macd_hist'].tolist(),
+            'upper': display_df['upper'].tolist(),
+            'lower': display_df['lower'].tolist(),
+            't1_name': t1, 't2_name': t2
+        }
 
     def send_json(self, data, error=None):
         self.send_response(500 if error else 200)
@@ -153,4 +223,5 @@ def run(port=9098):
     print(f'Alpha Terminal: http://localhost:{port}')
     server.serve_forever()
 
-if __name__ == '__main__': run()
+if __name__ == '__main__':
+    run()

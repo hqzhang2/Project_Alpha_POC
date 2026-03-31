@@ -46,4 +46,4 @@
 - On 2026-03-18, Completed Sprint 1 (KAN-2, KAN-3, KAN-4, KAN-7 → Done), Created Sprint 2 (KAN-8), Broke down EPICs KAN-5 and KAN-6 into 10 subtasks.
 - On 2026-03-18 (PM), Created comprehensive documentation for all 10 subtasks (KAN-9 through KAN-18) in Project_Sequoia/docs/
 - On 2026-03-27, Implemented instant followup workflow for sequoia-strategy channel - after Hong posts in strategy/equity/trade-ideas, team automatically responds within minutes
-- On 2026-03-31, Released Terminal Alpha v1.3: Implemented 1D high-res intraday charting with 09:30-16:00 axis, volume overlay, and last-close reference line. Validated with unit and regression tests.
+- On 2026-03-31, Released Terminal Alpha v1.3.1: Unified and refactored backend server, added comprehensive full-tab regression testing suite covering Dashboard, OMON, Ratio Analysis, and Financials.
