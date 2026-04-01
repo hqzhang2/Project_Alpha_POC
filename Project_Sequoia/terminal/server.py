@@ -127,7 +127,41 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path, qs = parsed.path, parse_qs(parsed.query)
-        if not path.startswith('/api/'): return SimpleHTTPRequestHandler.do_GET(self)
+
+        # Handle static file requests (HTML, JS, CSS)
+        if not path.startswith('/api/'):
+            # Intercept HTML files to inject common header
+            if path.endswith('.html') or path == '/':
+                filename = path[1:] if path != '/' else 'dashboard.html'
+                if os.path.exists(filename):
+                    with open(filename, 'r') as f:
+                        content = f.read()
+                    
+                    # Inject header if <div class="header"> exists
+                    if '<div class="header">' in content and os.path.exists('header.html'):
+                        with open('header.html', 'r') as hf:
+                            header_html = hf.read()
+                        
+                        # Simplified logic: find <div class="header"> and its matching end
+                        start_tag = '<div class="header">'
+                        if start_tag in content:
+                            start_pos = content.find(start_tag)
+                            # Find the end of the header block. In our files, it's followed by a newline and <div class="toolbar"> or <div class="main">
+                            # We look for the closing </div> of the <div class="nav"> section which is the last part of the header.
+                            nav_end = content.find('</div>', content.find('<div class="nav"', start_pos))
+                            header_end = content.find('</div>', nav_end + 6) + 6
+                            
+                            new_content = content[:start_pos] + '<div class="header">' + header_html + '</div>' + content[header_end:]
+                        else:
+                            new_content = content
+                        
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        self.wfile.write(new_content.encode())
+                        return
+            
+            return SimpleHTTPRequestHandler.do_GET(self)
         try:
             # 1. Ratio Analysis
             if path == '/api/ratio':

@@ -1,0 +1,56 @@
+<div style="display: flex; align-items: center; gap: 12px;">
+    <h1>🛠️ Alpha Terminal</h1>
+    <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+</div>
+<div class="nav" id="mainNav" style="display: flex; gap: 16px; margin-left: auto;">
+    <a href="dashboard.html" data-nav="dashboard.html">Dashboard</a>
+    <a href="omon.html" data-nav="omon.html">OMON</a>
+    <a href="screener.html" data-nav="screener.html">Option Screener</a>
+    <a href="ratio.html" data-nav="ratio.html">Ratio Analysis</a>
+    <a href="financials.html" data-nav="financials.html">Financial Analysis</a>
+    <a href="estimates.html" data-nav="estimates.html">Earnings Estimates</a>
+</div>
+
+<style>
+    .nav a { 
+        color: #8b949e; 
+        text-decoration: none; 
+        padding: 8px 16px; 
+        border-radius: 6px; 
+        transition: background 0.2s;
+    }
+    .nav a:hover {
+        background: #30363d;
+    }
+    .nav a.active { 
+        background: #21262d; 
+        color: #e6edf3; 
+    }
+</style>
+
+<script>
+    // Highlight active link based on current page filename
+    (function() {
+        const path = window.location.pathname;
+        const page = path.split("/").pop() || "dashboard.html";
+        const links = document.querySelectorAll('#mainNav a');
+        links.forEach(link => {
+            if (link.getAttribute('href') === page) {
+                link.classList.add('active');
+            }
+        });
+
+        // Initialize clock if element exists
+        function updateHeaderTime() {
+            const timeEl = document.getElementById('time');
+            if (timeEl) {
+                const now = new Date();
+                timeEl.textContent = now.toLocaleTimeString();
+            }
+        }
+        if (document.getElementById('time')) {
+            setInterval(updateHeaderTime, 1000);
+            updateHeaderTime();
+        }
+    })();
+</script>
