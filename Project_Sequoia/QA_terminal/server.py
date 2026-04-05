@@ -104,6 +104,22 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path.startswith('/api/'):
             try:
+                if path == '/api/etf-holdings':
+                    ticker = qs.get('ticker', ['SPY'])[0].upper()
+                    limit = int(qs.get('limit', ['50'])[0])
+                    try:
+                        import yfinance as yf
+                        tick = yf.Ticker(ticker)
+                        if hasattr(tick, 'funds_data') and tick.funds_data.top_holdings is not None:
+                            holdings = tick.funds_data.top_holdings.head(limit)
+                            holdings_dict = {}
+                            for symbol, weight in holdings.items():
+                                holdings_dict[str(symbol)] = float(weight)
+                            return self.send_json({'ticker': ticker, 'holdings': holdings_dict})
+                        else:
+                            return self.send_json({'error': f'No fund holdings data found for {ticker}'}, status=404)
+                    except Exception as e:
+                        return self.send_json({'error': str(e)}, status=500)
                 if path == '/api/quotes':
                     from quotes import get_quotes
                     return self.send_json(get_quotes(qs.get('tickers', ['SPY'])[0].split(',')))

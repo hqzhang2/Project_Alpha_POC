@@ -10,6 +10,11 @@ let quotesData = {};
 
 let currentPeriod = '1D';
 
+// Drilldown variables
+let currentDrilldownTicker = null;
+let drilldownHoldingsData = null;
+let drilldownQuotesData = null;
+
 function switchPeriod(period) {
     currentPeriod = period;
     document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
@@ -35,7 +40,14 @@ function switchView(view) {
 async function loadData() {
     try {
         // Default to Asset Class ETFs
-        const tickersArray = ['AGG', 'TLT', 'SPY', 'IBIT', 'DBC', 'GLD', 'EEM', 'FXI', 'IJH', 'IWM', 'QQQ', 'VEA'];
+        let tickersArray = ['AGG', 'TLT', 'SPY', 'IBIT', 'DBC', 'GLD', 'EEM', 'FXI', 'IJH', 'IWM', 'QQQ', 'VEA'];
+        
+        try {
+            if (localStorage.getItem('heatmap_watchlist')) {
+                const stored = JSON.parse(localStorage.getItem('heatmap_watchlist'));
+                if (stored && stored.length > 0) tickersArray = [...new Set([...tickersArray, ...stored])];
+            }
+        } catch(e) {}
         
         // Convert to comma-separated string
         const tickers = tickersArray.join(',');
@@ -107,7 +119,14 @@ function renderTreemap() {
             type: 'treemap',
             toolbar: { show: false },
             background: 'transparent',
-            animations: { enabled: false }
+            animations: { enabled: false },
+            events: {
+                dataPointSelection: function(event, chartContext, config) {
+                    const dataPoint = config.w.config.series[config.seriesIndex].data[config.dataPointIndex];
+                    const ticker = dataPoint.x.split('\n')[0].trim();
+                    loadDrilldown(ticker);
+                }
+            }
         },
         dataLabels: {
             enabled: true,
@@ -181,6 +200,120 @@ function renderTabular() {
             <td class="ticker">${q.ticker}</td>
             <td class="price">$${q.price?.toFixed(2) || '-'}</td>
         `;
+        
+        periods.forEach(p => {
+            const val = q[p.key] ?? q[p.fallback] ?? 0;
+            const color = getIntensityColorHex(val);
+            const sign = val > 0 ? '+' : '';
+            html += `<td class="perf" style="background-color: ${color};">
+                ${sign}${val.toFixed(2)}%
+            </td>`;
+        });
+        
+        html += `</tr>`;
+    });
+    
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+function addHeatmapTicker() {
+    const input = document.getElementById('heatmapAddTicker');
+    const symbol = input.value.trim().toUpperCase();
+    if (!symbol) return;
+    
+    let current = [];
+    try {
+        if (localStorage.getItem('heatmap_watchlist')) {
+            current = JSON.parse(localStorage.getItem('heatmap_watchlist'));
+        }
+    } catch(e) {}
+    
+    if (!current.includes(symbol)) {
+        current.push(symbol);
+        localStorage.setItem('heatmap_watchlist', JSON.stringify(current));
+        loadData();
+    }
+    input.value = '';
+}
+
+async function loadDrilldown(ticker) {
+    currentDrilldownTicker = ticker;
+    switchView('drilldown');
+    
+    document.getElementById('drilldownTitle').innerText = `Loading Top 50 Holdings for ${ticker}...`;
+    document.getElementById('drilldownContainer').innerHTML = '<p style="color: #8b949e; margin-top: 20px;">Fetching ETF funds data...</p>';
+    
+    try {
+        const hRes = await fetch(`/api/etf-holdings?ticker=${ticker}&limit=50`);
+        drilldownHoldingsData = await hRes.json();
+        
+        if (drilldownHoldingsData.error || !drilldownHoldingsData.holdings) {
+            document.getElementById('drilldownTitle').innerText = `${ticker} Holdings`;
+            document.getElementById('drilldownContainer').innerHTML = `<p style="color: #ff7b72; margin-top: 20px;">Could not load ETF holdings: ${drilldownHoldingsData.error || 'Unknown error'}</p>`;
+            return;
+        }
+        
+        document.getElementById('drilldownTitle').innerText = `Fetching quotes for ${ticker} Holdings...`;
+        
+        const holdingTickers = Object.keys(drilldownHoldingsData.holdings).join(',');
+        const qRes = await fetch(`/api/quotes?tickers=${holdingTickers}`);
+        drilldownQuotesData = await qRes.json();
+        
+        renderDrilldown();
+    } catch (e) {
+        document.getElementById('drilldownTitle').innerText = `${ticker} Holdings Error`;
+        document.getElementById('drilldownContainer').innerHTML = `<p style="color: #ff7b72; margin-top: 20px;">Error: ${e.message}</p>`;
+    }
+}
+
+function renderDrilldown() {
+    document.getElementById('drilldownTitle').innerText = `${currentDrilldownTicker} - Top 50 Weighted Holdings`;
+    const container = document.getElementById('drilldownContainer');
+    
+    let html = `<table class="tabular-table">
+        <thead>
+            <tr>
+                <th style="text-align:left">Ticker</th>
+                <th>Weight %</th>
+                <th>Price</th>
+                <th>1D</th>
+                <th>1W</th>
+                <th>1M</th>
+                <th>3M</th>
+                <th>YTD</th>
+                <th>1Y</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+    
+    // Sort by weight descending
+    const sortedTickers = Object.entries(drilldownHoldingsData.holdings)
+        .sort((a, b) => b[1] - a[1]);
+        
+    sortedTickers.forEach(([ticker, weight]) => {
+        const q = drilldownQuotesData[ticker] || { ticker, error: true };
+        
+        const periods = [
+            { key: 'change_pct', fallback: 'ret_1d' },
+            { key: 'ret_1w' },
+            { key: 'ret_1m' },
+            { key: 'ret_3m' },
+            { key: 'ret_ytd' },
+            { key: 'ret_1y' }
+        ];
+        
+        html += `<tr>
+            <td class="ticker">${ticker}</td>
+            <td style="color: #8b949e; font-family: 'Monaco', monospace; background: #0d1117;">${(weight * 100).toFixed(2)}%</td>
+            <td class="price">$${q.price?.toFixed(2) || '-'}</td>
+        `;
+        
+        if (q.error || !q.price) {
+            html += `<td colspan="6" style="color: #8b949e;">Data unavailable</td></tr>`;
+            return;
+        }
         
         periods.forEach(p => {
             const val = q[p.key] ?? q[p.fallback] ?? 0;
