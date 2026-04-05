@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal - Ratio Analysis</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 120px; }
+        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #2ea043; }
+        
+        /* Gold Font Heatmap Button with Blue Background */
+        .btn-heatmap { background: #0052cc; border: none; color: #d4af37; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn-heatmap:hover { background: #0065ff; color: #f9d71c; }
+        
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+        .chart-container { background: #161b22; border-radius: 8px; padding: 20px; height: 400px; position: relative; }
+        .sub-chart { background: #161b22; border-radius: 8px; padding: 20px; height: 250px; }
+        
+        .chart-tabs { display: flex; gap: 8px; position: absolute; top: 15px; right: 20px; z-index: 10; }
+        .chart-tab { background: none; border: none; color: #8b949e; padding: 6px 12px; cursor: pointer; border-radius: 4px; }
+        .chart-tab.active { background: #21262d; color: #e6edf3; }
+        
+        .watchlist-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; min-width: 180px; }
+        .data-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+        .data-card { background: #161b22; border-radius: 8px; padding: 16px; }
+        .data-card .label { font-size: 12px; color: #8b949e; text-transform: uppercase; }
+        .data-card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+        
+        /* REPLICATING POC 2 EXACT TABULAR STYLES */
+        .heatmap-container { background: #161b22; border-radius: 8px; padding: 20px; border: 1px solid #30363d; width: 100%; }
+        .tabular-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .tabular-table th { background: #21262d; color: #8b949e; padding: 12px; text-align: center; border: 1px solid #30363d; font-weight: 600; text-transform: uppercase; font-size: 12px; }
+        .tabular-table td { padding: 12px; text-align: center; border: 1px solid #30363d; }
+        .tabular-table .ticker { font-weight: bold; background: #21262d; text-align: left; width: 100px; }
+        .tabular-table .price { background: #0d1117; font-family: 'Monaco', monospace; }
+        .tabular-table td.perf { font-weight: 600; font-family: 'Monaco', monospace; color: white; text-shadow: 0px 0px 2px rgba(0,0,0,0.5); }
+        
+        .heat-up-3 { background: #238636; }
+        .heat-up-2 { background: #2ea043; }
+        .heat-up-1 { background: #3fb950; color: #0d1117 !important; text-shadow: none !important; }
+        .heat-neutral { background: #30363d; }
+        .heat-down-1 { background: #da3633; }
+        .heat-down-2 { background: #b62324; }
+        .heat-down-3 { background: #8e1519; }
+        
+        .pair-link { color: #58a6ff; text-decoration: none; cursor: pointer; }
+        .pair-link:hover { text-decoration: underline; }
+        
+        /* Signal Tooltip - positioned left to avoid cutoff */
+        .signal-cell { position: relative; cursor: help; }
+        .signal-tooltip { 
+            display: none; 
+            position: absolute; 
+            right: 100%;
+            top: 50%;
+            transform: translateY(-50%);
+            margin-right: 10px;
+            background: #21262d; 
+            border: 1px solid #30363d; 
+            border-radius: 6px; 
+            padding: 12px; 
+            font-size: 12px; 
+            z-index: 100; 
+            min-width: 200px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            color: #e6edf3;
+        }
+        .signal-cell:hover .signal-tooltip { display: block; }
+        .signal-tooltip .tooltip-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .signal-tooltip .tooltip-label { color: #8b949e; }
+        .signal-tooltip .tooltip-value { font-weight: bold; font-family: monospace; }
+        .signal-tooltip .tooltip-title { font-weight: bold; margin-bottom: 8px; color: #d4af37; border-bottom: 1px solid #30363d; padding-bottom: 4px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1>🛠️ Alpha Terminal</h1>
+            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+        </div>
+        <div class="nav">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="omon.html">OMON</a>
+            <a href="ratio.html" class="active">Ratio Analysis</a>
+            <a href="financials.html">Financial Analyzer</a>
+            <a href="estimates.html">Estimates</a>
+        </div>
+    </div>
+    
+    <div class="toolbar">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <label style="color:#8b949e;font-size:12px;">Watchlist:</label>
+            <select id="watchlistSelect" class="watchlist-select" onchange="loadFromWatchlist()">
+                <option value="">-- Select --</option>
+            </select>
+            <button class="btn" onclick="removeFromWatchlist()" style="padding: 6px 10px; background: #f85149;">-</button>
+        </div>
+        
+        <div style="margin-left: 24px; display: flex; gap: 8px; align-items: center;">
+            <label style="color:#8b949e;font-size:12px;">Pair:</label>
+            <input type="text" class="search" id="t1">
+            <span style="color:#8b949e;">/</span>
+            <input type="text" class="search" id="t2">
+            <button class="btn" onclick="fetchRatio()">Analyze</button>
+            <button class="btn" onclick="addToWatchlist()">+</button>
+        </div>
+        <button class="btn btn-heatmap" onclick="toggleHeatmap()" style="margin-left: auto;" id="heatmapBtn">Heatmap</button>
+    </div>
+    
+    <div class="omain">
+        <div id="heatmapSection" class="heatmap-container">
+            <table class="tabular-table">
+                <thead>
+                    <tr>
+                        <th style="text-align:left">Ticker</th>
+                        <th>Price</th>
+                        <th>1D</th>
+                        <th>1W</th>
+                        <th>1M</th>
+                        <th>3M</th>
+                        <th>YTD</th>
+                        <th>1Y</th>
+                        <th>Signal</th>
+                    </tr>
+                </thead>
+                <tbody id="heatmapBody">
+                    <tr><td colspan="9" style="padding:40px; color:#8b949e;">Loading watchlist matrix...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="detailSection" style="display: none;">
+            <div class="data-cards" id="dataCards">
+                <div class="data-card"><div class="label">Current Ratio</div><div class="value" id="currentRatio">--</div></div>
+                <div class="data-card"><div class="label">Change %</div><div class="value" id="changePct">--</div></div>
+                <div class="data-card"><div class="label">SMA(200)</div><div class="value" id="smaValue">--</div></div>
+                <div class="data-card"><div class="label">Signal</div><div class="value" id="signalValue">--</div></div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-tabs">
+                    <button class="chart-tab" onclick="setTimeframe('1M')">1M</button>
+                    <button class="chart-tab" onclick="setTimeframe('3M')">3M</button>
+                    <button class="chart-tab" onclick="setTimeframe('YTD')">YTD</button>
+                    <button class="chart-tab active" onclick="setTimeframe('1Y')">1Y</button>
+                    <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
+                </div>
+                <canvas id="ratioChart"></canvas>
+            </div>
+            <div class="sub-chart"><canvas id="rsiChart"></canvas></div>
+            <div class="sub-chart"><canvas id="macdChart"></canvas></div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let ratioChart = null, rsiChart = null, macdChart = null;
+        let timeframe = '1Y';
+        let watchlist = JSON.parse(localStorage.getItem('ratioWatchlist') || '[{"t1":"IBIT","t2":"SPY"},{"t1":"MAGS","t2":"SPY"},{"t1":"XLE","t2":"SPY"},{"t1":"TLT","t2":"SPY"},{"t1":"GLD","t2":"SPY"}]');
+
+        function toggleHeatmap() {
+            const h = document.getElementById('heatmapSection');
+            const d = document.getElementById('detailSection');
+            const b = document.getElementById('heatmapBtn');
+            if (h.style.display === 'none') {
+                h.style.display = 'block';
+                d.style.display = 'none';
+                b.textContent = 'Hide Heatmap';
+                document.getElementById('t1').value = '';
+                document.getElementById('t2').value = '';
+                loadHeatmap();
+            } else {
+                h.style.display = 'none';
+                b.textContent = 'Heatmap';
+            }
+        }
+
+        function showDetail(t1, t2) {
+            document.getElementById('t1').value = t1;
+            document.getElementById('t2').value = t2;
+            document.getElementById('heatmapSection').style.display = 'none';
+            document.getElementById('detailSection').style.display = 'block';
+            document.getElementById('heatmapBtn').textContent = 'Heatmap';
+            fetchRatio();
+        }
+
+        async function loadHeatmap() {
+            const body = document.getElementById('heatmapBody');
+            body.innerHTML = '';
+            for (const item of watchlist) {
+                const row = document.createElement('tr');
+                try {
+                    const res = await fetch(`/api/ratio?t1=${item.t1}&t2=${item.t2}&tf=5Y&sma=200`);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const data = await res.json();
+                    if (!data.ratio || data.ratio.length === 0) throw new Error('No ratio data');
+                    if (!data.rsi || data.rsi.length === 0) throw new Error('No RSI data');
+                    if (!data.sma || data.sma.length === 0) throw new Error('No SMA data');
+                    
+                    const curr = data.ratio[data.ratio.length - 1];
+                    const getRet = (d) => data.ratio.length > d ? ((curr - data.ratio[data.ratio.length-d])/data.ratio[data.ratio.length-d]*100).toFixed(1) : '0.0';
+                    
+                    const d1 = getRet(2), w1 = getRet(5), m1 = getRet(21), m3 = getRet(63), y1 = getRet(252);
+                    const dates = data.labels;
+                    const currentYear = new Date().getFullYear();
+                    const ytdIdx = dates.findIndex(d => d.startsWith(currentYear + '-01-01') || d.startsWith(currentYear));
+                    const ytd = ytdIdx !== -1 ? ((curr - data.ratio[ytdIdx]) / data.ratio[ytdIdx] * 100).toFixed(1) : '0.0';
+
+                    // Improved signal logic: consider RSI, trend (price vs SMA), and momentum
+                    const rsi = data.rsi[data.rsi.length - 1];
+                    const price = data.ratio[data.ratio.length - 1];
+                    const sma = data.sma[data.sma.length - 1];
+                    const y1Return = parseFloat(y1);
+                    
+                    let sig = 'HOLD';
+                    let sigReasons = [];
+                    if (rsi < 30) { sig = 'BUY'; sigReasons.push('RSI oversold'); }
+                    else if (rsi < 50 && price > sma) { sig = 'BUY'; sigReasons.push('Uptrend + low RSI'); }
+                    if (rsi > 70) { sig = 'SELL'; sigReasons.push('RSI overbought'); }
+                    else if (rsi > 50 && price < sma) { sig = 'SELL'; sigReasons.push('Downtrend'); }
+                    if (y1Return < -10) { sig = 'SELL'; sigReasons.push('Underperforming'); }
+                    if (sigReasons.length === 0) sigReasons.push('Neutral');
+                    const sigColor = sig === 'BUY' ? '#3fb950' : sig === 'SELL' ? '#f85149' : '';
+                    
+                    function getCls(val) {
+                        const v = parseFloat(val);
+                        if (v >= 2.0) return 'heat-up-3';
+                        if (v >= 1.0) return 'heat-up-2';
+                        if (v > 0) return 'heat-up-1';
+                        if (v <= -2.0) return 'heat-down-3';
+                        if (v <= -1.0) return 'heat-down-2';
+                        if (v < 0) return 'heat-down-1';
+                        return 'heat-neutral';
+                    }
+                    
+                    row.innerHTML = `
+                        <td class="ticker"><a class="pair-link" onclick="showDetail('${item.t1}','${item.t2}')">${item.t1}/${item.t2}</a></td>
+                        <td class="price">${curr.toFixed(4)}</td>
+                        <td class="perf ${getCls(d1)}">${d1}%</td>
+                        <td class="perf ${getCls(w1)}">${w1}%</td>
+                        <td class="perf ${getCls(m1)}">${m1}%</td>
+                        <td class="perf ${getCls(m3)}">${m3}%</td>
+                        <td class="perf ${getCls(ytd)}">${ytd}%</td>
+                        <td class="perf ${getCls(y1)}">${y1}%</td>
+                        <td class="signal-cell" style="font-weight:bold; color:${sigColor}">${sig}
+                            <div class="signal-tooltip">
+                                <div class="tooltip-title">Signal Logic</div>
+                                <div class="tooltip-row"><span class="tooltip-label">RSI(14):</span><span class="tooltip-value">${rsi.toFixed(1)}</span></div>
+                                <div class="tooltip-row"><span class="tooltip-label">Price vs SMA:</span><span class="tooltip-value">${price > sma ? '↑ Above' : '↓ Below'}</span></div>
+                                <div class="tooltip-row"><span class="tooltip-label">1Y Return:</span><span class="tooltip-value">${y1Return}%</span></div>
+                                <div class="tooltip-row"><span class="tooltip-label">Reason:</span><span class="tooltip-value">${sigReasons.join(', ')}</span></div>
+                            </div>
+                        </td>
+                    `;
+                } catch (e) { 
+                    console.error('Error loading ' + item.t1 + '/' + item.t2 + ':', e);
+                    row.innerHTML = `<td class="ticker">${item.t1}/${item.t2}</td><td colspan="8" style="color:#f85149;">Error: ${e.message}</td>`; 
+                }
+                body.appendChild(row);
+            }
+        }
+
+        async function fetchRatio() {
+            const t1 = document.getElementById('t1').value.toUpperCase(), t2 = document.getElementById('t2').value.toUpperCase();
+            if (!t1 || !t2) return;
+            
+            document.getElementById('heatmapSection').style.display = 'none';
+            document.getElementById('detailSection').style.display = 'block';
+            document.getElementById('heatmapBtn').textContent = 'Heatmap';
+            
+            try {
+                const res = await fetch(`/api/ratio?t1=${t1}&t2=${t2}&tf=${timeframe}&sma=200`);
+                const data = await res.json();
+                if (data.ratio) {
+                    const curr = data.ratio[data.ratio.length - 1];
+                    const prev = data.ratio[0];
+                    const change = ((curr - prev) / prev * 100).toFixed(2);
+                    document.getElementById('currentRatio').textContent = curr.toFixed(4);
+                    document.getElementById('changePct').textContent = (change > 0 ? '+' : '') + change + '%';
+                    document.getElementById('changePct').className = 'value ' + (change >= 0 ? 'up' : 'down');
+                    const smaVal = data.sma[data.sma.length - 1];
+                    document.getElementById('smaValue').textContent = smaVal ? smaVal.toFixed(4) : '--';
+                    document.getElementById('smaValue').className = 'value ' + (curr > smaVal ? 'up' : 'down');
+                    const rsi = data.rsi[data.rsi.length - 1];
+                    const signal = rsi < 30 ? 'OVERSOLD' : rsi > 70 ? 'OVERBOUGHT' : 'NEUTRAL';
+                    document.getElementById('signalValue').textContent = signal;
+                    document.getElementById('signalValue').className = 'value ' + (signal === 'OVERSOLD' ? 'up' : signal === 'OVERBOUGHT' ? 'down' : '');
+                    
+                    renderCharts(data, t1, t2);
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function renderCharts(data, t1, t2) {
+            const ctxR = document.getElementById('ratioChart').getContext('2d');
+            const ctxRSI = document.getElementById('rsiChart').getContext('2d');
+            const ctxMACD = document.getElementById('macdChart').getContext('2d');
+            if (ratioChart) ratioChart.destroy();
+            if (rsiChart) rsiChart.destroy();
+            if (macdChart) macdChart.destroy();
+
+            const crosshairPlugin = {
+                id: 'crosshair',
+                afterDraw: chart => {
+                    if (chart.tooltip && chart.tooltip._active && chart.tooltip._active.length) {
+                        const activePoint = chart.tooltip._active[0];
+                        const ctx = chart.ctx;
+                        const x = activePoint.element.x;
+                        const topY = chart.scales.y.top;
+                        const bottomY = chart.scales.y.bottom;
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.moveTo(x, topY);
+                        ctx.lineTo(x, bottomY);
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = '#8b949e';
+                        ctx.setLineDash([4, 4]);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            };
+
+            ratioChart = new Chart(ctxR, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        { label: `${t1}/${t2}`, data: data.ratio, borderColor: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.1)', fill: true, pointRadius: 0, tension: 0.1 },
+                        { label: 'SMA(200)', data: data.sma, borderColor: '#f0883e', borderDash: [5, 5], borderWidth: 1, pointRadius: 0 },
+                        { label: 'BB Upper', data: data.upper, borderColor: '#58a6ff', borderDash: [2, 2], borderWidth: 1, pointRadius: 0 },
+                        { label: 'BB Lower', data: data.lower, borderColor: '#58a6ff', borderDash: [2, 2], borderWidth: 1, pointRadius: 0 }
+                    ]
+                },
+                plugins: [crosshairPlugin],
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8b949e' } }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { ticks: { display: false } }, y: { position: 'right', grid: { color: '#30363d' } } } }
+            });
+
+            rsiChart = new Chart(ctxRSI, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [{ label: 'RSI(14)', data: data.rsi, borderColor: '#a371f7', backgroundColor: 'rgba(163, 113, 247, 0.1)', fill: true, pointRadius: 0 }]
+                },
+                plugins: [crosshairPlugin],
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, title: { display: true, text: 'RSI (14)', color: '#8b949e' }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { ticks: { display: false } }, y: { min: 0, max: 100, position: 'right', grid: { color: '#30363d' } } } }
+            });
+
+            macdChart = new Chart(ctxMACD, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        { label: 'MACD', data: data.macd, type: 'line', borderColor: '#58a6ff', pointRadius: 0, borderWidth: 1 },
+                        { label: 'Signal', data: data.macd_signal, type: 'line', borderColor: '#f0883e', pointRadius: 0, borderWidth: 1 },
+                        { label: 'Histogram', data: data.macd_hist, backgroundColor: data.macd_hist.map(v => v >= 0 ? '#3fb950' : '#f85149') }
+                    ]
+                },
+                plugins: [crosshairPlugin],
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, title: { display: true, text: 'MACD (12, 26, 9)', color: '#8b949e' }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { ticks: { display: false } }, y: { position: 'right', grid: { color: '#30363d' } } } }
+            });
+        }
+
+        function setTimeframe(tf) {
+            timeframe = tf;
+            document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
+            const activeBtn = Array.from(document.querySelectorAll('.chart-tab')).find(b => b.textContent === tf);
+            if (activeBtn) activeBtn.classList.add('active');
+            fetchRatio();
+        }
+
+        function loadFromWatchlist() {
+            const pair = document.getElementById('watchlistSelect').value;
+            if (pair) { const [t1, t2] = pair.split('/'); showDetail(t1, t2); }
+        }
+
+        function addToWatchlist() {
+            const t1 = document.getElementById('t1').value.toUpperCase(), t2 = document.getElementById('t2').value.toUpperCase();
+            if (t1 && t2 && !watchlist.some(w => w.t1 === t1 && w.t2 === t2)) {
+                watchlist.push({t1, t2}); watchlist.sort((a,b)=>a.t1.localeCompare(b.t1));
+                localStorage.setItem('ratioWatchlist', JSON.stringify(watchlist));
+                renderWatchlistSelect(); loadHeatmap();
+            }
+        }
+
+        function removeFromWatchlist() {
+            const pair = document.getElementById('watchlistSelect').value;
+            if (pair) {
+                const [t1, t2] = pair.split('/');
+                watchlist = watchlist.filter(w => !(w.t1 === t1 && w.t2 === t2));
+                localStorage.setItem('ratioWatchlist', JSON.stringify(watchlist));
+                renderWatchlistSelect(); loadHeatmap();
+            }
+        }
+
+        function renderWatchlistSelect() {
+            const s = document.getElementById('watchlistSelect');
+            s.innerHTML = '<option value="">-- Select --</option>' + watchlist.map(i => `<option value="${i.t1}/${i.t2}">${i.t1}/${i.t2}</option>`).join('');
+        }
+
+        window.onload = () => { renderWatchlistSelect(); loadHeatmap(); };
+        setInterval(() => { document.getElementById('time').textContent = new Date().toLocaleTimeString(); }, 1000);
+    </script>
+</body>
+</html>
