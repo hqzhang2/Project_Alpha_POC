@@ -21,19 +21,17 @@ function switchView(view) {
 
 async function loadData() {
     try {
-        // Fetch watchlist from local storage or use defaults
-        let watchlist = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'SPY', 'QQQ'];
+        // Default to Asset Class ETFs
+        let watchlist = ['AGG', 'TLT', 'SPY', 'IBIT', 'DBC', 'GLD', 'EEM', 'FXI', 'IJH', 'IWM', 'QQQ', 'VEA'];
         try {
             if (localStorage.getItem('watchlist')) {
-                watchlist = JSON.parse(localStorage.getItem('watchlist'));
+                const stored = JSON.parse(localStorage.getItem('watchlist'));
+                if (stored && stored.length > 0) watchlist = [...new Set([...watchlist, ...stored])];
             }
         } catch(e) {}
         
-        // Core Sector ETFs
-        const sectors = ["XLK", "XLF", "XLV", "XLE", "XLP", "XLI", "XLC", "XLB", "XLU", "XLRE", "XLY"];
-        
         // Combine, upper, deduplicate
-        const tickersArray = [...new Set([...watchlist, ...sectors].map(t => t.toUpperCase()))];
+        const tickersArray = [...new Set(watchlist.map(t => t.toUpperCase()))];
         const tickers = tickersArray.join(',');
         
         const res = await fetch(`/api/quotes?tickers=${tickers}`);
