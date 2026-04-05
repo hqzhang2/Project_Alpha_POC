@@ -71,11 +71,19 @@ function renderData() {
 
 // Generates a hex intensity color from Red to Green
 function getIntensityColorHex(value) {
-    if (value > 2.0) return '#3fb950'; // Bright Green
-    if (value > 0.0) return '#238636'; // Dark Green
-    if (value < -2.0) return '#ff7b72'; // Bright Red
-    if (value < 0.0) return '#da3633'; // Dark Red
-    return '#30363d'; // Neutral Grey
+    if (value === 0.0 || Math.abs(value) < 0.1) return '#30363d'; // Neutral Grey (around 0)
+    
+    if (value > 0.0) {
+        if (value >= 10.0) return '#0d4a1b'; // Deep Dark Green
+        if (value >= 5.0) return '#1a752b';  // Dark Green
+        if (value >= 2.0) return '#238636';  // Medium Green
+        return '#3fb950';                    // Light Green (0.1 to 2.0)
+    } else {
+        if (value <= -10.0) return '#8a1c1a'; // Deep Dark Red
+        if (value <= -5.0) return '#b52522';  // Dark Red
+        if (value <= -2.0) return '#da3633';  // Medium Red
+        return '#ff7b72';                     // Light Red (-0.1 to -2.0)
+    }
 }
 
 function renderTreemap() {
