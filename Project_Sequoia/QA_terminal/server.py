@@ -113,8 +113,9 @@ class Handler(SimpleHTTPRequestHandler):
                         if hasattr(tick, 'funds_data') and tick.funds_data.top_holdings is not None:
                             holdings = tick.funds_data.top_holdings.head(limit)
                             holdings_dict = {}
-                            for symbol, weight in holdings.items():
-                                holdings_dict[str(symbol)] = float(weight)
+                            if 'Holding Percent' in holdings.columns:
+                                for symbol, weight in holdings['Holding Percent'].items():
+                                    holdings_dict[str(symbol)] = float(weight)
                             return self.send_json({'ticker': ticker, 'holdings': holdings_dict})
                         else:
                             return self.send_json({'error': f'No fund holdings data found for {ticker}'})
