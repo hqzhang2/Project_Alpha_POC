@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal - Heatmap POCs</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+        
+        .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+        .tab { background: #161b22; border: 1px solid #30363d; color: #8b949e; padding: 10px 20px; cursor: pointer; border-radius: 6px; font-size: 14px; font-weight: 500; }
+        .tab:hover { background: #21262d; }
+        .tab.active { background: #238636; color: white; border-color: #2ea043; }
+        
+        .view-container { background: #161b22; border-radius: 8px; padding: 20px; border: 1px solid #30363d; min-height: 600px; display: none; }
+        .view-container.active { display: block; }
+        
+        /* Tabular Styles */
+        .tabular-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .tabular-table th { background: #21262d; color: #8b949e; padding: 12px; text-align: center; border: 1px solid #30363d; font-weight: 600; text-transform: uppercase; font-size: 12px; }
+        .tabular-table td { padding: 12px; text-align: center; border: 1px solid #30363d; }
+        .tabular-table .ticker { font-weight: bold; background: #21262d; text-align: left; width: 100px; }
+        .tabular-table .price { background: #0d1117; font-family: 'Monaco', monospace; }
+        .tabular-table td.perf { font-weight: 600; font-family: 'Monaco', monospace; color: white; text-shadow: 0px 0px 2px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1>🛠️ Alpha Terminal</h1>
+            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
+        </div>
+        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="omon.html">OMON</a>
+            <a href="screener.html">Option Screener</a>
+            <a href="ratio.html">Ratio Analysis</a>
+            <a href="financials.html">Financial Analyzer</a>
+            <a href="estimates.html">Earnings Estimates</a>
+            <a href="heatmap.html" class="active" style="background: #21262d; color: #e6edf3; padding: 8px 16px; border-radius: 6px;">Heatmap</a>
+        </div>
+    </div>
+    
+    <div class="omain">
+        <p style="color: #8b949e; font-size: 14px;">These prototypes combine your Watchlist symbols with the core S&P 500 Sector ETFs for a full market overview.</p>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="switchView('treemap')">POC 1: Treemap (Size = Mkt Cap, Color = 1D %)</button>
+            <button class="tab" onclick="switchView('tabular')">POC 2: Tabular Matrix (Multi-Timeframe)</button>
+        </div>
+        
+        <div id="treemapView" class="view-container active">
+            <div id="treemapChart" style="height: 600px; position: relative;">
+            </div>
+        </div>
+        
+        <div id="tabularView" class="view-container">
+            <div id="tabularContainer"></div>
+        </div>
+    </div>
+
+    <!-- Chart.js and ApexCharts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="heatmap.js"></script>
+</body>
+</html>
