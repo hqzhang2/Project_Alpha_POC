@@ -22,16 +22,9 @@ function switchView(view) {
 async function loadData() {
     try {
         // Default to Asset Class ETFs
-        let watchlist = ['AGG', 'TLT', 'SPY', 'IBIT', 'DBC', 'GLD', 'EEM', 'FXI', 'IJH', 'IWM', 'QQQ', 'VEA'];
-        try {
-            if (localStorage.getItem('watchlist')) {
-                const stored = JSON.parse(localStorage.getItem('watchlist'));
-                if (stored && stored.length > 0) watchlist = [...new Set([...watchlist, ...stored])];
-            }
-        } catch(e) {}
+        const tickersArray = ['AGG', 'TLT', 'SPY', 'IBIT', 'DBC', 'GLD', 'EEM', 'FXI', 'IJH', 'IWM', 'QQQ', 'VEA'];
         
-        // Combine, upper, deduplicate
-        const tickersArray = [...new Set(watchlist.map(t => t.toUpperCase()))];
+        // Convert to comma-separated string
         const tickers = tickersArray.join(',');
         
         const res = await fetch(`/api/quotes?tickers=${tickers}`);
