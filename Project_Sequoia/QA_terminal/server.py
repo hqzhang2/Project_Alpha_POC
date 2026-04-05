@@ -117,9 +117,9 @@ class Handler(SimpleHTTPRequestHandler):
                                 holdings_dict[str(symbol)] = float(weight)
                             return self.send_json({'ticker': ticker, 'holdings': holdings_dict})
                         else:
-                            return self.send_json({'error': f'No fund holdings data found for {ticker}'}, status=404)
+                            return self.send_json({'error': f'No fund holdings data found for {ticker}'})
                     except Exception as e:
-                        return self.send_json({'error': str(e)}, status=500)
+                        return self.send_json({'error': str(e)})
                 if path == '/api/quotes':
                     from quotes import get_quotes
                     return self.send_json(get_quotes(qs.get('tickers', ['SPY'])[0].split(',')))
