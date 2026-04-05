@@ -8,6 +8,19 @@ let currentView = 'treemap';
 let treemapInstance = null;
 let quotesData = {};
 
+let currentPeriod = '1D';
+
+function switchPeriod(period) {
+    currentPeriod = period;
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Only re-render treemap since tabular already shows all periods
+    if (currentView === 'treemap') {
+        renderTreemap();
+    }
+}
+
 function switchView(view) {
     currentView = view;
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -66,7 +79,13 @@ function renderTreemap() {
         if (!size && q.volume && q.price) size = q.volume * q.price * 10; // Scale ETF size up a bit for visibility
         if (!size) size = 1e9; // Base 1B if data completely missing
         
-        let perf = q.change_pct || q.ret_1d || 0;
+        let perf = 0;
+        if (currentPeriod === '1D') perf = q.change_pct || q.ret_1d || 0;
+        else if (currentPeriod === '1W') perf = q.ret_1w || 0;
+        else if (currentPeriod === '1M') perf = q.ret_1m || 0;
+        else if (currentPeriod === '3M') perf = q.ret_3m || 0;
+        else if (currentPeriod === 'YTD') perf = q.ret_ytd || 0;
+        else if (currentPeriod === '1Y') perf = q.ret_1y || 0;
         
         chartData.push({
             x: `${q.ticker}\n${perf > 0 ? '+' : ''}${perf.toFixed(2)}%`,

@@ -53,11 +53,19 @@
         <p style="color: #8b949e; font-size: 14px;">Market overview across core Asset Class ETFs and your Watchlist.</p>
         
         <div class="tabs">
-            <button class="tab active" onclick="switchView('treemap')">POC 1: Treemap (Size = Mkt Cap, Color = 1D %)</button>
+            <button class="tab active" onclick="switchView('treemap')">POC 1: Treemap</button>
             <button class="tab" onclick="switchView('tabular')">POC 2: Tabular Matrix (Multi-Timeframe)</button>
         </div>
         
         <div id="treemapView" class="view-container active">
+            <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                <button class="tab period-btn active" onclick="switchPeriod('1D')">1D</button>
+                <button class="tab period-btn" onclick="switchPeriod('1W')">1W</button>
+                <button class="tab period-btn" onclick="switchPeriod('1M')">1M</button>
+                <button class="tab period-btn" onclick="switchPeriod('3M')">3M</button>
+                <button class="tab period-btn" onclick="switchPeriod('YTD')">YTD</button>
+                <button class="tab period-btn" onclick="switchPeriod('1Y')">1Y</button>
+            </div>
             <div id="treemapChart" style="height: 600px; position: relative;">
             </div>
         </div>
