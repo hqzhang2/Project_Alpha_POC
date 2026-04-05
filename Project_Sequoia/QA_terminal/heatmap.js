@@ -71,7 +71,7 @@ function renderData() {
 
 // Generates a hex intensity color from Red to Green
 function getIntensityColorHex(value) {
-    if (value === 0.0 || Math.abs(value) < 0.1) return '#30363d'; // Neutral Grey (around 0)
+    if (value === 0.0 || Math.abs(value) < 0.1) return '#3fb950'; // Lightest Green (around 0)
     
     if (value > 0.0) {
         if (value >= 10.0) return '#0d4a1b'; // Deep Dark Green
