@@ -17,7 +17,8 @@ try:
 except ImportError:
     class ConfigMock:
         DEFAULT_PORT = 9098
-        HOST = 'localhost'
+        QA_PORT = 9099
+        HOST = '0.0.0.0'
         TIMEFRAME_MAP = {'1D': '5d', '1W': '1mo', '1M': '3mo', '3M': '6mo', 'YTD': 'ytd', '1Y': '1y', '5Y': '5y'}
     config = ConfigMock()
     def calculate_rsi(x): return [0]*len(x)
@@ -33,18 +34,61 @@ except ImportError:
 
 def clean_dict(d):
     if not isinstance(d, dict): return d
-    return {k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v) for k, v in d.items()}
+    result = {}
+    for k, v in d.items():
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            result[k] = None
+        elif isinstance(v, list):
+            result[k] = [None if isinstance(x, float) and (math.isnan(x) or math.isinf(x)) else x for x in v]
+        else:
+            result[k] = v
+    return result
 
 class ChartDataProcessor:
     @staticmethod
     def get_1d_chart(ticker):
         try:
             t = yf.Ticker(ticker)
-            data = t.history(period='1d', interval='1m')
-            if data.empty: data = t.history(period='5d', interval='1m').tail(390)
-            if not data.empty: data = data.between_time('09:30', '16:00')
-            return {'labels': [x.strftime('%H:%M') for x in data.index], 'prices': data['Close'].tolist(), 'volumes': data['Volume'].tolist(), 'prev_close': t.info.get('previousClose'), 'ticker': ticker}
-        except Exception as e: return {'labels': [], 'prices': [], 'error': str(e)}
+            # Fetch 5 days of 1-min data to ensure we have full session
+            data = t.history(period='5d', interval='1m')
+            if data.empty:
+                return {'labels': [], 'prices': [], 'error': 'No data'}
+            
+            # Filter to today's market hours (09:30-16:00)
+            import datetime
+            today = datetime.datetime.now().date()
+            data = data[data.index.date == today]
+            if not data.empty:
+                data = data.between_time('09:30', '16:00')
+            
+            # Generate full time axis from 09:30 to 16:00 (390 minutes)
+            full_labels = []
+            base_time = datetime.datetime.strptime(f"{today} 09:30", "%Y-%m-%d %H:%M")
+            for i in range(391):
+                full_labels.append(base_time.strftime('%H:%M'))
+                base_time += datetime.timedelta(minutes=1)
+            
+            # Pad prices with nulls to match full axis
+            prices = data['Close'].tolist() if not data.empty else []
+            volumes = data['Volume'].tolist() if not data.empty else []
+            
+            # If we have partial data, pad with nulls to fill the day
+            if len(prices) < 391:
+                prices = prices + [None] * (391 - len(prices))
+                volumes = volumes + [None] * (391 - len(volumes))
+            elif len(prices) > 391:
+                prices = prices[:391]
+                volumes = volumes[:391]
+            
+            return {
+                'labels': full_labels,
+                'prices': prices,
+                'volumes': volumes,
+                'prev_close': t.info.get('previousClose'),
+                'ticker': ticker
+            }
+        except Exception as e:
+            return {'labels': [], 'prices': [], 'error': str(e)}
 
     @staticmethod
     def get_historical_chart(ticker, tf):
@@ -60,9 +104,33 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path.startswith('/api/'):
             try:
+                if path == '/api/etf-holdings':
+                    ticker = qs.get('ticker', ['SPY'])[0].upper()
+                    limit = int(qs.get('limit', ['50'])[0])
+                    try:
+                        import yfinance as yf
+                        tick = yf.Ticker(ticker)
+                        if hasattr(tick, 'funds_data') and tick.funds_data.top_holdings is not None:
+                            holdings = tick.funds_data.top_holdings.head(limit)
+                            holdings_dict = {}
+                            if 'Holding Percent' in holdings.columns:
+                                for symbol, weight in holdings['Holding Percent'].items():
+                                    holdings_dict[str(symbol)] = float(weight)
+                            return self.send_json({'ticker': ticker, 'holdings': holdings_dict})
+                        else:
+                            return self.send_json({'error': f'No fund holdings data found for {ticker}'})
+                    except Exception as e:
+                        return self.send_json({'error': str(e)})
                 if path == '/api/quotes':
                     from quotes import get_quotes
                     return self.send_json(get_quotes(qs.get('tickers', ['SPY'])[0].split(',')))
+                if path == '/api/news/top':
+                    import news
+                    cat = qs.get('cat', ['general'])[0]
+                    return self.send_json(news.get_top_news(cat))
+                if path == '/api/news/cn':
+                    import news
+                    return self.send_json(news.get_cn_news())
                 if path == '/api/options':
                     import options
                     return self.send_json(options.get_options_chain(qs.get('ticker', ['SPY'])[0], qs.get('expiry', [None])[0], use_cache=False))
@@ -157,7 +225,7 @@ class Handler(SimpleHTTPRequestHandler):
             if df.index.tz: start_date = start_date.tz_localize(df.index.tz)
             display_df = df[df.index >= start_date]
         else: display_df = df.tail(days if isinstance(days, int) else 365)
-        return {
+        result = {
             'labels': [x.strftime('%Y-%m-%d') for x in display_df.index],
             'ratio': display_df['ratio'].tolist(),
             'sma': display_df['sma'].tolist(),
@@ -169,6 +237,7 @@ class Handler(SimpleHTTPRequestHandler):
             'lower': display_df['lower'].tolist(),
             't1_name': t1, 't2_name': t2
         }
+        return clean_dict(result)
 
     def send_json(self, data, error=None):
         self.send_response(500 if error else 200)
@@ -177,9 +246,11 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(clean_dict(data) if not error else {'error': str(error)}, cls=SafeJSONEncoder).encode())
 
-def run(port=9098):
+def run(port=None):
+    if port is None:
+        port = int(os.environ.get('PORT', getattr(config, 'DEFAULT_PORT', 9098)))
     server = HTTPServer(('0.0.0.0', port), Handler)
-    print(f'Alpha Terminal: http://localhost:{port}')
+    print(f'Alpha Terminal ({os.environ.get("ENV", "PROD")}): http://localhost:{port}')
     server.serve_forever()
 
 if __name__ == '__main__':

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>News Monitor | Alpha Terminal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-dark.min.css">
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header-container { border-bottom: 1px solid #30363d; padding-bottom: 20px; margin-bottom: 20px; }
+        
+        .panel {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 16px;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 12px;
+            margin-bottom: 0px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        
+        .tabs {
+            display: flex;
+            background: #0d1117;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            overflow: hidden;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #8b949e;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s, color 0.2s;
+        }
+        
+        .tab:hover:not(.active) {
+            background: #1c2128;
+            color: #c9d1d9;
+        }
+
+        .tab.active {
+            background: #30363d; 
+            color: #ffffff;
+        }
+
+        .news-item {
+            border-bottom: 1px solid #21262d;
+            padding: 10px 0;
+            transition: background 0.2s;
+        }
+        .news-item:first-child {
+            padding-top: 4px;
+        }
+        .news-item:hover {
+            background: #21262d;
+            border-radius: 6px;
+            padding: 10px 8px;
+            margin: 0 -8px;
+        }
+        .news-item:last-child {
+            border-bottom: none;
+        }
+
+        .news-title-row {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 4px;
+        }
+
+        .news-time { 
+            font-size: 14px; 
+            color: #8b949e; 
+            white-space: nowrap;
+            width: 72px; /* Fixed width for consistent alignment */
+            flex-shrink: 0;
+            text-align: right;
+        }
+        .news-title { 
+            font-size: 16px; 
+            color: #e6edf3; 
+            line-height: 1.3;
+            font-weight: 600;
+        }
+        .news-summary {
+            font-size: 15px;
+            color: #8b949e;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-left: 84px; /* 72px width + 12px gap = perfectly aligned with the headline start */
+            text-align: left;
+        }
+        
+        .ticker-badge {
+            background: #238636;
+            color: #ffffff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 6px;
+            white-space: nowrap;
+        }
+
+        a.news-link { text-decoration: none; color: inherit; display: block; }
+        a.news-link:hover .news-title { color: #58a6ff; }
+        .loading { text-align: center; color: #8b949e; padding: 20px; font-style: italic; }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #30363d;
+        }
+        .page-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .page-btn:hover:not(:disabled) {
+            background: #30363d;
+            border-color: #8b949e;
+        }
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .page-info {
+            color: #8b949e;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-container" id="header-container"></div>
+        
+        <div class="panel">
+            <div class="panel-header">
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('headline')">Headline</div>
+                    <div class="tab" onclick="switchTab('economics')">Economics</div>
+                    <div class="tab" onclick="switchTab('markets')">Markets</div>
+                    <div class="tab" onclick="switchTab('technologies')">Technologies</div>
+                    <div class="tab" onclick="switchTab('ma')">M&A</div>
+                    <div class="tab" onclick="switchTab('cn')">Company News</div>
+                </div>
+                <div id="ticker-filter-container" style="display: none; align-items: center; gap: 8px;">
+                    <label style="font-size: 13px; color: #8b949e;">Filter:</label>
+                    <input type="text" id="ticker-filter" placeholder="Ticker (e.g. AAPL)" 
+                        style="background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 4px 8px; border-radius: 4px; font-size: 13px; width: 120px;">
+                </div>
+                <div style="font-size: 12px; color:#8b949e;" id="current-count">Loading...</div>
+            </div>
+
+            <div id="news-list" class="loading">Fetching news...</div>
+            
+            <div class="pagination">
+                <button class="page-btn" id="prev-btn" onclick="changePage(-1)" disabled>Previous</button>
+                <span class="page-info" id="page-info">Page 1</span>
+                <button class="page-btn" id="next-btn" onclick="changePage(1)" disabled>Next</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load header
+        fetch('header.html').then(r => r.text()).then(h => {
+            document.getElementById('header-container').innerHTML = h;
+            const scripts = document.getElementById('header-container').getElementsByTagName('script');
+            for (let i = 0; i < scripts.length; i++) {
+                eval(scripts[i].innerText);
+            }
+        });
+
+        let currentData = [];
+        let currentPage = 1;
+        const itemsPerPage = 15; // Increased items per page for denser view
+        let activeTab = 'headline';
+
+        const keywords = {
+            'economics': ['fed ', 'federal reserve', 'inflation', 'cpi', 'gdp', 'rates', 'powell', 'economy', 'jobless', 'payrolls'],
+            'markets': ['stock', 'wall street', 'futures', 'dow', 'nasdaq', 's&p', 'bull market', 'bear market', 'rally'],
+            'technologies': ['tech ', 'software', 'ai', 'artificial intelligence', 'apple', 'microsoft', 'google', 'meta', 'nvidia', 'cyber', 'chip']
+        };
+
+        function switchTab(tabId) {
+            activeTab = tabId;
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Show/hide ticker filter
+            document.getElementById('ticker-filter-container').style.display = (tabId === 'cn') ? 'flex' : 'none';
+            
+            document.getElementById('news-list').innerHTML = '<div class="loading">Fetching news...</div>';
+            document.getElementById('current-count').textContent = 'Loading...';
+            
+            fetchDataForTab(tabId);
+        }
+
+        document.getElementById('ticker-filter').addEventListener('input', function(e) {
+            renderPage(); // Just re-render the current data with filter applied
+        });
+
+        function fetchDataForTab(tab) {
+            let url = `/api/news/top?cat=${tab}`;
+            if (tab === 'cn') url = '/api/news/cn';
+
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    currentData = data;
+                    currentPage = 1;
+                    renderPage();
+                })
+                .catch(err => {
+                    document.getElementById('news-list').innerHTML = `<div style="color: #f85149; padding: 20px;">Error: ${err.message}</div>`;
+                });
+        }
+
+        function formatTimeShort(unixTime) {
+            const date = new Date(unixTime * 1000);
+            return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            renderPage();
+        }
+
+        function renderPage() {
+            const container = document.getElementById('news-list');
+            
+            // Apply Ticker Filter if on Company News tab
+            let displayData = currentData;
+            const filterValue = document.getElementById('ticker-filter').value.trim().toUpperCase();
+            if (activeTab === 'cn' && filterValue) {
+                displayData = currentData.filter(item => 
+                    (item.ticker && item.ticker.toUpperCase() === filterValue) ||
+                    (item.headline && item.headline.toUpperCase().includes(filterValue))
+                );
+            }
+
+            const totalItems = displayData.length;
+            document.getElementById('current-count').textContent = totalItems + ' items';
+
+            if (totalItems === 0) {
+                container.innerHTML = '<div class="loading">No news found for this filter.</div>';
+                document.getElementById('prev-btn').disabled = true;
+                document.getElementById('next-btn').disabled = true;
+                document.getElementById('page-info').textContent = 'Page 1 of 1';
+                return;
+            }
+
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+
+            document.getElementById('prev-btn').disabled = currentPage === 1;
+            document.getElementById('next-btn').disabled = currentPage === totalPages;
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+
+            const startIdx = (currentPage - 1) * itemsPerPage;
+            const pageData = displayData.slice(startIdx, startIdx + itemsPerPage);
+
+            let html = '';
+            pageData.forEach(item => {
+                let badgeHtml = '';
+                if (activeTab === 'cn' && item.ticker) {
+                    badgeHtml = `<span class="ticker-badge">${item.ticker}</span>`;
+                } else if (item.related) {
+                    const rel = item.related.split(',')[0];
+                    if (rel) badgeHtml = `<span class="ticker-badge" style="background:#1f6feb;">${rel}</span>`;
+                }
+
+                html += `
+                    <a href="${item.url}" target="_blank" class="news-link">
+                        <div class="news-item">
+                            <div class="news-title-row">
+                                <span class="news-time">${formatTimeShort(item.datetime)}</span>
+                                <span class="news-title">${badgeHtml}${item.headline}</span>
+                            </div>
+                            <div class="news-summary">${item.summary}</div>
+                        </div>
+                    </a>
+                `;
+            });
+            container.innerHTML = html;
+            window.scrollTo(0, 0);
+        }
+
+        fetchDataForTab('headline');
+        
+        setInterval(() => {
+            fetchDataForTab(activeTab);
+        }, 300000);
+    </script>
+</body>
+</html>
