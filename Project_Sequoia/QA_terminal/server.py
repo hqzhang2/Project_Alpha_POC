@@ -124,6 +124,13 @@ class Handler(SimpleHTTPRequestHandler):
                 if path == '/api/quotes':
                     from quotes import get_quotes
                     return self.send_json(get_quotes(qs.get('tickers', ['SPY'])[0].split(',')))
+                if path == '/api/news/top':
+                    import news
+                    cat = qs.get('cat', ['general'])[0]
+                    return self.send_json(news.get_top_news(cat))
+                if path == '/api/news/cn':
+                    import news
+                    return self.send_json(news.get_cn_news())
                 if path == '/api/options':
                     import options
                     return self.send_json(options.get_options_chain(qs.get('ticker', ['SPY'])[0], qs.get('expiry', [None])[0], use_cache=False))
