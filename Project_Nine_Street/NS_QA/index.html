@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nine Street Alpha | Institutional Terminal</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #000000;
+            --panel-bg: #121212;
+            --border-color: #333333;
+            --text-primary: #e0e0e0;
+            --text-secondary: #888888;
+            --accent-blue: #007acc;
+            --bullish-green: #00cc00;
+            --bearish-red: #cc0000;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-size: 11px;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            font-size: var(--font-size);
+            margin: 0;
+            padding: 4px;
+            display: grid;
+            grid-template-columns: 3fr 1fr;
+            grid-template-rows: 60px 1fr 220px;
+            gap: 4px;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background-color: #1a1a1a;
+            border-bottom: 1px solid var(--border-color);
+            padding: 4px 8px;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px;
+        }
+
+        /* Top Left: Controls */
+        .controls-panel {
+            grid-column: 1 / 2;
+            grid-row: 1 / 2;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 4px 8px;
+            gap: 5px;
+        }
+
+        .controls-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        /* Mid Left: Chart */
+        .chart-panel {
+            grid-column: 1 / 2;
+            grid-row: 2 / 3;
+        }
+
+        /* Bottom Left: Metrics & Logs */
+        .metrics-panel {
+            grid-column: 1 / 2;
+            grid-row: 3 / 4;
+            display: flex;
+            flex-direction: row;
+        }
+
+        /* Right: Tables (Portfolio/Watchlist) */
+        .right-panel {
+            grid-column: 2 / 3;
+            grid-row: 1 / 4;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+        
+        th, td {
+            padding: 2px 4px;
+            text-align: right;
+            border-bottom: 1px solid #222;
+            white-space: nowrap;
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: normal;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            background-color: var(--panel-bg);
+        }
+
+        th:first-child, td:first-child {
+            text-align: left;
+        }
+
+        tr:hover {
+            background-color: #1a1a1a;
+        }
+
+        .positive { color: var(--bullish-green); }
+        .negative { color: var(--bearish-red); }
+        .neutral { color: var(--text-secondary); }
+
+        /* Forms/Buttons */
+        select, button, input {
+            background-color: #000;
+            color: var(--text-primary);
+            border: 1px solid #444;
+            padding: 2px 6px;
+            font-size: 11px;
+            border-radius: 0;
+            outline: none;
+        }
+        
+        button {
+            cursor: pointer;
+            background-color: #222;
+        }
+        
+        button:hover {
+            background-color: #333;
+        }
+
+        .btn-primary {
+            background-color: #004488;
+            border-color: var(--accent-blue);
+        }
+
+        .btn-primary:hover {
+            background-color: #0055aa;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px;
+            padding: 4px;
+        }
+
+        .stat-box {
+            border: 1px solid #222;
+            padding: 4px;
+            text-align: center;
+        }
+        .stat-box .lbl { color: var(--text-secondary); font-size: 9px; text-transform: uppercase; }
+        .stat-box .val { font-size: 13px; font-weight: bold; margin-top: 2px; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-color); }
+        ::-webkit-scrollbar-thumb { background: #444; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body>
+
+    <!-- Controls (Top Left) -->
+    <div class="panel controls-panel">
+        <div class="controls-row">
+            <div style="font-weight: bold; color: var(--accent-blue); margin-right: 10px;">NINE STREET TERMINAL</div>
+            <label style="color: var(--text-secondary);">Strategy</label>
+            <select id="btStrategy">
+                <option value="hmm_regime">NS-Regime-1 (Global Macro)</option>
+                <option value="nsae_v1">NSAE v1</option>
+                <option value="sma_cross">SMA 50/100</option>
+            </select>
+            <label style="color: var(--text-secondary);">HMM States</label>
+            <input type="number" id="hmmStates" value="3" min="2" max="5" style="width: 40px;">
+            <label style="color: var(--text-secondary);">Target Vol (%)</label>
+            <input type="number" id="targetVol" value="15" min="5" max="30" style="width: 40px;">
+            <button class="btn-primary" onclick="loadBacktest()">RUN SIMULATION</button>
+            <div style="margin-left: auto; color: var(--text-secondary);" id="clock">--:--:--</div>
+        </div>
+        <div class="controls-row" style="color: var(--text-secondary); font-size: 10px;">
+            * Regimes: <span style="color: rgba(0, 204, 0, 0.2); font-weight: bold;">Bull</span> | <span style="color: rgba(136, 136, 136, 0.2); font-weight: bold;">Chop</span> | <span style="color: rgba(204, 0, 0, 0.2); font-weight: bold;">Bear</span>
+        </div>
+    </div>
+
+    <!-- Chart (Mid Left) -->
+    <div class="panel chart-panel">
+        <div class="panel-header">Cumulative Returns vs SPY & Regime Overlay</div>
+        <div class="panel-content" style="padding: 0; display: flex; align-items: center; justify-content: center; position: relative;">
+            <div id="btLoader" style="position: absolute; color: var(--accent-blue); z-index: 10; display: none;">Loading...</div>
+            <div id="btChart" style="width: 100%; height: 100%;"></div>
+        </div>
+    </div>
+
+    <!-- Metrics (Bottom Left) -->
+    <div class="panel metrics-panel">
+        <div style="flex: 1; border-right: 1px solid var(--border-color); display: flex; flex-direction: column;">
+            <div class="panel-header">Strategy vs Benchmark Analysis</div>
+            <div class="panel-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Strategy</th>
+                            <th>SPY</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Equity Curve End</td><td id="tblStratTotal">--%</td><td id="tblBenchTotal">--%</td></tr>
+                        <tr><td>CAGR</td><td id="tblStratCagr">--%</td><td id="tblBenchCagr">--%</td></tr>
+                        <tr><td>Max Drawdown</td><td id="tblStratDD" class="negative">--%</td><td id="tblBenchDD" class="negative">--%</td></tr>
+                        <tr><td>Win Rate</td><td id="tblStratWin">--%</td><td class="neutral">N/A</td></tr>
+                        <tr><td>Sharpe Ratio</td><td id="tblStratSharpe">--</td><td class="neutral">--</td></tr>
+                        <tr><td>Sortino Ratio</td><td id="tblStratSortino">--</td><td class="neutral">--</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column;">
+            <div class="panel-header">Live Market Signals (NSAE)</div>
+            <div class="panel-content">
+                <table>
+                    <thead><tr><th>Ticker</th><th>Signal</th><th>Close</th></tr></thead>
+                    <tbody id="nsaeBody"><tr><td colspan="3">Loading...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel (Portfolio & Options) -->
+    <div class="panel right-panel">
+        <div style="flex: 0 0 auto; border-bottom: 1px solid var(--border-color);">
+            <div class="panel-header">Paper Portfolio <button onclick="loadPortfolio()" style="padding:0 4px; font-size:9px;">REFRESH</button></div>
+            <div class="stat-grid">
+                <div class="stat-box"><div class="lbl">Total NAV</div><div class="val" id="pfNav">--</div></div>
+                <div class="stat-box"><div class="lbl">Cash</div><div class="val" id="pfCash">--</div></div>
+            </div>
+        </div>
+        
+        <div style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+            <div class="panel-header" style="border-top: none;">Equities</div>
+            <div class="panel-content">
+                <table>
+                    <thead><tr><th>Ticker</th><th>Shares</th><th>Entry</th><th>Price</th></tr></thead>
+                    <tbody id="pfEqBody"><tr><td colspan="4">Loading...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border-color);">
+            <div class="panel-header">Options</div>
+            <div class="panel-content">
+                <table>
+                    <thead><tr><th>Contract</th><th>Qty</th><th>Entry</th><th>Price</th></tr></thead>
+                    <tbody id="pfOptBody"><tr><td colspan="4">Loading...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function formatNum(n, d=2) { return n !== undefined && n !== null ? Number(n).toFixed(d) : '--'; }
+        function formatCur(n) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n); }
+        
+        setInterval(() => {
+            document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+        }, 1000);
+
+        async function loadPortfolio() {
+            try {
+                const res = await fetch('/api/portfolio');
+                const data = await res.json();
+                document.getElementById('pfNav').textContent = formatCur(data.account.total_nav);
+                document.getElementById('pfCash').textContent = formatCur(data.account.cash);
+                
+                const eqBody = document.getElementById('pfEqBody');
+                eqBody.innerHTML = '';
+                for (const [t, p] of Object.entries(data.positions.equities)) {
+                    eqBody.innerHTML += `<tr><td><strong>${t}</strong></td><td>${p.shares}</td><td>${formatCur(p.avg_price)}</td><td>${formatCur(p.avg_price)}</td></tr>`;
+                }
+                if(!eqBody.innerHTML) eqBody.innerHTML = '<tr><td colspan="4">No equities</td></tr>';
+                
+                const optBody = document.getElementById('pfOptBody');
+                optBody.innerHTML = '';
+                for (const [c, p] of Object.entries(data.positions.options)) {
+                    optBody.innerHTML += `<tr><td><strong>${c}</strong></td><td>${p.qty}</td><td>${formatCur(p.avg_price)}</td><td>${formatCur(p.avg_price)}</td></tr>`;
+                }
+                if(!optBody.innerHTML) optBody.innerHTML = '<tr><td colspan="4">No options</td></tr>';
+            } catch(e) { console.error(e); }
+        }
+
+        async function loadNSAE() {
+            try {
+                const res = await fetch('/api/nsae');
+                const data = await res.json();
+                const tbody = document.getElementById('nsaeBody');
+                tbody.innerHTML = '';
+                data.forEach(r => {
+                    const c = r.nsae_signal > 0 ? 'positive' : 'negative';
+                    tbody.innerHTML += `<tr><td><strong>${r.Ticker}</strong></td><td class="${c}">${formatNum(r.nsae_signal, 3)}</td><td>${formatNum(r.close)}</td></tr>`;
+                });
+            } catch(e) { console.error(e); }
+        }
+
+        async function loadBacktest() {
+            const strat = document.getElementById('btStrategy').value;
+            const hmmStates = document.getElementById('hmmStates').value;
+            const targetVol = document.getElementById('targetVol').value;
+            
+            document.getElementById('btChart').innerHTML = '';
+            document.getElementById('btLoader').style.display = 'block';
+            try {
+                const url = `/api/backtest?strategy=${strat}&hmm_states=${hmmStates}&target_vol=${targetVol}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                document.getElementById('tblStratTotal').textContent = formatNum(data.total_return_pct) + '%';
+                document.getElementById('tblBenchTotal').textContent = formatNum(data.benchmark_return_pct) + '%';
+                document.getElementById('tblStratCagr').textContent = formatNum(data.cagr_pct) + '%';
+                document.getElementById('tblBenchCagr').textContent = formatNum(data.benchmark_cagr_pct) + '%';
+                document.getElementById('tblStratDD').textContent = formatNum(data.max_drawdown_pct) + '%';
+                document.getElementById('tblBenchDD').textContent = formatNum(data.benchmark_max_dd_pct) + '%';
+                document.getElementById('tblStratWin').textContent = formatNum(data.win_rate_pct) + '%';
+                document.getElementById('tblStratSharpe').textContent = formatNum(data.sharpe_ratio);
+                document.getElementById('tblStratSortino').textContent = formatNum(data.sortino_ratio);
+
+                const trace1 = { x: data.curve.date, y: data.curve.portfolio, type: 'scatter', mode: 'lines', name: 'Strategy', line: {color: '#00aaff', width: 1.5} };
+                const trace2 = { x: data.curve.date, y: data.curve.benchmark, type: 'scatter', mode: 'lines', name: 'SPY', line: {color: '#555555', width: 1.5} };
+                
+                // Build shapes for regimes
+                const shapes = [];
+                if (data.regimes && data.regimes['SPY']) {
+                    const dates = data.curve.date;
+                    const regimes = data.regimes['SPY'];
+                    
+                    let currentRegime = null;
+                    let startX = null;
+                    
+                    for (let i = 0; i < dates.length; i++) {
+                        const d = dates[i];
+                        const r = regimes[d] || 0;
+                        
+                        if (r !== currentRegime) {
+                            if (currentRegime !== null) {
+                                // Close previous shape
+                                let color = 'rgba(136, 136, 136, 0.1)'; // chop
+                                if (currentRegime === 1) color = 'rgba(0, 204, 0, 0.15)'; // bull
+                                else if (currentRegime === -1) color = 'rgba(204, 0, 0, 0.15)'; // bear
+                                
+                                shapes.push({
+                                    type: 'rect',
+                                    xref: 'x', yref: 'paper',
+                                    x0: startX, x1: d,
+                                    y0: 0, y1: 1,
+                                    fillcolor: color,
+                                    line: { width: 0 },
+                                    layer: 'below'
+                                });
+                            }
+                            currentRegime = r;
+                            startX = d;
+                        }
+                    }
+                    
+                    if (currentRegime !== null && dates.length > 0) {
+                        let color = 'rgba(136, 136, 136, 0.1)';
+                        if (currentRegime === 1) color = 'rgba(0, 204, 0, 0.15)';
+                        else if (currentRegime === -1) color = 'rgba(204, 0, 0, 0.15)';
+                        shapes.push({
+                            type: 'rect',
+                            xref: 'x', yref: 'paper',
+                            x0: startX, x1: dates[dates.length - 1],
+                            y0: 0, y1: 1,
+                            fillcolor: color,
+                            line: { width: 0 },
+                            layer: 'below'
+                        });
+                    }
+                }
+                
+                const layout = {
+                    plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+                    font: { color: '#e0e0e0', size: 10 },
+                    margin: { l: 40, r: 10, t: 10, b: 30 },
+                    xaxis: { gridcolor: '#222' },
+                    yaxis: { gridcolor: '#222', tickformat: '.2f' },
+                    showlegend: true,
+                    legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)' },
+                    shapes: shapes
+                };
+                
+                document.getElementById('btLoader').style.display = 'none';
+                Plotly.newPlot('btChart', [trace1, trace2], layout, {responsive: true});
+            } catch(e) {
+                document.getElementById('btLoader').style.display = 'none';
+                console.error(e);
+            }
+        }
+
+        // Init
+        loadPortfolio();
+        loadNSAE();
+        loadBacktest();
+    </script>
+
+    <!-- Live Feed Widget -->
+    <div id="liveFeedWidget" style="position: fixed; bottom: 20px; right: 20px; width: 300px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 1000; overflow: hidden; display: flex; flex-direction: column;">
+        <div style="background: var(--bg-dark); padding: 10px; border-bottom: 1px solid var(--border); font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
+            <span>🔴 Live Feed</span>
+            <span id="feedStatus" style="font-size: 10px; color: var(--success);">Active</span>
+        </div>
+        <div id="feedContent" style="padding: 10px; max-height: 250px; overflow-y: auto; font-size: 12px; font-family: monospace;">
+            <div style="color: var(--text-muted);">Initializing live feed...</div>
+        </div>
+    </div>
+
+    <script>
+        function updateLiveFeed() {
+            fetch('/api/live_feed')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) return;
+                    
+                    let html = '<b>Live Prices:</b><br/>';
+                    data.prices.forEach(p => {
+                        let color = p.change >= 0 ? 'var(--success)' : 'var(--danger)';
+                        html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                            <span>${p.ticker}</span>
+                            <span style="color:${color}">${p.price} (${p.change > 0 ? '+' : ''}${p.change}%)</span>
+                        </div>`;
+                    });
+                    
+                    html += '<hr style="border-color:var(--border); margin:8px 0;"/>';
+                    html += '<b>System Events:</b><br/>';
+                    data.events.forEach(e => {
+                        html += `<div style="margin-bottom:4px; color:var(--text-muted);">[${e.time}] ${e.message}</div>`;
+                    });
+                    
+                    document.getElementById('feedContent').innerHTML = html;
+                    document.getElementById('feedStatus').innerText = 'Syncing...';
+                    setTimeout(() => { document.getElementById('feedStatus').innerText = 'Active'; }, 1000);
+                })
+                .catch(err => console.error('Feed error:', err));
+        }
+        
+        // Initial load and poll every 10 seconds
+        setTimeout(updateLiveFeed, 2000);
+        setInterval(updateLiveFeed, 10000);
+    </script>
+</body>
+
+</html>

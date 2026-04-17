@@ -1,0 +1,41 @@
+{
+  "account": {
+    "initial_balance": 500000.0,
+    "cash": 7701.64,
+    "total_nav": 500684.0,
+    "commissions_paid": 0.0,
+    "last_updated": "2026-04-17"
+  },
+  "positions": {
+    "equities": {
+      "DBC": {
+        "shares": 17176,
+        "entry_price": 29.11,
+        "current_price": 29.11,
+        "allocation_pct": 100.0,
+        "strategy": "NS-Regime-1",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      }
+    },
+    "options": {
+      "DBC260515C00031000": {
+        "contracts": -171,
+        "entry_price": 0.45,
+        "current_price": 0.41,
+        "type": "covered_call",
+        "underlying": "DBC",
+        "strike": 31.0,
+        "dte_at_entry": 27,
+        "pnl": 684.0,
+        "pnl_pct": 8.89
+      }
+    }
+  },
+  "history": [
+    {
+      "date": "2026-04-11",
+      "nav": 500000.0
+    }
+  ]
+}
