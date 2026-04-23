@@ -68,16 +68,24 @@ class TestNewsModule(unittest.TestCase):
     @patch('builtins.open', unittest.mock.mock_open(read_data='["AAPL", "TSLA"]'))
     @patch('os.path.exists', return_value=True)
     def test_get_cn_news(self, mock_exists, mock_get):
-        # Mock Finnhub company news
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = [{'headline': 'Apple News', 'datetime': 1600000000}]
-        mock_get.return_value = mock_response
+        # Mock Finnhub company news with different timestamps for sorting
+        def side_effect(url, timeout=5):
+            m = MagicMock()
+            m.status_code = 200
+            if "AAPL" in url:
+                m.json.return_value = [{'headline': 'Apple News', 'datetime': 2000000000}]
+            else:
+                m.json.return_value = [{'headline': 'Tesla News', 'datetime': 1000000000}]
+            return m
+        
+        mock_get.side_effect = side_effect
 
         result = get_cn_news()
         # 2 tickers * 1 news item = 2 results
         self.assertEqual(len(result), 2)
+        # AAPL (timestamp 2B) should come before TSLA (timestamp 1B)
         self.assertEqual(result[0]['ticker'], 'AAPL')
+        self.assertEqual(result[1]['ticker'], 'TSLA')
 
 if __name__ == '__main__':
     unittest.main()

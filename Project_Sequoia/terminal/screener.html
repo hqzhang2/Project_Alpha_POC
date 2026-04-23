@@ -149,7 +149,7 @@
             document.getElementById('resultsContainer').innerHTML = '<div class="loading">Scanning first 8 expirations (this may take 10-15 seconds)...</div>';
             
             try {
-                const res = await fetch(`http://localhost:9098/api/screen?ticker=${ticker}`);
+                const res = await fetch(`/api/screen?ticker=${ticker}`);
                 const data = await res.json();
                 allData = data.results || [];
                 applyFilters();

@@ -81,7 +81,7 @@
             <select id="watchlistSelect" class="watchlist-select" onchange="loadFromWatchlist()">
                 <option value="">-- Select --</option>
             </select>
-            <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 12px;">✕</button>
+            <button class="btn" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 14px; background: #f85149; color: white; border: none; font-weight: bold;" title="Remove">-</button>
         </div>
         <input type="text" class="search" id="ticker" value="AAPL" placeholder="Ticker">
         <select class="select-input" id="periodType" onchange="loadFinancials()">
@@ -158,7 +158,7 @@
             document.getElementById('qtTicker').innerHTML = ticker + ' <span id="qtPrice" class="price yahoo"></span>';
             
             // Fetch quote price in parallel
-            fetch(`http://localhost:9098/api/quotes?tickers=${ticker}`)
+            fetch(`/api/quotes?tickers=${ticker}`)
                 .then(r => r.json())
                 .then(q => {
                     const quote = q[ticker];
@@ -170,7 +170,7 @@
                 .catch(() => {});
             
             try {
-                const url = `http://localhost:9098/api/sec/financials?ticker=${ticker}&periods=${periods}&type=${type}`;
+                const url = `/api/sec/financials?ticker=${ticker}&periods=${periods}&type=${type}`;
                 const res = await fetch(url);
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 financialsData = await res.json();
@@ -209,7 +209,7 @@
             const ticker = input.value.toUpperCase().trim();
             if (!ticker) return;
             // Add to watchlist
-            await fetch(`http://localhost:9098/api/sec/financials?ticker=${ticker}&action=add`);
+            await fetch(`/api/sec/financials?ticker=${ticker}&action=add`);
             loadWatchlist();
         }
 
@@ -217,7 +217,7 @@
             const input = document.getElementById('newTicker');
             const ticker = input.value.toUpperCase().trim();
             if (!ticker) return;
-            await fetch(`http://localhost:9098/api/sec/financials?ticker=${ticker}&action=add`);
+            await fetch(`/api/sec/financials?ticker=${ticker}&action=add`);
             input.value = '';
             loadWatchlist();
         }
@@ -225,16 +225,19 @@
         async function removeFromWatchlist() {
             const ticker = document.getElementById('watchlistSelect').value;
             if (ticker) {
-                await fetch(`http://localhost:9098/api/sec/financials?ticker=${ticker}&action=remove`);
+                await fetch(`/api/sec/financials?ticker=${ticker}&action=remove`);
                 loadWatchlist();
             }
         }
 
         async function loadWatchlist() {
             try {
-                const res = await fetch('http://localhost:9098/api/sec/financials?action=watchlist');
+                const res = await fetch('/api/sec/financials?action=watchlist');
                 const list = await res.json();
                 
+                // Sort list alphabetically
+                list.sort((a, b) => a.ticker.localeCompare(b.ticker));
+
                 // Update dropdown
                 const select = document.getElementById('watchlistSelect');
                 const currentVal = select.value;

@@ -54,11 +54,12 @@
     </div>
     
     <div class="toolbar">
-        <div class="watchlist-bar">
+        <div class="watchlist-bar" style="display: flex; align-items: center; gap: 8px;">
             <label style="color:#8b949e;font-size:12px;">Watchlist:</label>
             <select id="watchlistSelect" class="watchlist-select" style="background:#0d1117;color:#e6edf3;border:1px solid #30363d;padding:8px 12px;border-radius:6px;min-width:150px;" onchange="loadFromWatchlist()">
                 <option value="">-- Select --</option>
             </select>
+            <button class="btn" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 14px; background: #f85149; color: white; border: none; font-weight: bold;" title="Remove">-</button>
         </div>
         <input type="text" class="search" id="ticker" value="AAPL" placeholder="Ticker" style="margin-left: 12px;">
         <button class="btn" onclick="loadEstimates()">Load EE</button>
@@ -86,7 +87,7 @@
             container.innerHTML = '<div class="loading">Fetching Bloomberg EE Data...</div>';
             
             try {
-                const res = await fetch(`http://localhost:9098/api/estimates?ticker=${ticker}`);
+                const res = await fetch(`/api/estimates?ticker=${ticker}`);
                 const data = await res.json();
                 
                 if (data.error) {
@@ -214,10 +215,15 @@
         });
 
         // Watchlist logic (persistent localStorage)
-        let watchlist = JSON.parse(localStorage.getItem('estimatesWatchlist')) || ['AAPL', 'MSFT', 'GOOGL'];
+        let watchlist = ['AAPL', 'MSFT', 'GOOGL'];
+        try {
+            if (localStorage.getItem('estimatesWatchlist')) {
+                watchlist = JSON.parse(localStorage.getItem('estimatesWatchlist'));
+            }
+        } catch(e) {}
 
         function saveWatchlist() {
-            localStorage.setItem('estimatesWatchlist', JSON.stringify(watchlist));
+            try { localStorage.setItem('estimatesWatchlist', JSON.stringify(watchlist)); } catch(e) {}
             renderWatchlist();
         }
 
@@ -246,7 +252,19 @@
             const ticker = document.getElementById('ticker').value.toUpperCase().trim();
             if (ticker && !watchlist.includes(ticker)) {
                 watchlist.push(ticker);
+                watchlist.sort();
                 saveWatchlist();
+            }
+        }
+        
+        function removeFromWatchlist() {
+            const ticker = document.getElementById('watchlistSelect').value;
+            if (ticker) {
+                const idx = watchlist.indexOf(ticker);
+                if (idx > -1) {
+                    watchlist.splice(idx, 1);
+                    saveWatchlist();
+                }
             }
         }
 

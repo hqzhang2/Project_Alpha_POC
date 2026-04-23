@@ -2084,6 +2084,100 @@ class TestSecEdgar(unittest.TestCase):
         self.assertTrue(len(result['cashflow']) > 0)
         self.assertEqual(result['cashflow'][0]['operating_cf'], 500)
 
+
+    def test_extract_financials_with_data(self):
+        # Mock company facts structure
+        facts = {
+            'facts': {
+                'us-gaap': {
+                    'Revenues': {
+                        'units': {
+                            'USD': [
+                                {'val': 1000, 'end': '2023-12-31', 'form': '10-Q', 'frame': 'CY2023Q4'},
+                                {'val': 900, 'end': '2023-09-30', 'form': '10-Q', 'frame': 'CY2023Q3'}
+                            ]
+                        }
+                    },
+                    'Assets': {
+                        'units': {
+                            'USD': [
+                                {'val': 5000, 'end': '2023-12-31', 'form': '10-Q', 'frame': 'CY2023Q4I'}
+                            ]
+                        }
+                    },
+                    'CashAndCashEquivalentsFromOperations': {
+                        'units': {
+                            'USD': [
+                                {'val': 500, 'end': '2023-12-31', 'form': '10-Q', 'frame': 'CY2023Q4'}
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        
+        import sec_edgar
+        result = sec_edgar.extract_financials(facts, periods=4)
+        
+        # Test income extraction
+        self.assertTrue(len(result['income']) > 0)
+        self.assertEqual(result['income'][0]['revenue'], 1000)
+        
+        # Test balance extraction
+        self.assertTrue(len(result['balance']) > 0)
+        self.assertEqual(result['balance'][0]['total_assets'], 5000)
+        
+        # Test cashflow extraction
+        self.assertTrue(len(result['cashflow']) > 0)
+        self.assertEqual(result['cashflow'][0]['operating_cf'], 500)
+
+
+    def test_extract_financials_with_data(self):
+        # Mock company facts structure
+        facts = {
+            'facts': {
+                'us-gaap': {
+                    'Revenues': {
+                        'units': {
+                            'USD': [
+                                {'val': 1000, 'end': '2023-12-31', 'form': '10-Q', 'frame': 'CY2023Q4'},
+                                {'val': 900, 'end': '2023-09-30', 'form': '10-Q', 'frame': 'CY2023Q3'}
+                            ]
+                        }
+                    },
+                    'Assets': {
+                        'units': {
+                            'USD': [
+                                {'val': 5000, 'end': '2023-12-31', 'form': '10-Q', 'frame': 'CY2023Q4I'}
+                            ]
+                        }
+                    },
+                    'CashAndCashEquivalentsFromOperations': {
+                        'units': {
+                            'USD': [
+                                {'val': 500, 'end': '2023-12-31', 'form': '10-Q', 'frame': 'CY2023Q4'}
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        
+        import sec_edgar
+        result = sec_edgar.extract_financials(facts, periods=4)
+        
+        # Test income extraction
+        self.assertTrue(len(result['income']) > 0)
+        self.assertEqual(result['income'][0]['revenue'], 1000)
+        
+        # Test balance extraction
+        self.assertTrue(len(result['balance']) > 0)
+        self.assertEqual(result['balance'][0]['total_assets'], 5000)
+        
+        # Test cashflow extraction
+        self.assertTrue(len(result['cashflow']) > 0)
+        self.assertEqual(result['cashflow'][0]['operating_cf'], 500)
+
 if __name__ == '__main__':
     unittest.main()
 

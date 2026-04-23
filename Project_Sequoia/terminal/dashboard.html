@@ -304,10 +304,29 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         let quotes = {};
-        let watchlist = JSON.parse(localStorage.getItem('watchlist')) || ['SPY', 'QQQ', 'IWM', 'TLT', 'GLD'];
-        let currentTicker = 'SPY';
+        let watchlist = [];
+        try {
+            watchlist = JSON.parse(localStorage.getItem('watchlist'));
+        } catch(e) { console.warn("localStorage not available", e); }
+        
+        if (!watchlist || !watchlist.length) {
+            watchlist = ['AAPL', 'AMZN', 'GLD', 'GOOGL', 'MSFT', 'NVDA', 'QQQ', 'SMH', 'SPY', 'TSLA', 'XLE'];
+            try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
+        }
+        watchlist.sort(); // Ensure it's always sorted alphabetically
+        let currentTicker = watchlist[0] || 'SPY';
         let chart = null;
         let timeframe = '1D';
+        
+        // Remove from watchlist
+        function removeFromWatchlist(t) {
+            watchlist = watchlist.filter(item => item !== t);
+            try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
+            renderWatchlist();
+            if (t === currentTicker && watchlist.length > 0) {
+                selectTicker(watchlist[0]);
+            }
+        }
         
         // Update time
         function updateTime() {
@@ -320,9 +339,13 @@
         
         // Fetch quotes
         async function fetchQuotes() {
-            const tickers = watchlist.join(',');
+            let fetchList = [...watchlist];
+            if (currentTicker && !fetchList.includes(currentTicker)) {
+                fetchList.push(currentTicker);
+            }
+            const tickers = fetchList.join(',');
             try {
-                const res = await fetch(`http://localhost:9098/api/quotes?tickers=${tickers}`);
+                const res = await fetch(`/api/quotes?tickers=${tickers}`);
                 const newQuotes = await res.json();
                 
                 // Process for "flash" updates
@@ -336,7 +359,7 @@
                 
                 quotes = newQuotes;
                 renderWatchlist();
-                if (quotes[currentTicker]) renderQuote(currentTicker);
+                renderQuote(currentTicker);
             } catch (e) {
                 console.error('Fetch error:', e);
             }
@@ -355,8 +378,11 @@
                 return `
                     <div class="watchlist-item ${t === currentTicker ? 'active' : ''} ${flash}" onclick="selectTicker('${t}')">
                         <span class="ticker">${t}</span>
-                        <span class="price">${price}</span>
-                        <span class="change ${cls}" style="margin-left: 8px;">${change}</span>
+                        <div style="display: flex; align-items: center;">
+                            <span class="price">${price}</span>
+                            <span class="change ${cls}" style="margin-left: 8px;">${change}</span>
+                            <span onclick="event.stopPropagation(); removeFromWatchlist('${t}')" style="margin-left: 8px; color: #f85149; cursor: pointer; font-size: 14px; font-weight: bold;" title="Remove">&times;</span>
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -372,8 +398,12 @@
         // Select ticker
         function selectTicker(t) {
             currentTicker = t;
-            renderWatchlist();
-            renderQuote(t);
+            if (!quotes[t]) {
+                fetchQuotes(); // Fetch data if we don't have it
+            } else {
+                renderWatchlist();
+                renderQuote(t);
+            }
             fetchChart(t, timeframe);
         }
         
@@ -433,7 +463,8 @@
             const t = input.value.toUpperCase().trim();
             if (t && !watchlist.includes(t)) {
                 watchlist.push(t);
-                localStorage.setItem('watchlist', JSON.stringify(watchlist));
+                watchlist.sort();
+                try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
                 fetchQuotes();
             }
             input.value = '';
@@ -454,7 +485,8 @@
             const t = input.value.toUpperCase().trim();
             if (t && !watchlist.includes(t)) {
                 watchlist.push(t);
-                localStorage.setItem('watchlist', JSON.stringify(watchlist));
+                watchlist.sort();
+                try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
                 fetchQuotes();
             }
             input.value = '';
@@ -494,7 +526,7 @@
         // Fetch chart
         async function fetchChart(t, tf) {
             try {
-                const res = await fetch(`http://localhost:9098/api/chart?ticker=${t}&tf=${tf}`);
+                const res = await fetch(`/api/chart?ticker=${t}&tf=${tf}`);
                 const data = await res.json();
                 renderChart(data);
             } catch (e) {
@@ -541,12 +573,36 @@
                 });
             }
             
+            const crosshairPlugin = {
+                id: 'crosshair',
+                afterDraw: chart => {
+                    if (chart.tooltip && chart.tooltip._active && chart.tooltip._active.length) {
+                        const activePoint = chart.tooltip._active[0];
+                        const ctx = chart.ctx;
+                        const x = activePoint.element.x;
+                        const topY = chart.scales.y.top;
+                        const bottomY = chart.scales.y.bottom;
+
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.moveTo(x, topY);
+                        ctx.lineTo(x, bottomY);
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = '#8b949e';
+                        ctx.setLineDash([4, 4]);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            };
+            
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: data.labels,
                     datasets: datasets
                 },
+                plugins: [crosshairPlugin],
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,

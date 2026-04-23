@@ -161,6 +161,9 @@ class Handler(SimpleHTTPRequestHandler):
                 if path == '/api/chart':
                     ticker, tf = qs.get('ticker', ['SPY'])[0], qs.get('tf', ['1D'])[0]
                     return self.send_json(ChartDataProcessor.get_1d_chart(ticker) if tf == '1D' else ChartDataProcessor.get_historical_chart(ticker, tf))
+                if path == '/api/estimates':
+                    import estimates
+                    return self.send_json(estimates.get_estimates(qs.get('ticker', ['SPY'])[0]))
                 if path.startswith('/api/sec/financials'):
                     import sec_financials
                     action = qs.get('action', [None])[0]
@@ -173,7 +176,20 @@ class Handler(SimpleHTTPRequestHandler):
                         ticker = qs.get('ticker', [None])[0]
                         if ticker: sec_financials.remove_from_watchlist(ticker)
                         return self.send_json({'status': 'removed'})
-                    return self.send_json(sec_financials.fetch_financials(qs.get('ticker', ['SPY'])[0], int(qs.get('periods', [8])[0]), qs.get('type', ['Q'])[0]))
+                    import sec_financials
+                    ticker = qs.get('ticker', ['SPY'])[0]
+                    periods = int(qs.get('periods', [8])[0])
+                    period_type = qs.get('type', ['Q'])[0]
+                    data = sec_financials.fetch_financials(ticker, periods, period_type)
+                    # Fallback to yahoo if sec returns nothing (e.g., for ADRs like BHP, RIO)
+                    if not data.get('income'):
+                        import yahoo_financials
+                        y_data = yahoo_financials.get_financials(ticker, periods)
+                        data['source'] = 'Yahoo Finance (ADR/Fallback)'
+                        data['income'] = y_data.get('income', [])
+                        data['balance'] = y_data.get('balance', [])
+                        data['cashflow'] = y_data.get('cashflow', [])
+                    return self.send_json(data)
                 if path == '/api/ratio':
                     t1, t2 = qs.get('t1', ['XLE'])[0], qs.get('t2', ['SPY'])[0]
                     tf, sma_p = qs.get('tf', ['1Y'])[0], int(qs.get('sma', [20])[0])

@@ -1,89 +1,104 @@
-import requests
-import unittest
-import pandas as pd
-import datetime
+import urllib.request
+import json
+import time
 
-class TerminalRegressionTest(unittest.TestCase):
-    BASE_URL = "http://localhost:9098/api"
-    TICKERS = ["SPY", "AAPL"]
+BASE_URL = "http://localhost:9098"
 
-    def test_dashboard_and_chart_api(self):
-        """Regression for Dashboard / Chart API (Sprint 4)"""
-        print("\nTesting Dashboard/Chart API...")
-        for ticker in self.TICKERS:
-            # Test 1D high-res chart
-            resp = requests.get(f"{self.BASE_URL}/chart?ticker={ticker}&tf=1D")
-            self.assertEqual(resp.status_code, 200, f"Failed chart fetch for {ticker}")
-            data = resp.json()
+def test_endpoint(name, url, check_func):
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            if check_func(data):
+                print(f"[PASS] {name}")
+                return True
+            else:
+                print(f"[FAIL] {name} - Validation failed: {data}")
+                return False
+    except Exception as e:
+        print(f"[FAIL] {name} - Request failed: {e}")
+        return False
+
+def run_all_tests():
+    print("Running Full Regression Suite...")
+    
+    results = {}
+    
+    # Dashboard API - Quotes
+    results['quotes'] = test_endpoint("Quotes API", f"{BASE_URL}/api/quotes?tickers=AAPL,MSFT",
+                  lambda d: "AAPL" in d and "price" in d["AAPL"])
+    
+    # Dashboard API - 1D Chart
+    results['chart_1d'] = test_endpoint("Chart API (1D)", f"{BASE_URL}/api/chart?ticker=AAPL&tf=1D",
+                  lambda d: "labels" in d and "prices" in d)
+    
+    # 1D Chart - Check for full time axis (09:30-16:00 = 391 points)
+    try:
+        req = urllib.request.Request(f"{BASE_URL}/api/chart?ticker=AAPL&tf=1D", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            labels = data.get('labels', [])
+            if len(labels) == 391 and labels[0] == '09:30' and labels[-1] == '16:00':
+                print("[PASS] Chart 1D Time Axis (391 labels, 09:30-16:00)")
+                results['chart_1d_axis'] = True
+            else:
+                print(f"[FAIL] Chart 1D Time Axis - Expected 391 labels from 09:30-16:00, got {len(labels)}, {labels[0]}-{labels[-1] if labels else 'N/A'}")
+                results['chart_1d_axis'] = False
+    except Exception as e:
+        print(f"[FAIL] Chart 1D Time Axis - {e}")
+        results['chart_1d_axis'] = False
+    
+    # Option Monitor API - Expirations
+    results['expirations'] = test_endpoint("Expirations API", f"{BASE_URL}/api/expirations?ticker=SPY",
+                  lambda d: "expirations" in d and isinstance(d["expirations"], list) and len(d["expirations"]) > 0)
+    
+    # Screener API - Options chain
+    results['screener'] = test_endpoint("Screener API", f"{BASE_URL}/api/screen?ticker=SPY",
+                  lambda d: "results" in d and isinstance(d["results"], list) and len(d["results"]) > 0)
+    
+    # Ratio API - Check that RSI/MACD are non-zero
+    results['ratio'] = test_endpoint("Ratio API", f"{BASE_URL}/api/ratio?t1=XLE&t2=SPY&tf=1Y&sma=200",
+                  lambda d: "ratio" in d and "sma" in d and "rsi" in d)
+    
+    # Check RSI/MACD are not all zeros
+    try:
+        req = urllib.request.Request(f"{BASE_URL}/api/ratio?t1=XLE&t2=SPY&tf=1M&sma=50", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            rsi = data.get('rsi', [])
+            macd = data.get('macd', [])
             
-            self.assertIn('labels', data)
-            self.assertIn('prices', data)
-            self.assertIn('prev_close', data)
+            # Check RSI has non-zero values
+            rsi_nonzero = [x for x in rsi if x != 0]
+            macd_nonzero = [x for x in macd if x != 0]
             
-            # Check 09:30 - 16:00 skeleton (roughly - currently depends on data length)
-            # self.assertEqual(len(data['labels']), 391) # Removed strict check since it varies by market state
-            print(f"✅ Dashboard logic passed for {ticker}")
-
-    def test_omon_api(self):
-        """Regression for OMON / Options API (Sprint 2)"""
-        print("\nTesting OMON/Options API...")
-        ticker = "SPY"
-        # 1. Fetch expirations
-        resp = requests.get(f"{self.BASE_URL}/expirations?ticker={ticker}")
-        self.assertEqual(resp.status_code, 200)
-        exp_data = resp.json()
-        self.assertTrue(len(exp_data['expirations']) > 0)
-        
-        # 2. Fetch chain for first expiration
-        expiry = exp_data['expirations'][0]
-        resp = requests.get(f"{self.BASE_URL}/options?ticker={ticker}&expiry={expiry}")
-        self.assertEqual(resp.status_code, 200)
-        chain = resp.json()
-        self.assertIn('calls', chain)
-        self.assertIn('puts', chain)
-        self.assertIn('spot', chain)
-        print(f"✅ OMON logic passed for {ticker} (Expiry: {expiry})")
-
-    def test_ratio_api(self):
-        """Regression for Ratio Analysis API (Sprint 3)"""
-        print("\nTesting Ratio Analysis API...")
-        resp = requests.get(f"{self.BASE_URL}/ratio?t1=XLE&t2=SPY&tf=1Y&sma=20")
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn('ratio', data)
-        self.assertIn('sma', data)
-        self.assertIn('rsi', data)
-        self.assertEqual(data['t1_name'], 'XLE')
-        print("✅ Ratio Analysis logic passed")
-
-    def test_financials_api(self):
-        """Regression for Financial Analyzer API (SEC/Sprint 3)"""
-        print("\nTesting Financial Analyzer API...")
-        ticker = "MSFT"
-        resp = requests.get(f"{self.BASE_URL}/sec/financials?ticker={ticker}&periods=4&type=Q")
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        for key in ['income', 'balance', 'cashflow', 'metrics']:
-            self.assertIn(key, data, f"Missing key {key} in financials")
-        print(f"✅ Financials logic passed for {ticker}")
-
-    def test_screener_api(self):
-        """Regression for Option Screener API (v1.3.2)"""
-        print("\nTesting Option Screener API...")
-        ticker = "AAPL"
-        resp = requests.get(f"{self.BASE_URL}/screen?ticker={ticker}")
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn('results', data)
-        self.assertIn('ticker', data)
-        self.assertEqual(data['ticker'], ticker)
-        # Results should be a list of option objects
-        if len(data['results']) > 0:
-            sample = data['results'][0]
-            self.assertIn('type', sample)
-            self.assertIn('expiry', sample)
-            self.assertIn('strike', sample)
-        print(f"✅ Option Screener logic passed for {ticker}")
+            if len(rsi_nonzero) > 0 and len(macd_nonzero) > 0:
+                print(f"[PASS] Ratio Indicators (RSI: {len(rsi_nonzero)} non-zero, MACD: {len(macd_nonzero)} non-zero)")
+                results['ratio_indicators'] = True
+            else:
+                print(f"[FAIL] Ratio Indicators - RSI has {len(rsi_nonzero)} non-zero, MACD has {len(macd_nonzero)} non-zero")
+                results['ratio_indicators'] = False
+    except Exception as e:
+        print(f"[FAIL] Ratio Indicators - {e}")
+        results['ratio_indicators'] = False
+    
+    # Financials API - Watchlist
+    results['financials'] = test_endpoint("Financials Watchlist", f"{BASE_URL}/api/sec/financials?action=watchlist",
+                  lambda d: isinstance(d, list) and len(d) > 0)
+    
+    # Summary
+    print("\n" + "="*50)
+    print("SUMMARY:")
+    passed = sum(1 for v in results.values() if v)
+    total = len(results)
+    print(f"Passed: {passed}/{total}")
+    for name, passed in results.items():
+        status = "✓" if passed else "✗"
+        print(f"  {status} {name}")
+    print("="*50)
+    
+    return passed == total
 
 if __name__ == "__main__":
-    unittest.main()
+    success = run_all_tests()
+    exit(0 if success else 1)

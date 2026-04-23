@@ -71,14 +71,11 @@
             <select id="watchlistSelect" class="watchlist-select" onchange="loadFromWatchlist()">
                 <option value="">-- Select --</option>
             </select>
-            <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 12px;">✕</button>
-        </div>
-        <div class="watchlist-edit">
-            <input type="text" id="newTicker" placeholder="Add ticker" class="search">
-            <button class="btn" onclick="addToWatchlist()" style="padding: 6px 12px;">+</button>
+            <button class="btn" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 14px; background: #f85149; color: white; border: none; font-weight: bold;" title="Remove">-</button>
         </div>
         <input type="text" class="search" id="ticker" placeholder="SPY" value="SPY">
         <button class="btn" onclick="fetchExpirations()">Load</button>
+        <button class="btn" onclick="addToWatchlist()" style="padding: 8px 12px;" title="Add to Watchlist">+</button>
         <select id="expirySelect" onchange="loadOptions()"></select>
     </div>
     
@@ -114,10 +111,15 @@
 
         let optionsData = null;
         let spotPrice = 0;
-        let watchlist = JSON.parse(localStorage.getItem('omonWatchlist')) || ['SPY', 'QQQ', 'IWM', 'TLT'];
+        let watchlist = ['SPY', 'QQQ', 'IWM', 'TLT'];
+        try {
+            if (localStorage.getItem('omonWatchlist')) {
+                watchlist = JSON.parse(localStorage.getItem('omonWatchlist'));
+            }
+        } catch(e) {}
         
         function saveWatchlist() {
-            localStorage.setItem('omonWatchlist', JSON.stringify(watchlist));
+            try { localStorage.setItem('omonWatchlist', JSON.stringify(watchlist)); } catch(e) {}
             renderWatchlist();
         }
         
@@ -145,12 +147,12 @@
         }
         
         function addToWatchlist() {
-            const ticker = document.getElementById('newTicker').value.toUpperCase().trim();
+            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
             if (ticker && !watchlist.includes(ticker)) {
                 watchlist.push(ticker);
+                watchlist.sort();
                 saveWatchlist();
             }
-            document.getElementById('newTicker').value = '';
         }
         
         function removeFromWatchlist() {
@@ -170,7 +172,7 @@
             renderWatchlist();
             
             try {
-                const res = await fetch(`http://localhost:9098/api/expirations?ticker=${ticker}`);
+                const res = await fetch(`/api/expirations?ticker=${ticker}`);
                 const data = await res.json();
                 
                 const select = document.getElementById('expirySelect');
@@ -211,7 +213,7 @@
             document.getElementById('chainContainer').innerHTML = '<div class="loading">Loading...</div>';
             
             try {
-                const res = await fetch(`http://localhost:9098/api/options?ticker=${ticker}&expiry=${expiry}`);
+                const res = await fetch(`/api/options?ticker=${ticker}&expiry=${expiry}`);
                 optionsData = await res.json();
                 
                 spotPrice = optionsData.spot || 0;
@@ -220,7 +222,7 @@
                 document.getElementById('qtSpot').textContent = 'Spot: $' + spotPrice.toFixed(2);
                 document.getElementById('qtExpiryDisplay').textContent = expiry;
                 
-                const quoteRes = await fetch(`http://localhost:9098/api/quotes?tickers=${ticker}`);
+                const quoteRes = await fetch(`/api/quotes?tickers=${ticker}`);
                 const quoteData = await quoteRes.json();
                 const quote = quoteData[ticker];
                 if (quote) {
