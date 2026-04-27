@@ -104,3 +104,10 @@
 
 ### General Directives
 - **Memory Retention**: I must be extremely diligent about saving any context, port configurations, architectural changes, and task progression into `MEMORY.md` and daily memory files before yielding/finishing my turn, as I will lose transient conversational memory between long gaps or session restarts. This prevents wasting time/tokens.
+
+## Nine Street Portal
+**File:** `Project_Nine_Street/portal.py`
+**Port:** 8000
+**Git:** Committed
+**Links:** Alpha Terminal, NS-1, NS-2, NS-3 (PROD + QA)
+**Toggle:** PROD / QA switcher updates all links dynamically (JS-side, no reload)
