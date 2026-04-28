@@ -2,6 +2,32 @@
 
 This folder is home. Treat it that way.
 
+## ⚠️ CRITICAL: SDLC Process (MUST NEVER VIOLATE)
+
+### Development Workflow (THE ONLY WAY):
+1. Develop in workspace/feature branch
+2. Deploy to QA environment (get user to test/verify)
+3. Add unit tests (>60% coverage required)
+4. Run regression testing
+5. Create release branch
+6. Deploy to PROD
+
+### NEVER DO:
+- ❌ Deploy directly to PROD without QA testing
+- ❌ Skip unit tests
+- ❌ Skip regression testing
+- ❌ Skip user verification in QA
+- ❌ Skip release branch
+
+### QA vs PROD Ports:
+| Service | QA | PROD |
+|--------|-----|------|
+| Alpha Terminal | 9099 | 9098 |
+| NS-1 | 9199 | 9199 |
+| NS-2 Backend | 9099 | 9098 |
+| NS-3 | 9206 | 9206 |
+| NS-4 | 9210 | 9210 |
+
 ## First Run
 
 If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.
