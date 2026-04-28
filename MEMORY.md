@@ -79,7 +79,35 @@
 - `NS-regime-2/` - NS-Regime-2 (Next.js + FastAPI, separate)
 - `NS_PROD/` - NS-PROD (Next.js frontend + backend)
 
-**⚠️ Rule #1: Every page/code created MUST be documented in MEMORY.md and committed to GitHub. No memory loss.**
+**⚠️ RULE #1: Every page/code created MUST be documented in MEMORY.md and committed to GitHub. No memory loss.**
+
+**⚠️ RULE #2: SDLC - Never skip steps.**
+
+## SDLC Process (MUST FOLLOW)
+### Development Workflow:
+1. Develop in workspace/feature branch
+2. Deploy to QA (NOT PROD)
+3. User tests/verifies in QA
+4. Add unit tests (>60% coverage required)
+5. Run regression testing
+6. Create release branch
+7. Deploy to PROD
+
+### NEVER:
+- Deploy directly to PROD without QA
+- Skip unit tests
+- Skip regression testing
+- Skip user verification in QA
+- Skip release branch
+
+### QA vs PROD Ports:
+| Service | QA | PROD |
+|--------|-----|------|
+| Alpha Terminal | 9099 | 9098 |
+| NS-1 | 9199 | 9199 |
+| NS-2 Backend | 9099 | 9098 |
+| NS-3 | 9206 | 9206 |
+| NS-4 | 9210 | 9210 |
 
 ## Running Services (Project Nine Street)
 | Service | Port | PID | Status |
