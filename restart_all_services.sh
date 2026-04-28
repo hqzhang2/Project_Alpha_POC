@@ -11,7 +11,7 @@ echo "Restarting all services..."
 echo "============================================="
 
 # ── Kill all targets first ──────────────────────────────────────────────
-for PORT in 8000 9098 9099 9199 9100 9105 9206 3000 3005; do
+for PORT in 8000 9098 9099 9199 9100 9105 9206 9210 3000 3005; do
     lsof -ti:$PORT | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -37,12 +37,17 @@ cd /Users/chuck/.openclaw/workspace/Project_Nine_Street/NS-1_PROD
 PORT=9199 ENV=PROD nohup python3 server.py > ns1.log 2>&1 &
 
 # ── 5. NS-3 Backend (9206) ────────────────────────────────────
-echo "[5/6] NS-3 Backend (9206)..."
+echo "[5/7] NS-3 Backend (9206)..."
 cd /Users/chuck/.openclaw/workspace/Project_Nine_Street/NS-3_PROD/backend
 nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 9206 > backend.log 2>&1 &
 
-# ── 6. NS-3 Frontend DEV (3000) ─────────────────────────────
-echo "[6/6] NS-3 Frontend DEV (3000)..."
+# ── 6. NS-4 Backend (9210) ────────────────────────────────────
+echo "[6/7] NS-4 Ratio Trading (9210)..."
+cd /Users/chuck/.openclaw/workspace/Project_Nine_Street/NS-4_PROD/backend
+nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 9210 > backend.log 2>&1 &
+
+# ── 7. NS-3 Frontend DEV (3000) ─────────────────────────────
+echo "[7/7] NS-3 Frontend DEV (3000)..."
 cd /Users/chuck/.openclaw/workspace/Project_Nine_Street/NS-3_PROD/frontend
 nohup npm run dev -- -p 3000 > frontend.log 2>&1 &
 
@@ -67,5 +72,6 @@ echo "Alpha PROD:   http://localhost:9098"
 echo "Alpha QA:     http://localhost:9099"
 echo "NS-1 PROD:   http://localhost:9199"
 echo "NS-3 API:    http://localhost:9206"
+echo "NS-4 API:    http://localhost:9210"
 echo "NS-3 UI:     http://localhost:3000"
 echo "============================================="
