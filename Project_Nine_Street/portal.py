@@ -180,6 +180,14 @@ class PortalHandler(SimpleHTTPRequestHandler):
     <a href="http://localhost:3000" class="primary" target="_blank" id="ns3-prod">&#x2192; NS-3 PROD</a>
     <a href="http://localhost:3000" class="qa-link" target="_blank" id="ns3-qa">&#x2192; NS-3 QA</a>
   </div>
+
+  <div class="card ns4">
+    <span class="tag tag-ns4">NS-4</span>
+    <p>Ratio trading system. DBC/SPY, TLT/IEF, EEM/SPY, and sector pair momentum.</p>
+    <div class="port">PROD: <span id="ns4-prod-port">9210</span> &nbsp;|&nbsp; QA: <span id="ns4-qa-port">9210</span></div>
+    <a href="http://localhost:9210/api/v1/rankings" class="primary" target="_blank" id="ns4-prod">&#x2192; NS-4 PROD</a>
+    <a href="http://localhost:9210/api/v1/rankings" class="qa-link" target="_blank" id="ns4-qa">&#x2192; NS-4 QA</a>
+  </div>
 </div>
 
 <div class="footer">
@@ -192,6 +200,7 @@ const PORTS = {{
   ns1:   {{PROD: 9199, QA: 9199}},
   ns2:   {{PROD: 9098, QA: 9099}},
   ns3:   {{PROD: 9206, QA: 9206}},
+  ns4:   {{PROD: 9210, QA: 9210}},
 }};
 
 let currentEnv = 'PROD';
