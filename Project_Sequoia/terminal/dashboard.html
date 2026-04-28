@@ -190,6 +190,17 @@
             background: #21262d;
             color: #e6edf3;
         }
+        .log-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8b949e;
+            margin-left: 16px;
+        }
+        .log-toggle input {
+            cursor: pointer;
+        }
         
         .add-ticker {
             display: flex;
@@ -295,6 +306,10 @@
                         <button class="chart-tab" onclick="setTimeframe('5Y')">5Y</button>
                     </div>
                     <div class="chart-performance" id="chartPerf"></div>
+                    <label class="log-toggle">
+                        <input type="checkbox" id="logScale" onchange="toggleLogScale()">
+                        Log Scale
+                    </label>
                 </div>
                 <canvas id="chart"></canvas>
             </div>
@@ -317,6 +332,7 @@
         let currentTicker = watchlist[0] || 'SPY';
         let chart = null;
         let timeframe = '1D';
+        let useLogScale = false;
         
         // Remove from watchlist
         function removeFromWatchlist(t) {
@@ -499,6 +515,13 @@
         }
         
         // Timeframe
+        function toggleLogScale() {
+            useLogScale = document.getElementById('logScale').checked;
+            if (currentTicker) {
+                fetchChart(currentTicker, timeframe);
+            }
+        }
+        
         function setTimeframe(tf) {
             timeframe = tf;
             document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
@@ -630,6 +653,7 @@
                         },
                         y: {
                             position: 'left',
+                            type: useLogScale ? 'logarithmic' : 'linear',
                             grid: { color: '#30363d' },
                             ticks: { color: '#8b949e' }
                         },
