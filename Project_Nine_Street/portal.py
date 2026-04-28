@@ -140,7 +140,7 @@ def build_html():
 <body>
   <div class="topbar">
     <div class="topbar-left">
-      <div class="logo">&#x1F6E0; <span>Trading Strategy Engine</span></div>
+      <div class="logo"><span>Trading Strategy Engine</span></div>
       <div class="nav-tabs">
         <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')">Alpha Terminal</button>
         <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')">NS-1</button>
