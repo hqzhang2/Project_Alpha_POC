@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Macro Indicators | Alpha Terminal</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            min-height: 100vh;
+        }
+        .header {
+            background: #161b22;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header h1 span { color: #58a6ff; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; font-size: 14px; }
+        .nav a:hover, .nav a.active { color: #58a6ff; }
+        
+        .content { padding: 24px; }
+        
+        .indicators-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+        
+        .indicator-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .indicator-card h3 {
+            font-size: 14px;
+            color: #8b949e;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .indicator-card .value {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .indicator-card .value.positive { color: #3fb950; }
+        .indicator-card .value.negative { color: #f85149; }
+        
+        .indicator-card .change {
+            font-size: 13px;
+            color: #8b949e;
+        }
+        
+        .indicator-card .change.positive { color: #3fb950; }
+        .indicator-card .change.negative { color: #f85149; }
+        
+        .indicator-card .date {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 8px;
+        }
+        
+        .indicator-card .chart-btn {
+            margin-top: 12px;
+            padding: 6px 12px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            color: #58a6ff;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .indicator-card .chart-btn:hover {
+            background: #30363d;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 100;
+            padding: 40px;
+        }
+        
+        .modal.show { display: block; }
+        
+        .modal-content {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 900px;
+            margin: 0 auto;
+            max-height: 90vh;
+            overflow: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-header h2 { font-size: 18px; }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            color: #8b949e;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        
+        #historyChart { width: 100%; height: 400px; }
+    </style>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h1>Alpha Terminal <span>| Macro Indicators</span></h1>
+        <nav class="nav">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="heatmap.html">Heatmap</a>
+            <a href="options.html">Options</a>
+            <a href="screener.html">Screener</a>
+            <a href="estimates.html">Estimates</a>
+            <a href="financials.html">Financials</a>
+            <a href="news.html">News</a>
+            <a href="macro.html" class="active">Macro</a>
+        </nav>
+    </div>
+    
+    <div class="content">
+        <h2>US Macroeconomic Indicators</h2>
+        <p style="color: #8b949e; margin-top: 8px;">Latest data from Federal Reserve Economic Data (FRED)</p>
+        
+        <div class="indicators-grid" id="indicators">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+    
+    <!-- History Modal -->
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">History</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="historyChart"></div>
+        </div>
+    </div>
+    
+    <script>
+        // FRED series IDs
+        const INDICATORS = [
+            { id: 'CPALTT01USM657N', name: 'CPI (Consumer Price Index)', format: 'pct', period: 'Monthly' },
+            { id: 'PPIFGS', name: 'PPI (Producer Price Index)', format: 'pct', period: 'Monthly' },
+            { id: 'PCEPI', name: 'PCE (Personal Consumption Expenditures)', format: 'pct', period: 'Monthly' },
+            { id: 'UNRATE', name: 'Unemployment Rate', format: 'pct', period: 'Monthly' },
+            { id: 'PAYEMS', name: 'Nonfarm Payrolls', format: 'level', unit: 'K', period: 'Monthly' },
+            { id: 'GDPC1', name: 'Real GDP', format: 'pct', period: 'Quarterly' },
+            { id: 'MORTGAGE30US', name: '30-Year Mortgage Rate', format: 'rate', period: 'Weekly' },
+            { id: 'DFF', name: 'Fed Funds Rate', format: 'rate', period: 'Daily' },
+            { id: 'DTB3', name: '3-Month Treasury Rate', format: 'rate', period: 'Daily' },
+            { id: 'DTB10', name: '10-Year Treasury Yield', format: 'rate', period: 'Daily' },
+            { id: 'TEDRATE', name: 'TED Spread', format: 'rate', period: 'Daily' },
+            { id: 'VIXCLS', name: 'VIX (CBOE Volatility)', format: 'level', period: 'Daily' },
+        ];
+        
+        async function fetchFred(seriesId) {
+            try {
+                const res = await fetch(`/api/fred?series=${seriesId}`);
+                return await res.json();
+            } catch (e) {
+                console.error(e);
+                return null;
+            }
+        }
+        
+        async function loadIndicators() {
+            const container = document.getElementById('indicators');
+            container.innerHTML = '';
+            
+            for (const ind of INDICATORS) {
+                const data = await fetchFred(ind.id);
+                const card = document.createElement('div');
+                card.className = 'indicator-card';
+                
+                if (data && data.value !== null) {
+                    const val = parseFloat(data.value);
+                    const prev = parseFloat(data.previous || val);
+                    const change = prev ? ((val - prev) / prev * 100) : 0;
+                    const changeClass = change >= 0 ? 'positive' : 'negative';
+                    const valClass = val >= 0 ? 'positive' : 'negative';
+                    
+                    let displayVal = val.toFixed(2);
+                    if (ind.format === 'pct') displayVal += '%';
+                    if (ind.format === 'rate') displayVal += '%';
+                    if (ind.unit === 'K') displayVal = (val / 1000).toFixed(1) + 'M';
+                    
+                    card.innerHTML = `
+                        <h3>${ind.name}</h3>
+                        <div class="value ${valClass}">${displayVal}</div>
+                        <div class="change ${changeClass}">${change >= 0 ? '+' : ''}${change.toFixed(2)}% vs prev</div>
+                        <div class="date">${data.date || 'N/A'} | ${ind.period}</div>
+                        <button class="chart-btn" onclick="showHistory('${ind.id}', '${ind.name}')">📈 View History</button>
+                    `;
+                } else {
+                    card.innerHTML = `
+                        <h3>${ind.name}</h3>
+                        <div class="value">--</div>
+                        <div class="date">Data unavailable</div>
+                    `;
+                }
+                container.appendChild(card);
+            }
+        }
+        
+        async function showHistory(seriesId, name) {
+            document.getElementById('modalTitle').textContent = name + ' - History';
+            document.getElementById('modal').classList.add('show');
+            
+            const data = await fetchFred(seriesId + '_history');
+            if (data && data.dates) {
+                Plotly.newPlot('historyChart', [{
+                    x: data.dates,
+                    y: data.values,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#58a6ff', width: 2 }
+                }], {
+                    paper_bgcolor: '#161b22',
+                    plot_bgcolor: '#161b22',
+                    xaxis: { color: '#8b949e', gridcolor: '#30363d' },
+                    yaxis: { color: '#8b949e', gridcolor: '#30363d' },
+                    margin: { t: 20, r: 20, b: 40, l: 60 }
+                }, { responsive: true });
+            }
+        }
+        
+        function closeModal() {
+            document.getElementById('modal').classList.remove('show');
+        }
+        
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeModal();
+        });
+        
+        loadIndicators();
+    </script>
+</body>
+</html>

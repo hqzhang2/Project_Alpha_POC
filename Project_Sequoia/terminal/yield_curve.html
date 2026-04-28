@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yield Curve | Alpha Terminal</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            min-height: 100vh;
+        }
+        .header {
+            background: #161b22;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header h1 span { color: #58a6ff; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; font-size: 14px; }
+        .nav a:hover, .nav a.active { color: #58a6ff; }
+        
+        .content { padding: 24px; }
+        h2 { margin-bottom: 8px; }
+        .subtitle { color: #8b949e; margin-bottom: 24px; }
+        
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .date-btn {
+            padding: 8px 16px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e6edf3;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        
+        .date-btn:hover { border-color: #58a6ff; }
+        .date-btn.active { background: #14532d; border-color: #4ade80; color: #4ade80; }
+        
+        #chart { width: 100%; height: 500px; }
+        
+        .legend {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8b949e;
+        }
+        
+        .legend-color {
+            width: 16px;
+            height: 3px;
+            border-radius: 2px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 24px;
+            font-size: 13px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: right;
+            border-bottom: 1px solid #30363d;
+        }
+        
+        th { color: #8b949e; text-align: right; font-weight: 500; }
+        td:first-child, th:first-child { text-align: left; }
+        
+        .positive { color: #3fb950; }
+        .negative { color: #f85149; }
+    </style>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h1>Alpha Terminal <span>| US Treasury Yield Curve</span></h1>
+        <nav class="nav">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="heatmap.html">Heatmap</a>
+            <a href="options.html">Options</a>
+            <a href="screener.html">Screener</a>
+            <a href="estimates.html">Estimates</a>
+            <a href="financials.html">Financials</a>
+            <a href="news.html">News</a>
+            <a href="macro.html">Macro</a>
+            <a href="yield_curve.html" class="active">Yield Curve</a>
+        </nav>
+    </div>
+    
+    <div class="content">
+        <h2>US Treasury Yield Curve</h2>
+        <p class="subtitle">Historical yield curve comparison | Hover for detailed yields</p>
+        
+        <div class="controls">
+            <button class="date-btn active" onclick="setComparison('today')">Today</button>
+            <button class="date-btn" onclick="setComparison('yesterday')">Yesterday</button>
+            <button class="date-btn" onclick="setComparison('1w')">1 Week Ago</button>
+            <button class="date-btn" onclick="setComparison('1m')">1 Month Ago</button>
+            <button class="date-btn" onclick="setComparison('3m')">3 Months Ago</button>
+            <button class="date-btn" onclick="setComparison('6m')">6 Months Ago</button>
+            <button class="date-btn" onclick="setComparison('1y')">1 Year Ago</button>
+            <button class="date-btn" onclick="setComparison('all')">All Overlay</button>
+        </div>
+        
+        <div id="chart">
+            <div class="loading">Loading yield curve data...</div>
+        </div>
+        
+        <div class="legend" id="legend"></div>
+        
+        <h3 style="margin-top: 32px;">Latest Yields</h3>
+        <table id="yieldsTable">
+            <thead>
+                <tr>
+                    <th>Tenor</th>
+                    <th>Today</th>
+                    <th>Yesterday</th>
+                    <th>Change</th>
+                    <th>1W Ago</th>
+                    <th>1M Ago</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    
+    <script>
+        // Treasury yield curve data (using FRED series IDs)
+        // In production, fetch from FRED API
+        const TENORS = ['1M', '3M', '6M', '1Y', '2Y', '5Y', '7Y', '10Y', '30Y'];
+        
+        // FRED series IDs for each tenor
+        const SERIES = {
+            '1M': 'DTB4WK', '3M': 'DTB3', '6M': 'DTB6',
+            '1Y': 'DTB1YR', '2Y': 'DTB2YR', '5Y': 'DTB5YR',
+            '7Y': 'DTB7YR', '10Y': 'DTB10YR', '30Y': 'DTB30YR'
+        };
+        
+        // Mock data generation for demo
+        function generateMockYield(tenor, daysAgo) {
+            const baseRates = {
+                '1M': 5.30, '3M': 5.20, '6M': 5.05,
+                '1Y': 4.75, '2Y': 4.45, '5Y': 4.25,
+                '7Y': 4.35, '10Y': 4.40, '30Y': 4.60
+            };
+            const base = baseRates[tenor] || 4.0;
+            // Steepen/flatten based on time
+            const change = daysAgo * 0.001;
+            return base + (Math.random() - 0.5) * 0.3 + change;
+        }
+        
+        let yieldData = {};
+        
+        async function fetchYields() {
+            const today = new Date();
+            const data = {};
+            
+            // Fetch yields for different periods
+            for (const period of ['today', 'yesterday', '1w', '1m', '3m', '6m', '1y']) {
+                const daysMap = { today: 0, yesterday: 1, '1w': 7, '1m': 30, '3m': 90, '6m': 180, '1y': 365 };
+                const days = daysMap[period];
+                
+                data[period] = {};
+                for (const tenor of TENORS) {
+                    data[period][tenor] = generateMockYield(tenor, days);
+                }
+            }
+            
+            yieldData = data;
+            renderChart('today');
+            renderTable();
+        }
+        
+        function setComparison(period) {
+            document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            renderChart(period);
+        }
+        
+        function renderChart(period) {
+            const traces = [];
+            const colors = {
+                today: '#4ade80', yesterday: '#60a5fa', '1w': '#a78bfa',
+                '1m': '#f472b6', '3m': '#f59e0b', '6m': '#ef4444', '1y': '#6b7280'
+            };
+            
+            if (period === 'all') {
+                // Show all periods overlaid
+                for (const [p, label] of [['today', 'Today'], ['yesterday', 'Yesterday'], 
+                    ['1w', '1 Week'], ['1m', '1 Month'], ['3m', '3 Months'], ['6m', '6 Months'], ['1y', '1 Year']]) {
+                    traces.push({
+                        x: TENORS,
+                        y: Object.values(yieldData[p]),
+                        mode: 'lines+markers',
+                        name: label,
+                        line: { color: colors[p], width: 2 }
+                    });
+                }
+            } else {
+                // Single period
+                const rates = Object.values(yieldData[period]);
+                traces.push({
+                    x: TENORS,
+                    y: rates,
+                    mode: 'lines+markers',
+                    name: period.charAt(0).toUpperCase() + period.slice(1),
+                    line: { color: '#4ade80', width: 3 },
+                    marker: { size: 10 }
+                });
+            }
+            
+            // Update legend
+            document.getElementById('legend').innerHTML = TENORS.map(t => 
+                `<div class="legend-item"><div class="legend-color" style="background:#4ade80"></div>${t}</div>`
+            ).join('');
+            
+            Plotly.newPlot('chart', traces, {
+                paper_bgcolor: '#0d1117',
+                plot_bgcolor: '#0d1117',
+                xaxis: { 
+                    title: 'Tenor', 
+                    color: '#8b949e', 
+                    gridcolor: '#30363d',
+                    categoryorder: 'array',
+                    categoryarray: TENORS
+                },
+                yaxis: { 
+                    title: 'Yield (%)', 
+                    color: '#8b949e', 
+                    gridcolor: '#30363d',
+                    tickformat: '.2f'
+                },
+                margin: { t: 20, r: 20, b: 50, l: 60 },
+                hovermode: 'x unified'
+            }, { responsive: true });
+        }
+        
+        function renderTable() {
+            const tbody = document.querySelector('#yieldsTable tbody');
+            tbody.innerHTML = TENORS.map(tenor => {
+                const today = yieldData.today[tenor];
+                const yesterday = yieldData.yesterday[tenor];
+                const week = yieldData['1w'][tenor];
+                const month = yieldData['1m'][tenor];
+                const change = today - yesterday;
+                const changeClass = change >= 0 ? 'positive' : 'negative';
+                
+                return `<tr>
+                    <td>${tenor}</td>
+                    <td class="positive">${today.toFixed(3)}%</td>
+                    <td>${yesterday.toFixed(3)}%</td>
+                    <td class="${changeClass}">${change >= 0 ? '+' : ''}${change.toFixed(3)}%</td>
+                    <td>${week.toFixed(3)}%</td>
+                    <td>${month.toFixed(3)}%</td>
+                </tr>`;
+            }).join('');
+        }
+        
+        fetchYields();
+    </script>
+</body>
+</html>

@@ -195,6 +195,14 @@ class Handler(SimpleHTTPRequestHandler):
                     tf, sma_p = qs.get('tf', ['1Y'])[0], int(qs.get('sma', [20])[0])
                     return self.send_json(self.get_ratio_data(t1, t2, tf, sma_p))
                 
+                # FRED macro data endpoint
+                if path == '/api/fred':
+                    import urllib.request, json
+                    series = qs.get('series', ['UNRATE'])[0]
+                    # Using FRED API - in production, use actual API key
+                    # For demo, return mock data structure
+                    return self.send_json(self.get_fred_data(series))
+                
                 self.send_error(404, "API not found")
                 return
             except Exception as e:
@@ -254,6 +262,41 @@ class Handler(SimpleHTTPRequestHandler):
             't1_name': t1, 't2_name': t2
         }
         return clean_dict(result)
+
+    def get_fred_data(self, series_id):
+        """Fetch macro data from FRED API (placeholder - needs API key for production)"""
+        # In production, use: https://api.stlouisfed.org/fred/series/observations?series_id=XXX&api_key=YOUR_KEY
+        # For now, return realistic mock data structure
+        import random
+        
+        # Base values for common indicators
+        base_values = {
+            'UNRATE': 3.7, 'CPALTT01USM657N': 3.2, 'PPIFGS': 2.5,
+            'PCEPI': 2.5, 'PAYEMS': 155000, 'GDPC1': 2.5,
+            'MORTGAGE30US': 6.8, 'DFF': 5.3, 'DTB3': 5.2,
+            'DTB10': 4.5, 'TEDRATE': 0.5, 'VIXCLS': 15.0
+        }
+        base = base_values.get(series_id, 3.0)
+        
+        # Generate 24 months of data
+        dates, values = [], []
+        for i in range(24):
+            d = datetime.datetime.now() - datetime.timedelta(days=30*i)
+            dates.append(d.strftime('%Y-%m-%d'))
+            # Small random variation
+            values.append(round(base + random.uniform(-0.3, 0.3), 2))
+        
+        dates.reverse()
+        values.reverse()
+        
+        return {
+            'series': series_id,
+            'date': dates[-1],
+            'value': values[-1],
+            'previous': values[-2],
+            'dates': dates,
+            'values': values
+        }
 
     def send_json(self, data, error=None):
         self.send_response(500 if error else 200)
