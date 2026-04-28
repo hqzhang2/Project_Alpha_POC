@@ -139,3 +139,15 @@
 **Git:** Committed
 **Links:** Alpha Terminal, NS-1, NS-2, NS-3 (PROD + QA)
 **Toggle:** PROD / QA switcher updates all links dynamically (JS-side, no reload)
+
+## Development: QA to PROD Sync Pattern
+When code exists in QA (9099) but not in PROD (9098):
+1. Copy .py files from QA_terminal/ to terminal/
+2. Copy .html files from QA_terminal/ to terminal/
+3. Add API route in server.py if new endpoint
+4. Restart PROD server
+5. Test endpoint
+6. Commit to GitHub
+
+### Files Already Synced from QA:
+- prediction.py, prediction.html (Polymarket predictions) - 2026-04-27
