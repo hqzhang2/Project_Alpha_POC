@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Predication Market | Alpha Terminal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-dark.min.css">
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header-container { border-bottom: 1px solid #30363d; padding-bottom: 20px; margin-bottom: 20px; }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.2s, border-color 0.2s;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: #58a6ff;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        
+        .category {
+            font-size: 11px;
+            font-weight: bold;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: #21262d;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        
+        .question {
+            font-size: 16px;
+            font-weight: 600;
+            line-height: 1.4;
+            color: #e6edf3;
+            margin-bottom: 16px;
+        }
+        
+        .data-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .prob-container {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .prob-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #3fb950; /* Green */
+        }
+        
+        .prob-label {
+            font-size: 11px;
+            color: #8b949e;
+            text-transform: uppercase;
+        }
+        
+        .volume {
+            font-size: 13px;
+            color: #8b949e;
+        }
+
+        .loading { text-align: center; padding: 50px; font-style: italic; color: #8b949e; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-container" id="header-container"></div>
+        
+        <div id="market-grid" class="grid">
+            <div class="loading">Fetching live predication data from Polymarket...</div>
+        </div>
+    </div>
+
+    <script>
+        // Load header
+        fetch('header.html').then(r => r.text()).then(h => {
+            document.getElementById('header-container').innerHTML = h;
+            const scripts = document.getElementById('header-container').getElementsByTagName('script');
+            for (let i = 0; i < scripts.length; i++) {
+                eval(scripts[i].innerText);
+            }
+        });
+
+        function formatVolume(val) {
+            if (!val) return "$0";
+            const num = parseFloat(val);
+            if (num >= 1000000) return "$" + (num/1000000).toFixed(1) + "M";
+            if (num >= 1000) return "$" + (num/1000).toFixed(1) + "K";
+            return "$" + num.toFixed(0);
+        }
+
+        function getProbColor(prob) {
+            if (prob >= 70) return "#3fb950"; // High Green
+            if (prob >= 50) return "#7ee787"; // Light Green
+            if (prob >= 30) return "#d29922"; // Yellow/Orange
+            return "#f85149"; // Red
+        }
+
+        function fetchMarkets() {
+            fetch('/api/prediction')
+                .then(res => res.json())
+                .then(data => {
+                    const grid = document.getElementById('market-grid');
+                    if (!data || data.length === 0) {
+                        grid.innerHTML = '<div class="loading">No active markets found.</div>';
+                        return;
+                    }
+                    
+                    let html = '';
+                    data.forEach(m => {
+                        const color = getProbColor(m.probability);
+                        html += `
+                            <a class="card" href="${m.url}" target="_blank">
+                                <div>
+                                    <div class="card-header">
+                                        <span class="category">${m.category}</span>
+                                    </div>
+                                    <div class="question">${m.question}</div>
+                                </div>
+                                <div class="data-row">
+                                    <div class="prob-container">
+                                        <span class="prob-label">Chance of "YES"</span>
+                                        <span class="prob-value" style="color: ${color}">${m.probability}%</span>
+                                    </div>
+                                    <div class="volume">Vol: ${formatVolume(m.volume)}</div>
+                                </div>
+                            </a>
+                        `;
+                    });
+                    grid.innerHTML = html;
+                })
+                .catch(err => {
+                    document.getElementById('market-grid').innerHTML = `<div class="loading" style="color: #f85149">Error: ${err.message}</div>`;
+                });
+        }
+
+        // Init
+        fetchMarkets();
+        // Refresh every 2 minutes
+        setInterval(fetchMarkets, 120000);
+    </script>
+</body>
+</html>
