@@ -14,7 +14,7 @@ PORT = 8000
 STRATEGIES = {
     'alpha': {'name': 'Alpha Terminal', 'path': 'dashboard.html', 'prod': 9098, 'qa': 9099},
     'ns1':   {'name': 'NS-1',            'path': '',                'prod': 9199, 'qa': 9199},
-    'ns2':   {'name': 'NS-2',            'path': '',                'prod': 9098, 'qa': 9099},
+    'ns2':   {'name': 'NS-2',            'path': '',                'prod': 3001, 'qa': 3001},
     'ns3':   {'name': 'NS-3',            'path': '',                'prod': 3000, 'qa': 3000},
 }
 
