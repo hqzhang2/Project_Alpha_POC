@@ -112,10 +112,15 @@
 ## Running Services (Project Nine Street)
 | Service | Port | PID | Status |
 |---------|-----|-----|--------|
-| NS-1 (PROD) | 9199 | Running | ✅ |
-| NS-3 Backend | 9206 | Running | ✅ |
-| NS-3 Frontend (DEV) | 3000 | Running | ✅ |
-| NS-2 Alpha Terminal | 9098 | 8422 | ✅ (in Project_Sequoia/terminal/) |
+| Portal | 8000 | — | ✅ |
+| Alpha Terminal PROD | 9098 | 18896 | ✅ |
+| Alpha Terminal QA | 9099 | 62702 | ✅ |
+| NS-1 (PROD) | 9199 | — | ✅ |
+| NS-2 Backend | 9100 | 62534 | ✅ |
+| NS-2 Frontend | 3001 | 19618 | ✅ |
+| NS-3 Backend | 9206 | — | ✅ |
+| NS-3 Frontend (DEV) | 3000 | — | ✅ |
+| NS-4 | 9210 | — | ✅ |
 
 ## Project Nine Street - NS-3 (3-Tier Sector Rotation)
 **Status:** ACTIVE - QA only
