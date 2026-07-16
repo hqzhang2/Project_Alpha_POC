@@ -6,7 +6,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERMINAL_DIR="$SCRIPT_DIR"
-PYTHON_ENV="$SCRIPT_DIR/../project_alpha_env/bin/python"
+PYTHON_ENV="/Users/chuck/Project_Alpha_POC/project_alpha_env/bin/python"
 SERVER_SCRIPT="$TERMINAL_DIR/server.py"
 
 # Ports
