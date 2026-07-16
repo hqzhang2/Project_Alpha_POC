@@ -244,6 +244,11 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/ratio': 'handle_ratio',
         '/api/health': 'handle_health',
     }
+
+    # Prefix-based routes (for nested APIs like /api/sec/financials)
+    API_PREFIX_ROUTES = {
+        '/api/sec/financials': 'handle_sec_financials',
+    }
     
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -259,9 +264,20 @@ class Handler(SimpleHTTPRequestHandler):
                     logger.exception(f"API error on {path}")
                     self.send_json({'error': str(e)}, status=500)
                 return
-            else:
-                self.send_error(404, "API not found")
-                return
+            
+            # Check prefix routes
+            for prefix, handler_name in self.API_PREFIX_ROUTES.items():
+                if path.startswith(prefix):
+                    if hasattr(self, handler_name):
+                        try:
+                            getattr(self, handler_name)(qs)
+                        except Exception as e:
+                            logger.exception(f"API error on {path}")
+                            self.send_json({'error': str(e)}, status=500)
+                        return
+            
+            self.send_error(404, "API not found")
+            return
         
         # Serve static files
         filename = path[1:] if path != '/' else 'dashboard.html'
@@ -400,6 +416,37 @@ class Handler(SimpleHTTPRequestHandler):
         t1, t2 = qs.get('t1', ['XLE'])[0], qs.get('t2', ['SPY'])[0]
         tf, sma_p = qs.get('tf', ['1Y'])[0], int(qs.get('sma', ['20'])[0])
         self.send_json(self.get_ratio_data(t1, t2, tf, sma_p))
+    
+    def handle_sec_financials(self, qs):
+        import sec_financials
+        action = qs.get('action', [None])[0]
+        if action == 'watchlist':
+            return self.send_json(sec_financials.get_watchlist())
+        if action == 'add':
+            ticker = qs.get('ticker', [None])[0]
+            if ticker:
+                sec_financials.add_to_watchlist(ticker)
+            return self.send_json({'status': 'added'})
+        if action == 'remove':
+            ticker = qs.get('ticker', [None])[0]
+            if ticker:
+                sec_financials.remove_from_watchlist(ticker)
+            return self.send_json({'status': 'removed'})
+        
+        import sec_financials
+        ticker = qs.get('ticker', ['SPY'])[0]
+        periods = int(qs.get('periods', [8])[0])
+        period_type = qs.get('type', ['Q'])[0]
+        data = sec_financials.fetch_financials(ticker, periods, period_type)
+        # Fallback to yahoo if sec returns nothing (e.g., for ADRs like BHP, RIO)
+        if not data.get('income'):
+            import yahoo_financials
+            y_data = yahoo_financials.get_financials(ticker, periods)
+            data['source'] = 'Yahoo Finance (ADR/Fallback)'
+            data['income'] = y_data.get('income', [])
+            data['balance'] = y_data.get('balance', [])
+            data['cashflow'] = y_data.get('cashflow', [])
+        self.send_json(data)
     
     def get_ratio_data(self, t1, t2, tf, sma_period):
         if not YFINANCE_AVAILABLE:
