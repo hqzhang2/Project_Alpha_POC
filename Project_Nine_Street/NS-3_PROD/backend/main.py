@@ -1,46 +1,48 @@
+#!/usr/bin/env python3
 """
-NS-3 Backend - 3-Tier Sector Rotation Algo
-============================================
-Port 9105 - Independent algo based on the 3-tier system:
-- Tier 1: Sector Rotation (ratio momentum vs SPY)
-- Tier 2: ETF Signal Engine (HMM + TA scoring)
-- Tier 3: Stock Selection (RS + Piotroski F-Score + TA)
+NS-3: 3-Tier Sector Rotation Algo (PROD)
+==========================================
+Port 9236 - FastAPI backend using common library.
 """
-
 import warnings
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 import datetime
-import json
+import os
+import sys
+from pathlib import Path
+
+# Add common to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from hmmlearn.hmm import GaussianHMM
-from scipy.stats import linregress
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Dict, Any
 
-app = FastAPI(title="NS-3 API", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Import from common library
+from common import (
+    get_ns_config,
+    get_yahoo_client,
+    get_etf_holdings,
+    sma, ema, rsi, macd, bollinger_bands, bb_position,
+    adx, atr, obv, obv_slope,
+    fit_hmm,
+    compute_all,
 )
 
 # ── Configuration ────────────────────────────────────────────────────────────
-PORT = 9206
-LOOKBACK_WKS = 52
-HMM_STATES = 2
-HMM_ITER = 500
-HMM_BULL_PROB_THRESHOLD = 0.65
-RS_PERCENTILE = 0.75
-PIOTROSKI_MIN = 7
-TA_SCORE_MIN = 3
+
+ns_cfg = get_ns_config()
+PORT = int(os.environ.get("PORT", ns_cfg.ns3_port))
+LOOKBACK_WKS = ns_cfg.ns3_lookback_weeks
+HMM_STATES = ns_cfg.ns3_hmm_states
+HMM_ITER = ns_cfg.ns3_hmm_iter
+HMM_BULL_PROB_THRESHOLD = ns_cfg.ns3_hmm_bull_threshold
+RS_PERCENTILE = ns_cfg.ns3_rs_percentile
+PIOTROSKI_MIN = ns_cfg.ns3_piotroski_min
+TA_SCORE_MIN = ns_cfg.ns3_ta_score_min
 
 SECTORS = [
     {"symbol": "XLK", "name": "Technology"},
@@ -58,7 +60,6 @@ SECTORS = [
 
 SPY_SYMBOL = "SPY"
 
-# Top holdings per sector ETF
 ETF_HOLDINGS = {
     "XLE": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "HAL"],
     "XLP": ["PG", "KO", "PEP", "COST", "WMT", "PM", "MO", "MDLZ", "CL", "STZ"],
@@ -73,18 +74,20 @@ ETF_HOLDINGS = {
     "XLU": ["NEE", "SO", "DUK", "AEP", "SRE", "D", "EXC", "XEL", "WEC", "ES"],
 }
 
+app = FastAPI(title="NS-3 API", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+yahoo = get_yahoo_client()
+
+
 # ── Helpers: Data Fetching ───────────────────────────────────────────────────
 
-def fetch_weekly_closes(symbols: list, weeks: int = 16) -> pd.DataFrame:
+def fetch_weekly_closes(symbols: list, weeks: int = 14) -> pd.DataFrame:
     end = datetime.date.today()
     start = end - datetime.timedelta(weeks=weeks + 2)
     raw = yf.download(
-        tickers=symbols,
-        start=str(start),
-        end=str(end),
-        interval="1wk",
-        auto_adjust=True,
-        progress=False,
+        tickers=symbols, start=str(start), end=str(end),
+        interval="1wk", auto_adjust=True, progress=False
     )
     if isinstance(raw.columns, pd.MultiIndex):
         closes = raw["Close"]
@@ -121,89 +124,12 @@ def fetch_weekly_ohlcv(symbols: list, weeks: int = LOOKBACK_WKS) -> dict:
                     "volume": raw["Volume"],
                 }).dropna().tail(weeks)
             out[sym] = df
-        except Exception as e:
-            print(f"  WARNING: {sym} fetch error: {e}")
+        except Exception:
+            pass
     return out
 
 
-# ── Helpers: Technical Indicators ────────────────────────────────────────────────
-
-def ema(series: pd.Series, span: int) -> pd.Series:
-    return series.ewm(span=span, adjust=False).mean()
-
-
-def compute_macd(close: pd.Series):
-    fast = ema(close, 12)
-    slow = ema(close, 26)
-    macd = fast - slow
-    signal = ema(macd, 9)
-    hist = macd - signal
-    return macd, signal, hist
-
-
-def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(period).mean()
-    loss = (-delta.clip(upper=0)).rolling(period).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
-
-
-def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low - close.shift()).abs()
-    ], axis=1).max(axis=1)
-    dm_plus = (high - high.shift()).clip(lower=0)
-    dm_minus = (low.shift() - low).clip(lower=0)
-    dm_plus = dm_plus.where(dm_plus > dm_minus, 0)
-    dm_minus = dm_minus.where(dm_minus > dm_plus, 0)
-    atr = tr.ewm(span=period, adjust=False).mean()
-    di_p = 100 * dm_plus.ewm(span=period, adjust=False).mean() / atr.replace(0, np.nan)
-    di_m = 100 * dm_minus.ewm(span=period, adjust=False).mean() / atr.replace(0, np.nan)
-    dx = 100 * (di_p - di_m).abs() / (di_p + di_m).replace(0, np.nan)
-    adx = dx.ewm(span=period, adjust=False).mean()
-    return adx
-
-
-def compute_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
-    direction = np.sign(close.diff()).fillna(0)
-    return (direction * volume).cumsum()
-
-
-def obv_slope(obv: pd.Series, window: int = 20) -> float:
-    tail = obv.dropna().tail(window)
-    if len(tail) < 4:
-        return 0.0
-    slope, *_ = linregress(range(len(tail)), tail.values)
-    return float(slope)
-
-
-# ── HMM Regime Detection ────────────────────────────────────────────────────────
-
-def fit_hmm(close: pd.Series) -> tuple:
-    returns = np.log(close / close.shift(1)).dropna().values.reshape(-1, 1)
-    if len(returns) < 20:
-        return 1, 0.5, []
-
-    model = GaussianHMM(
-        n_components=HMM_STATES, covariance_type="full",
-        n_iter=HMM_ITER, random_state=42
-    )
-    model.fit(returns)
-    posteriors = model.predict_proba(returns)
-    state_seq = model.predict(returns)
-
-    means = [model.means_[s][0] for s in range(HMM_STATES)]
-    bull_state = int(np.argmax(means))
-    current_bull_prob = float(posteriors[-1, bull_state])
-    bull_probs = posteriors[:, bull_state].tolist()
-
-    return bull_state, current_bull_prob, bull_probs
-
-
-# ── Tier 1: Sector Rotation ─────────────────────────────────────────────────
+# ── Tier 1: Sector Rotation ──────────────────────────────────────────────────
 
 def compute_ratio_momentum(sector_prices: pd.Series, spy_prices: pd.Series) -> float:
     ratios = sector_prices / spy_prices
@@ -232,7 +158,6 @@ def run_tier1() -> dict:
         sym = sector["symbol"]
         if sym not in closes.columns:
             continue
-
         sec_prices = closes[sym]
         aligned_spy = spy_prices.reindex(sec_prices.index).ffill()
         momentum = compute_ratio_momentum(sec_prices, aligned_spy)
@@ -247,7 +172,6 @@ def run_tier1() -> dict:
         })
 
     results.sort(key=lambda x: x["momentum"], reverse=True)
-
     for i, r in enumerate(results):
         r["rank"] = i + 1
         r["passToTier2"] = i < 3
@@ -266,18 +190,18 @@ def score_etf(df: pd.DataFrame) -> dict:
     low = df["low"]
     volume = df["volume"]
 
-    macd, macd_sig, macd_hist = compute_macd(close)
-    rsi = compute_rsi(close)
-    adx = compute_adx(high, low, close)
-    obv = compute_obv(close, volume)
-    slope = obv_slope(obv)
+    macd_line, macd_sig, macd_hist = macd(close)
+    rsi_val = rsi(close)
+    adx_val = adx(high, low, close)
+    obv_val = obv(close, volume)
+    slope = obv_slope(obv_val)
 
-    bull_state, bull_prob, bull_probs = fit_hmm(close)
+    bull_state, bull_prob, _ = fit_hmm(close)
 
-    cur_macd = float(macd.iloc[-1])
+    cur_macd = float(macd_line.iloc[-1])
     cur_sig = float(macd_sig.iloc[-1])
-    cur_rsi = float(rsi.iloc[-1])
-    cur_adx = float(adx.iloc[-1])
+    cur_rsi = float(rsi_val.iloc[-1])
+    cur_adx = float(adx_val.iloc[-1])
     cur_price = float(close.iloc[-1])
 
     hmm_bull = bull_prob >= HMM_BULL_PROB_THRESHOLD
@@ -335,7 +259,7 @@ def run_tier2(tier1_data: dict) -> dict:
     }
 
 
-# ── Tier 3: Stock Selection ────────────────────────────────────────────────
+# ── Tier 3: Stock Selection ──────────────────────────────────────────────────
 
 def piotroski_fscore(ticker_obj) -> tuple:
     try:
@@ -421,16 +345,16 @@ def relative_strength_26w(stock_close: pd.Series, etf_close: pd.Series) -> float
 
 def ta_score_stock(df: pd.DataFrame) -> tuple:
     c, h, l, v = df["close"], df["high"], df["low"], df["volume"]
-    macd, sig, hist = compute_macd(c)
-    rsi = compute_rsi(c)
-    adx = compute_adx(h, l, c)
-    obv = compute_obv(c, v)
+    macd_line, macd_sig, _ = macd(c)
+    rsi_val = rsi(c)
+    adx_val = adx(h, l, c)
+    obv_val = obv(c, v)
 
     hmm_ok, hmm_prob, _ = fit_hmm(c)
-    macd_ok = bool(macd.iloc[-1] > sig.iloc[-1])
-    adx_ok = bool(adx.iloc[-1] > 25)
-    rsi_ok = bool(45 <= rsi.iloc[-1] <= 75)
-    obv_ok = obv_slope(obv) > 0
+    macd_ok = bool(macd_line.iloc[-1] > macd_sig.iloc[-1])
+    adx_ok = bool(adx_val.iloc[-1] > 25)
+    rsi_ok = bool(45 <= rsi_val.iloc[-1] <= 75)
+    obv_ok = obv_slope(obv_val) > 0
 
     score = sum([hmm_ok, macd_ok, adx_ok, rsi_ok, obv_ok])
     return score, {
@@ -457,11 +381,14 @@ def run_tier3(tier2_data: dict) -> dict:
     all_sectors = []
 
     for etf_sym in qualifying_etfs:
-        holdings = ETF_HOLDINGS.get(etf_sym, [])
+        holdings = yahoo.get_etf_holdings(etf_sym)
+        if not holdings:
+            holdings = ETF_HOLDINGS.get(etf_sym, [])
+
         if not holdings:
             continue
 
-        all_tickers = [etf_sym] + holdings
+        all_tickers = [etf_sym] + list(holdings.keys())
         raw = yf.download(
             all_tickers, start=str(start), end=str(end),
             interval="1wk", auto_adjust=True, progress=False
@@ -473,7 +400,7 @@ def run_tier3(tier2_data: dict) -> dict:
             etf_close = raw["Close"].dropna()
 
         rs_scores = {}
-        for sym in holdings:
+        for sym in holdings.keys():
             try:
                 if isinstance(raw.columns, pd.MultiIndex):
                     sc = raw["Close"][sym].dropna()
@@ -570,49 +497,38 @@ def health_check():
 
 @app.get("/api/v1/tier1")
 def get_tier1():
-    """Tier 1: Sector Rotation rankings"""
     try:
-        data = run_tier1()
-        return data
+        return run_tier1()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/tier2")
 def get_tier2():
-    """Tier 2: ETF Signal Engine"""
     try:
         tier1 = run_tier1()
-        data = run_tier2(tier1)
-        return data
+        return run_tier2(tier1)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/tier3")
 def get_tier3():
-    """Tier 3: Stock Selection"""
     try:
         tier1 = run_tier1()
         tier2 = run_tier2(tier1)
-        data = run_tier3(tier2)
-        return data
+        return run_tier3(tier2)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/all")
 def get_all_tiers():
-    """Run all 3 tiers and return full pipeline"""
     try:
         tier1 = run_tier1()
         tier2 = run_tier2(tier1)
         tier3 = run_tier3(tier2)
-        return {
-            "tier1": tier1,
-            "tier2": tier2,
-            "tier3": tier3,
-        }
+        return {"tier1": tier1, "tier2": tier2, "tier3": tier3}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
