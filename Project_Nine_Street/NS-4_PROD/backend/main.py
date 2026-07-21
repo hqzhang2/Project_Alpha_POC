@@ -118,45 +118,47 @@ def detect_regime(series: pd.Series, n_regimes: int = 3) -> np.ndarray:
     return regimes
 
 # ── Signal Generation ───────────────────────────────────────────────────────
-def generate_signal(row: pd.Series) -> Dict[str, Any]:
+def generate_signal(latest: pd.Series, prev: pd.Series = None) -> Dict[str, Any]:
     """Generate trading signal based on regime and indicators"""
     score = 0
     reasons = []
     
     # RSI
-    if row.get('RSI', 50) < 30:
+    if latest.get('RSI', 50) < 30:
         score += 2
         reasons.append("RSI oversold")
-    elif row.get('RSI', 50) > 70:
+    elif latest.get('RSI', 50) > 70:
         score -= 2
         reasons.append("RSI overbought")
     
-    # MACD
-    if row.get('MACD_hist', 0) > 0 and row.get('MACD_hist', 0) > row.get('MACD_hist', 0):
+    # MACD — compare current vs previous histogram
+    cur_hist = latest.get('MACD_hist', 0)
+    prev_hist = prev.get('MACD_hist', 0) if prev is not None else 0
+    if cur_hist > 0 and cur_hist > prev_hist:
         score += 1
         reasons.append("MACD bullish")
-    elif row.get('MACD_hist', 0) < 0:
+    elif cur_hist < 0 and cur_hist < prev_hist:
         score -= 1
         reasons.append("MACD bearish")
     
     # ADX trend strength
-    if row.get('ADX', 0) > 25:
-        score += 1 if row.get('plus_di', 0) > row.get('minus_di', 0) else -1
+    if latest.get('ADX', 0) > 25:
+        score += 1 if latest.get('plus_di', 0) > latest.get('minus_di', 0) else -1
         reasons.append("Strong trend")
     
     # Bollinger position
-    if row.get('BB_position', 0.5) < 0.2:
+    if latest.get('BB_position', 0.5) < 0.2:
         score += 1
         reasons.append("Near lower BB")
-    elif row.get('BB_position', 0.5) > 0.8:
+    elif latest.get('BB_position', 0.5) > 0.8:
         score -= 1
         reasons.append("Near upper BB")
     
     # Trend alignment
-    if row.get('Close', 0) > row.get('SMA_50', 0) > row.get('SMA_200', 0):
+    if latest.get('Close', 0) > latest.get('SMA_50', 0) > latest.get('SMA_200', 0):
         score += 2
         reasons.append("Bullish alignment")
-    elif row.get('Close', 0) < row.get('SMA_50', 0) < row.get('SMA_200', 0):
+    elif latest.get('Close', 0) < latest.get('SMA_50', 0) < latest.get('SMA_200', 0):
         score -= 2
         reasons.append("Bearish alignment")
     
@@ -212,7 +214,7 @@ def get_ratio_analysis(symbol: str) -> Dict[str, Any]:
     latest = df.iloc[-1]
     prev = df.iloc[-2] if len(df) > 1 else latest
     
-    signal_info = generate_signal(latest)
+    signal_info = generate_signal(latest, prev)
     
     return {
         "symbol": symbol,

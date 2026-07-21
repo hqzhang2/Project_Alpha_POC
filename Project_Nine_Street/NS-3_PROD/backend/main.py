@@ -10,10 +10,16 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 import datetime
 import os
 import sys
+import logging
 from pathlib import Path
 
 # Add common to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+
+logger = logging.getLogger("ns3")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 import numpy as np
 import pandas as pd
@@ -82,6 +88,27 @@ yahoo = get_yahoo_client()
 
 # ── Helpers: Data Fetching ───────────────────────────────────────────────────
 
+import time as _time
+from functools import lru_cache as _lru_cache
+
+# 5-minute TTL cache for tier computations to prevent redundant yfinance calls
+_tier_cache = {}
+_TIER_CACHE_TTL = 300  # seconds
+
+
+def _cache_get(key):
+    if key in _tier_cache:
+        val, ts = _tier_cache[key]
+        if _time.time() - ts < _TIER_CACHE_TTL:
+            return val
+        del _tier_cache[key]
+    return None
+
+
+def _cache_set(key, val):
+    _tier_cache[key] = (val, _time.time())
+
+
 def fetch_weekly_closes(symbols: list, weeks: int = 14) -> pd.DataFrame:
     end = datetime.date.today()
     start = end - datetime.timedelta(weeks=weeks + 2)
@@ -124,8 +151,8 @@ def fetch_weekly_ohlcv(symbols: list, weeks: int = LOOKBACK_WKS) -> dict:
                     "volume": raw["Volume"],
                 }).dropna().tail(weeks)
             out[sym] = df
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"  OHLCV fetch error for {sym}: {e}")
     return out
 
 
@@ -142,13 +169,23 @@ def compute_ratio_momentum(sector_prices: pd.Series, spy_prices: pd.Series) -> f
 
 
 def ytd_return(prices: pd.Series) -> float:
-    this_year = prices[prices.index.year == datetime.date.today().year]
+    """Year-to-date return. Works with timezone-aware and naive indices."""
+    current_year = datetime.date.today().year
+    try:
+        this_year = prices[prices.index.year == current_year]
+    except AttributeError:
+        # Index may have no .year attribute (e.g., non-datetime index)
+        return 0.0
     if len(this_year) < 2:
         return 0.0
     return round(((this_year.iloc[-1] - this_year.iloc[0]) / this_year.iloc[0]) * 100, 2)
 
 
 def run_tier1() -> dict:
+    cached = _cache_get("tier1")
+    if cached is not None:
+        return cached
+
     all_symbols = [s["symbol"] for s in SECTORS] + [SPY_SYMBOL]
     closes = fetch_weekly_closes(all_symbols, weeks=14)
     spy_prices = closes[SPY_SYMBOL]
@@ -176,10 +213,12 @@ def run_tier1() -> dict:
         r["rank"] = i + 1
         r["passToTier2"] = i < 3
 
-    return {
+    result = {
         "generatedAt": datetime.datetime.utcnow().isoformat() + "Z",
         "sectors": results,
     }
+    _cache_set("tier1", result)
+    return result
 
 
 # ── Tier 2: ETF Signal Engine ────────────────────────────────────────────────
@@ -239,6 +278,10 @@ def score_etf(df: pd.DataFrame) -> dict:
 
 
 def run_tier2(tier1_data: dict) -> dict:
+    cached = _cache_get("tier2")
+    if cached is not None:
+        return cached
+
     top3 = [s["symbol"] for s in tier1_data["sectors"] if s.get("passToTier2")]
     if not top3:
         top3 = ["XLE", "XLP", "XLI"]
@@ -252,11 +295,13 @@ def run_tier2(tier1_data: dict) -> dict:
         signals = score_etf(ohlcv[sym])
         results.append({"symbol": sym, **signals})
 
-    return {
+    result = {
         "generatedAt": datetime.datetime.utcnow().isoformat() + "Z",
         "tier1Source": "tier1_data.json",
         "etfs": results,
     }
+    _cache_set("tier2", result)
+    return result
 
 
 # ── Tier 3: Stock Selection ──────────────────────────────────────────────────
@@ -407,7 +452,8 @@ def run_tier3(tier2_data: dict) -> dict:
                 else:
                     sc = raw["Close"].dropna()
                 rs_scores[sym] = relative_strength_26w(sc, etf_close)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"  RS calc error for {sym} vs {etf_sym}: {e}")
                 rs_scores[sym] = -999.0
 
         rs_series = pd.Series(rs_scores).sort_values(ascending=False)
@@ -420,7 +466,8 @@ def run_tier3(tier2_data: dict) -> dict:
                 tk = yf.Ticker(sym)
                 fs, breakdown = piotroski_fscore(tk)
                 f_scores[sym] = (fs, breakdown)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"  F-Score error for {sym}: {e}")
                 f_scores[sym] = (0, {})
 
         passed_f = [s for s in top_rs if f_scores[s][0] >= PIOTROSKI_MIN]
@@ -471,8 +518,8 @@ def run_tier3(tier2_data: dict) -> dict:
                     "taScore": score,
                     "fscoreBreakdown": breakdown,
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"  TA score error for {sym}: {e}")
 
         stock_results.sort(key=lambda x: x["confidence"], reverse=True)
         stock_results = stock_results[:5]
