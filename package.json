@@ -1,0 +1,17 @@
+{
+    "name": "nine-street-terminal",
+    "version": "1.0.0",
+    "description": "Nine Street QA Terminal Package",
+    "main": "NS_QA/server.py",
+    "scripts": {
+        "start:ns1": "cd NS_QA && PORT=9219 python3 server.py",
+        "start:ns3": "cd NS-3_QA && PORT=9237 python3 qa_server.py",
+        "start:ns4": "cd NS-4_QA && PORT=9241 python3 qa_server.py",
+        "start:alpha": "cd Project_Sequoia/QA_terminal && PORT=9099 python3 server.py",
+        "start:portal": "cd Project_Nine_Street && PORT=8000 python3 portal_qa.py",
+        "start:all": "concurrently \"npm run start:ns1\" \"npm run start:ns3\" \"npm run start:ns4\" \"npm run start:alpha\" \"npm run start:portal\""
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    }
+}

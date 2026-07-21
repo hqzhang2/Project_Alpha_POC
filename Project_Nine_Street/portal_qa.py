@@ -151,11 +151,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="topbar-left">
       <div class="logo"><span>Trading Strategy Engine</span><span class="env-badge">QA</span></div>
       <div class="nav-tabs">
-        <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')">Alpha Terminal</button>
-        <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')">NS-1</button>
-        <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')">NS-3</button>
-        <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')">NS-4</button>
-      </div>
+              <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')">Alpha Terminal</button>
+              <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')">NS-1</button>
+              <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')">NS-3</button>
+              <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')">NS-4</button>
+            </div>
     </div>
     <div class="env-toggle">
       <span class="env-label">ENV:</span>

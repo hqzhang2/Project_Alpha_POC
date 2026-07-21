@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from datetime import datetime
-import py_vollib.black_scholes_merton.implied_volatility as iv
-import py_vollib.black_scholes_merton.greeks.analytical as greeks
+import vollib.black_scholes_merton.implied_volatility as iv
+import vollib.black_scholes_merton.greeks.analytical as greeks
 
 class NSOEOptionEngine:
     """
