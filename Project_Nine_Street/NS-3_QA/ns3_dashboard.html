@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-3: 3-Tier Sector Rotation</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e8e8f0; min-height: 100vh; }
+.header { background: #161b22; padding: 16px 24px; border-bottom: 1px solid #1e1e2e; }
+.header h1 { font-size: 18px; font-weight: 600; color: #4ade80; }
+.toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #1e1e2e; flex-wrap: wrap; }
+.btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.btn:hover { background: #2ea043; }
+.tabs { display: flex; gap: 4px; background: #161b22; padding: 8px 24px; border-radius: 8px; }
+.tab { background: transparent; border: none; color: #8b949e; padding: 10px 20px; cursor: pointer; border-radius: 6px; font-size: 14px; }
+.tab.active { background: #238636; color: white; }
+.data-table-container { background: #161b22; border-radius: 8px; overflow-x: auto; border: 1px solid #30363d; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table th { padding: 12px 8px; background: #21262d; color: #8b949e; text-align: left; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #30363d; white-space: nowrap; }
+.data-table td { padding: 10px 8px; border-bottom: 1px solid #21262d; text-align: left; white-space: nowrap; }
+.data-table .num { font-family: 'Monaco', monospace; text-align: right; }
+.data-table .num.positive { color: #3fb950; }
+.data-table .num.negative { color: #f85149; }
+.data-table tr:hover td { background: #21262d; }
+.info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #30363d; }
+.info-bar .ticker { font-size: 20px; font-weight: 700; }
+.loading { padding: 40px; text-align: center; color: #8b949e; }
+.bullish { color: #3fb950; font-weight: 600; }
+.bearish { color: #f85149; font-weight: 600; }
+.neutral { color: #f0883e; font-weight: 600; }
+.main { padding: 24px; }
+.desc { background: #161b22; padding: 12px 20px; border-radius: 8px; margin-bottom: 16px; border: 1px solid #30363d; color: #8b949e; font-size: 13px; line-height: 1.5; }
+.desc strong { color: #e8e8f0; }
+</style>
+</head>
+<body>
+<div class="header"><h1>NS-3: 3-Tier Sector Rotation</h1></div>
+<div class="toolbar">
+  <span style="color:#8b949e;font-size:12px;">Data from <strong>yfinance</strong> — computed on-the-fly by NS-3 algorithm</span>
+  <button class="btn" id="refresh-btn">Refresh</button>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="1">Tier 1: Sector Rotation</button>
+  <button class="tab" data-tab="2">Tier 2: ETF Signals</button>
+  <button class="tab" data-tab="3">Tier 3: Stock Selection</button>
+  <button class="tab" data-tab="all">All Tiers</button>
+</div>
+
+<div class="main" id="panel-1" style="display:block">
+  <div class="desc"><strong>Tier 1: Sector Rotation Rankings</strong><br>Ranks <strong>11 sector ETFs</strong> (XLK, XLF, XLV, XLE, etc.) by momentum vs SPY over 52 weeks. Sectors with positive momentum and top rank pass to Tier 2. Data: yfinance price history.</div>
+  <div class="data-table-container"><table class="data-table"><thead><tr><th>Rank</th><th>Sector</th><th>ETF</th><th class="num">Momentum</th><th class="num">YTD %</th><th class="num">Price</th><th>Pass Tier 2</th></tr></thead><tbody id="t1-body"></tbody></table></div>
+</div>
+<div class="main" id="panel-2" style="display:none">
+  <div class="desc"><strong>Tier 2: ETF Signal Engine</strong><br>Top sectors from Tier 1 are scored using <strong>HMM (Hidden Markov Model)</strong>, MACD, ADX, RSI, and OBV. Each ETF gets a composite score out of 5. Decision: ENTER LONG, HOLD, or AVOID. Data: yfinance price history + HMM/TA.</div>
+  <div class="data-table-container"><table class="data-table"><thead><tr><th>ETF</th><th class="num">Price</th><th class="num">Score</th><th>Decision</th><th class="num">HMM</th><th class="num">MACD</th><th class="num">ADX</th><th class="num">RSI</th><th class="num">OBV</th></tr></thead><tbody id="t2-body"></tbody></table></div>
+</div>
+<div class="main" id="panel-3" style="display:none">
+  <div class="desc"><strong>Tier 3: Stock Selection</strong><br>For each ETF that passes Tier 2, picks individual stocks using <strong>Relative Strength (RS) percentile</strong>, <strong>Piotroski F-Score</strong> (9-point fundamental screen), and <strong>Technical Analysis score</strong> (SMA crossover, volume, volatility). Only stocks scoring high on all 3 metrics appear. Data: yfinance fundamentals + price.</div>
+  <div class="data-table-container"><table class="data-table"><thead><tr><th>Symbol</th><th>Sector ETF</th><th>Decision</th><th class="num">Confidence</th><th class="num">RS (26w)</th><th class="num">F-Score</th><th class="num">TA Score</th></tr></thead><tbody id="t3-body"></tbody></table></div>
+</div>
+<div class="main" id="panel-all" style="display:none">
+  <div class="desc"><strong>All Tiers Combined</strong><br>Complete pipeline from sector rotation → ETF signal engine → stock selection.</div>
+  <div id="all-body"></div>
+</div>
+
+<script>
+async function api(url) {
+  var r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+// Tab switching
+var tabs = document.querySelectorAll('.tab');
+for (var i = 0; i < tabs.length; i++) {
+  (function(tab) {
+    tab.onclick = function() {
+      for (var j = 0; j < tabs.length; j++) tabs[j].className = 'tab';
+      tab.className = 'tab active';
+      var panels = document.querySelectorAll('.main');
+      for (var j = 0; j < panels.length; j++) panels[j].style.display = 'none';
+      document.getElementById('panel-' + tab.getAttribute('data-tab')).style.display = 'block';
+    };
+  })(tabs[i]);
+}
+
+var d1, d2, d3, d_all;
+
+function loadTier1() {
+  api('/api/v1/tier1').then(function(data) {
+    d1 = data;
+    var html = '';
+    for (var i = 0; i < data.sectors.length; i++) {
+      var s = data.sectors[i];
+      html += '<tr><td>' + (i+1) + '</td><td>' + s.name + '</td><td>' + s.symbol + '</td>'
+        + '<td class="num ' + (s.momentum >= 0 ? 'positive' : 'negative') + '">' + (s.momentum >= 0 ? '+' : '') + s.momentum.toFixed(2) + '%</td>'
+        + '<td class="num ' + (s.ytd >= 0 ? 'positive' : 'negative') + '">' + (s.ytd >= 0 ? '+' : '') + s.ytd.toFixed(1) + '%</td>'
+        + '<td class="num">$' + s.currentPrice.toFixed(2) + '</td>'
+        + '<td>' + (s.passToTier2 ? '<span class="bullish">Yes</span>' : '<span class="bearish">No</span>') + '</td></tr>';
+    }
+    document.getElementById('t1-body').innerHTML = html;
+  }).catch(function(e) {
+    document.getElementById('t1-body').innerHTML = '<tr><td colspan="7" class="loading">Error: ' + e.message + '</td></tr>';
+  });
+}
+
+function loadTier2() {
+  api('/api/v1/tier2').then(function(data) {
+    d2 = data;
+    var html = '';
+    for (var i = 0; i < data.etfs.length; i++) {
+      var e = data.etfs[i];
+      var decClass = e.decision.indexOf('LONG') >= 0 ? 'bullish' : (e.decision.indexOf('AVOID') >= 0 ? 'bearish' : 'neutral');
+      html += '<tr><td><strong>' + e.symbol + '</strong></td>'
+        + '<td class="num">$' + e.currentPrice.toFixed(2) + '</td>'
+        + '<td class="num">' + e.score + '/' + e.maxScore + '</td>'
+        + '<td class="' + decClass + '">' + e.decision + '</td>'
+        + '<td class="num">' + (e.hmm ? (e.hmm.bullProb * 100).toFixed(1) + '%' : 'N/A') + '</td>'
+        + '<td class="num">' + (e.macd ? e.macd.value.toFixed(4) : 'N/A') + '</td>'
+        + '<td class="num">' + (e.adx ? e.adx.value.toFixed(1) : 'N/A') + '</td>'
+        + '<td class="num">' + (e.rsi ? e.rsi.value.toFixed(1) : 'N/A') + '</td>'
+        + '<td class="num ' + (e.obv && e.obv.isRising ? 'positive' : 'negative') + '">' + ((e.obv && e.obv.slope) || 0).toFixed(0) + '</td></tr>';
+    }
+    document.getElementById('t2-body').innerHTML = html;
+  }).catch(function(e) {
+    document.getElementById('t2-body').innerHTML = '<tr><td colspan="9" class="loading">Error: ' + e.message + '</td></tr>';
+  });
+}
+
+function loadTier3() {
+  api('/api/v1/tier3').then(function(data) {
+    d3 = data;
+    var html = '';
+    for (var i = 0; i < data.sectors.length; i++) {
+      var sector = data.sectors[i];
+      for (var j = 0; j < sector.stocks.length; j++) {
+        var s = sector.stocks[j];
+        var decClass = s.decision === 'BUY' ? 'bullish' : (s.decision === 'AVOID' ? 'bearish' : 'neutral');
+        html += '<tr><td><strong>' + s.symbol + '</strong></td>'
+          + '<td>' + sector.etf + '</td>'
+          + '<td class="' + decClass + '">' + s.decision + '</td>'
+          + '<td class="num">' + s.confidence.toFixed(2) + '</td>'
+          + '<td class="num">' + s.rs26w.toFixed(2) + '</td>'
+          + '<td class="num">' + s.fscore + '</td>'
+          + '<td class="num">' + s.taScore + '</td></tr>';
+      }
+    }
+    document.getElementById('t3-body').innerHTML = html;
+  }).catch(function(e) {
+    document.getElementById('t3-body').innerHTML = '<tr><td colspan="7" class="loading">Error: ' + e.message + '</td></tr>';
+  });
+}
+
+function loadAll() {
+  Promise.all([api('/api/v1/tier1'), api('/api/v1/tier2'), api('/api/v1/tier3')]).then(function(results) {
+    d1 = results[0]; d2 = results[1]; d3 = results[2];
+    var h = '<h3 style="color:#4ade80;margin:16px 0 12px;">Tier 1: Sector Rotation</h3>'
+      + '<div class="data-table-container"><table class="data-table"><thead><tr><th>Rank</th><th>Sector</th><th>ETF</th><th class="num">Momentum</th><th class="num">YTD %</th><th class="num">Price</th><th>Pass</th></tr></thead><tbody>';
+    for (var i = 0; i < d1.sectors.length; i++) {
+      var s = d1.sectors[i];
+      h += '<tr><td>' + (i+1) + '</td><td>' + s.name + '</td><td>' + s.symbol + '</td>'
+        + '<td class="num ' + (s.momentum >= 0 ? 'positive' : 'negative') + '">' + (s.momentum >= 0 ? '+' : '') + s.momentum.toFixed(2) + '%</td>'
+        + '<td class="num ' + (s.ytd >= 0 ? 'positive' : 'negative') + '">' + (s.ytd >= 0 ? '+' : '') + s.ytd.toFixed(1) + '%</td>'
+        + '<td class="num">$' + s.currentPrice.toFixed(2) + '</td>'
+        + '<td>' + (s.passToTier2 ? '<span class="bullish">Yes</span>' : '<span class="bearish">No</span>') + '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+
+    h += '<h3 style="color:#4ade80;margin:24px 0 12px;">Tier 2: ETF Signals</h3>'
+      + '<div class="data-table-container"><table class="data-table"><thead><tr><th>ETF</th><th class="num">Price</th><th class="num">Score</th><th>Decision</th><th class="num">HMM</th><th class="num">MACD</th></tr></thead><tbody>';
+    for (var i = 0; i < d2.etfs.length; i++) {
+      var e = d2.etfs[i];
+      h += '<tr><td><strong>' + e.symbol + '</strong></td><td class="num">$' + e.currentPrice.toFixed(2) + '</td>'
+        + '<td class="num">' + e.score + '/' + e.maxScore + '</td>'
+        + '<td>' + e.decision + '</td>'
+        + '<td class="num">' + (e.hmm ? (e.hmm.bullProb * 100).toFixed(1) + '%' : 'N/A') + '</td>'
+        + '<td class="num">' + (e.macd ? e.macd.value.toFixed(4) : 'N/A') + '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+
+    h += '<h3 style="color:#4ade80;margin:24px 0 12px;">Tier 3: Stock Picks</h3>'
+      + '<div class="data-table-container"><table class="data-table"><thead><tr><th>Symbol</th><th>ETF</th><th>Decision</th><th class="num">Conf</th><th class="num">RS</th><th class="num">F-Score</th><th class="num">TA</th></tr></thead><tbody>';
+    for (var i = 0; i < d3.sectors.length; i++) {
+      for (var j = 0; j < d3.sectors[i].stocks.length; j++) {
+        var s = d3.sectors[i].stocks[j];
+        h += '<tr><td><strong>' + s.symbol + '</strong></td><td>' + d3.sectors[i].etf + '</td>'
+          + '<td>' + s.decision + '</td><td class="num">' + s.confidence.toFixed(2) + '</td>'
+          + '<td class="num">' + s.rs26w.toFixed(2) + '</td>'
+          + '<td class="num">' + s.fscore + '</td>'
+          + '<td class="num">' + s.taScore + '</td></tr>';
+      }
+    }
+    h += '</tbody></table></div>';
+    document.getElementById('all-body').innerHTML = h;
+  }).catch(function(e) {
+    document.getElementById('all-body').innerHTML = '<div class="loading">Error: ' + e.message + '</div>';
+  });
+}
+
+document.getElementById('refresh-btn').onclick = function() {
+  loadTier1();
+  loadTier2();
+  loadTier3();
+  loadAll();
+};
+
+loadTier1();
+loadTier2();
+loadTier3();
+</script>
+</body>
+</html>

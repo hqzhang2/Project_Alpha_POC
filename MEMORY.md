@@ -35,17 +35,7 @@
 |------|------|-------|
 | Lead Investor | Hong | Overall direction |
 | Co-investor | TBD | |
-| Strategist | Stan | Big picture, portfolio allocation |
-| Equity Analyst | Esso | Stocks (SPX500, ADRs, IPOs) |
-| Macro Economist | Marc | US/Global economy, Fed policy |
-| FICC Analyst | Finn | Bonds, FX, commodities, crypto |
-| Quantitative Analyst | Qi | Options, Greeks, portfolio analytics |
-| Risk Management | Ray | VAR, drawdown control, exposure |
 
-## AI Agents (Proposed):
-- sequoia-strategist (MiniMax-M2.5) - Workspace: Project_Sequoia/agents/strategist
-- sequoia-equity-analyst (Gemini 3 Flash) - Workspace: Project_Sequoia/agents/equity_analyst
-- Task Board: Project_Sequoia/TASKS.md
 
 ## System Events:
 - On 2026-02-22, Hong reported a power failure and subsequently set up auto-start for the system.

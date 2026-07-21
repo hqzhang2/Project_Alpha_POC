@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/Users/chuck/Project_Alpha_POC/Project_Sequoia/terminal/server.py", line 8, in <module>
+    import yfinance as yf
+  File "/Users/chuck/Project_Alpha_POC/project_alpha_env/lib/python3.9/site-packages/yfinance/__init__.py", line 26, in <module>
+    from .calendars import Calendars
+  File "/Users/chuck/Project_Alpha_POC/project_alpha_env/lib/python3.9/site-packages/yfinance/calendars.py", line 6, in <module>
+    from requests import Session, Response, exceptions
+  File "/Users/chuck/.hermes/hermes-agent/venv/lib/python3.11/site-packages/requests/__init__.py", line 43, in <module>
+    import urllib3
+  File "/Users/chuck/.hermes/hermes-agent/venv/lib/python3.11/site-packages/urllib3/__init__.py", line 15, in <module>
+    from ._base_connection import _TYPE_BODY
+  File "/Users/chuck/.hermes/hermes-agent/venv/lib/python3.11/site-packages/urllib3/_base_connection.py", line 10, in <module>
+    bytes, typing.IO[typing.Any], typing.Iterable[bytes | str], str
+TypeError: unsupported operand type(s) for |: 'type' and 'type'
