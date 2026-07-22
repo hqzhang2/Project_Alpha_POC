@@ -36,7 +36,6 @@
 | Lead Investor | Hong | Overall direction |
 | Co-investor | TBD | |
 
-
 ## System Events:
 - On 2026-02-22, Hong reported a power failure and subsequently set up auto-start for the system.
 - On 2026-02-22, Hong requested to defer the data presentation discussion and resume "project alpha poc" tomorrow.
@@ -44,9 +43,11 @@
 - On 2026-03-18 (PM), Created comprehensive documentation for all 10 subtasks (KAN-9 through KAN-18) in Project_Sequoia/docs/
 - On 2026-03-27, Implemented instant followup workflow for sequoia-strategy channel - after Hong posts in strategy/equity/trade-ideas, team automatically responds within minutes
 - On 2026-03-31, Released Terminal Alpha v1.3.1: Unified and refactored backend server, added comprehensive full-tab regression testing suite covering Dashboard, OMON, Ratio Analysis, and Financials.
+- **2026-07-21:** Restored NS-1/NS-3/NS-4 QA servers with full dashboard APIs. Created release/v1.6 and feature/v1.7 branches.
+
 ## Project Nine Street - Quantitative Trading System
 **Status:** ACTIVE PRIMARY PROJECT
-**Folder:** `/Users/chuck/.openclaw/workspace/Project_Nine_Street/`
+**Folder:** `/Users/chuck/Project_Alpha_POC/Project_Nine_Street/`
 
 ### Core Tenets:
 1. **Persona:** Quantitative Trader. Software is strictly for internal alpha generation and monetization, not for external distribution.
@@ -61,13 +62,22 @@
 - **Layer 4 (Position Sizing & Execution):** Volatility-target sizing adjusted by regime uncertainty and transaction costs.
 
 ## Project Nine Street - Directory Structure & Ports
-**Root:** `/Users/chuck/.openclaw/workspace/Project_Nine_Street/`
-**Projects:**
-- `NS-1_PROD/` - NS-1 (Python HTTP server, standalone)
-- `NS-3_PROD/` - NS-3 3-Tier Sector Rotation (Next.js + FastAPI)
-- `NS_QA/` - QA environment (shared codebase with NS-1, runs on QA ports)
-- `NS-regime-2/` - NS-Regime-2 (Next.js + FastAPI, separate)
+**Root:** `/Users/chuck/Project_Alpha_POC/Project_Nine_Street/`
+
+### QA Environment (Active):
+- `NS_1_QA/` - NS-1 Alpha Engine (server_qa.py + index.html) - Port 9219
+- `NS-3_QA/` - NS-3 3-Tier Sector Rotation (qa_server.py) - Port 9237
+- `NS-4_QA/` - NS-4 Ratio Trading (qa_server.py) - Port 9241
+- `portal_qa.py` - Portal - Port 8000
+
+### PROD Environment:
 - `NS_PROD/` - NS-PROD (Next.js frontend + backend)
+- `NS-3_PROD/` - NS-3 PROD backend - Port 9236
+- `NS-4_PROD/` - NS-4 PROD backend - Port 9240
+
+### Alpha Terminal:
+- `Project_Sequoia/QA_terminal/` - QA - Port 9099
+- `Project_Sequoia/terminal/` - PROD - Port 9098
 
 **⚠️ RULE #1: Every page/code created MUST be documented in MEMORY.md and committed to GitHub. No memory loss.**
 
@@ -94,55 +104,79 @@
 | Service | QA | PROD |
 |--------|-----|------|
 | Alpha Terminal | 9099 | 9098 |
-| NS-1 | 9199 | 9199 |
-| NS-2 Backend | 9099 | 9098 |
-| NS-3 | 9206 | 9206 |
-| NS-4 | 9210 | 9210 |
+| NS-1 | 9219 | 9218 |
+| NS-3 | 9237 | 9236 |
+| NS-4 | 9241 | 9240 |
+| Portal | 8000 | 8000 |
 
-## Running Services (Project Nine Street)
-| Service | Port | PID | Status |
-|---------|-----|-----|--------|
-| Portal | 8000 | — | ✅ |
-| Alpha Terminal PROD | 9098 | 18896 | ✅ |
-| Alpha Terminal QA | 9099 | 62702 | ✅ |
-| NS-1 (PROD) | 9199 | — | ✅ |
-| NS-2 Backend | 9100 | 62534 | ✅ |
-| NS-2 Frontend | 3001 | 19618 | ✅ |
-| NS-3 Backend | 9206 | — | ✅ |
-| NS-3 Frontend (DEV) | 3000 | — | ✅ |
-| NS-4 | 9210 | — | ✅ |
+## Running QA Services (Project Nine Street) - Verified 2026-07-21
+| Service | Port | Status | Endpoints |
+|---------|-----|--------|-----------|
+| Portal | 8000 | ✅ | / |
+| Alpha Terminal QA | 9099 | ✅ | /dashboard.html |
+| NS-1 QA | 9219 | ✅ | /, /api/nsae, /api/nsoe, /api/backtest, /api/chart, /api/live_feed |
+| NS-3 QA | 9237 | ✅ | /, /api/v1/tier1, /api/v1/tier2, /api/v1/tier3, /api/v1/regime, /api/v1/holdings |
+| NS-4 QA | 9241 | ✅ | /, /api/v1/all, /api/v1/pairs, /health |
+
+## Project Nine Street - NS-1 (Alpha Engine)
+**Status:** ACTIVE - QA restored 2026-07-21
+**Folder:** `/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS_1_QA/`
+**Port:** 9219 (QA) / 9218 (PROD)
+**Server:** `server_qa.py` (stdlib HTTP)
+**Endpoints:**
+- `/` - Dashboard (index.html)
+- `/api/nsae` - NSAE Feature Engineer signals (20 tickers)
+- `/api/nsoe` - NSOE Option Engine (option chains, Greeks)
+- `/api/backtest` - Backtest engine (HMM regime, NSAE, SMA)
+- `/api/chart` - Chart data with regime overlay
+- `/api/live_feed` - Live prices + system events
+- `/api/portfolio` - Paper portfolio
 
 ## Project Nine Street - NS-3 (3-Tier Sector Rotation)
-**Status:** ACTIVE - QA only
-**Folder:** `/Users/chuck/.openclaw/workspace/Project_Nine_Street/NS-3_PROD/`
-**Ports:** 9206 (backend API - PROD) | 3000 (frontend - DEV)
-**Started:** April 27, 2026
-**Architecture:**
-- Tier 1: Sector Rotation (ratio momentum vs SPY)
-- Tier 2: ETF Signal Engine (HMM + MACD + ADX + RSI + OBV scoring)
-- Tier 3: Stock Selection (RS + Piotroski F-Score + TA composite)
-**Source:** Adapted from `~/Downloads/Claude_3/` scripts
-**Note:** Frontend at port 3000 showing fallback sample data. API fetch issue still unresolved (proxy route `/api/all` not reaching backend).
-- **QA details**: QA frontend is on port 3005.
+**Status:** ACTIVE - QA rewritten 2026-07-21
+**Folder:** `/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-3_QA/`
+**Port:** 9237 (QA) / 9236 (PROD)
+**Server:** `qa_server.py` (stdlib HTTP, no FastAPI deps)
+**Endpoints matching dashboard:**
+- `/`ns3_dashboard.html`:
+  - `/api/v1/tier1` - 11 sectors ranked by momentum vs SPY
+  - `/api/v1/tier2` - Top 3 ETF signals (MACD, RSI, ADX, HMM, OBV)
+  - `/api/v1/tier3` - Top 10 stocks from qualifying ETFs (RS + Piotroski + TA)
+  - `/api/v1/regime` - Market regime (Bull/Neutral/Bear)
+  - `/api/v1/holdings?symbol=XLK` - ETF holdings
 
-### General Directives
-- **Memory Retention**: I must be extremely diligent about saving any context, port configurations, architectural changes, and task progression into `MEMORY.md` and daily memory files before yielding/finishing my turn, as I will lose transient conversational memory between long gaps or session restarts. This prevents wasting time/tokens.
+## Project Nine Street - NS-4 (Ratio Trading)
+**Status:** ACTIVE - QA rewritten 2026-07-21
+**Folder:** `/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-4_QA/`
+**Port:** 9241 (QA) / 9240 (PROD)
+**Server:** `qa_server.py` (stdlib HTTP, no FastAPI deps)
+**Endpoints matching `ns4_dashboard.html`:**
+- `/api/v1/all` - All 6 pair ratios with indicators + signals
+- `/api/v1/pairs` - Same as /all (alias)
+- `/health` - Health check
+- Pairs: XLK/XLF, XLV/XLY, XLE/XLU, XLI/XLB, XLRE/XLC, SPY/QQQ
 
-## Nine Street Portal
-**File:** `Project_Nine_Street/portal.py`
+## Project Nine Street - Portal
+**File:** `Project_Nine_Street/portal_qa.py`
 **Port:** 8000
-**Git:** Committed
-**Links:** Alpha Terminal, NS-1, NS-2, NS-3 (PROD + QA)
-**Toggle:** PROD / QA switcher updates all links dynamically (JS-side, no reload)
+**Tabs:** Alpha Terminal, NS-1, NS-3, NS-4
+**Toggle:** PROD/QA switcher updates all iframe URLs dynamically
 
-## Development: QA to PROD Sync Pattern
-When code exists in QA (9099) but not in PROD (9098):
-1. Copy .py files from QA_terminal/ to terminal/
-2. Copy .html files from QA_terminal/ to terminal/
-3. Add API route in server.py if new endpoint
-4. Restart PROD server
-5. Test endpoint
-6. Commit to GitHub
+## Git Branches (as of 2026-07-21)
+| Branch | Base | Status |
+|--------|------|--------|
+| `feature/v1.6` | main | ✅ Merged (commit 0832717) |
+| `release/v1.6` | feature/v1.6 | ✅ Created & pushed |
+| `feature/v1.7` | feature/v1.6 | ✅ Created & pushed (current) |
 
-### Files Already Synced from QA:
-- prediction.py, prediction.html (Polymarket predictions) - 2026-04-27
+### Files Changed in v1.6:
+- `Project_Nine_Street/NS_1_QA/server_qa.py` (new)
+- `Project_Nine_Street/NS_1_QA/index.html` (new)
+- `Project_Nine_Street/NS-3_QA/qa_server.py` (rewritten)
+- `Project_Nine_Street/NS-4_QA/qa_server.py` (rewritten)
+- `Project_Nine_Street/portal_qa.py` (tabs + ports updated)
+- `Project_Nine_Street/scripts/nsoe_pricing.py` (vollib import fix)
+- `package.json` (new - npm scripts)
+
+## General Directives
+- **Memory Retention**: I must be extremely diligent about saving any context, port configurations, architectural changes, and task progression into `MEMORY.md` and daily memory files before yielding/finishing my turn, as I will lose transient conversational memory between long gaps or session restarts. This prevents wasting time/tokens.
