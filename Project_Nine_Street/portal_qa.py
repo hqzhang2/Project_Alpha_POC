@@ -156,8 +156,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }}
   .status-indicator.up { background: #3fb950; border-color: #2ea043; }
   .status-indicator.down { background: #f85149; border-color: #da3633; }
-  .nav-tab.status-up { border-left: 3px solid #3fb950; }
-  .nav-tab.status-down { border-left: 3px solid #f85149; }
+
 </style>
 </head>
 <body>
@@ -256,12 +255,13 @@ async function updateStatusIndicators() {
     const path = SERVICE_ENDPOINTS[key];
     const isUp = await checkServiceHealth(key, port, path);
     
-    const tab = document.querySelector(`[data-strategy="${key}"]`);
-    if (tab) {
-      tab.classList.remove('status-up', 'status-down');
-      tab.classList.add(isUp ? 'status-up' : 'status-down');
-      tab.title = `${key.toUpperCase()}: ${isUp ? 'UP' : 'DOWN'}`;
-    }
+    const tab = document.querySelector(`[data-strategy="${{key}}"]`);
+    const dot = tab ? tab.querySelector('.status-indicator') : null;
+    if (dot) {{
+      dot.classList.remove('up', 'down');
+      dot.classList.add(isUp ? 'up' : 'down');
+      dot.title = `${{key.toUpperCase()}}: ${{isUp ? 'UP' : 'DOWN'}}`;
+    }}
   }
 }
 

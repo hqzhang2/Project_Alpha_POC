@@ -95,8 +95,32 @@ def test_build_html_alpha_autoload_present():
     assert "localhost:9099/dashboard.html" in html
 
 
-# --------------------------------------------------------------------------- #
-# Strategy config invariants
+def test_health_indicator_lives_on_dot_not_tab_border():
+    """Health status must be shown by the status dot (the small orange circle),
+    not by a colored left border on the tab (the red annotation we removed).
+
+    Contract:
+      * CSS must NOT style a health border on .nav-tab (tab-border removed)
+      * CSS must style .status-indicator.up / .status-indicator.down
+      * JS must add the 'up'/'down' class to the dot (.status-indicator),
+        not to the tab.
+    """
+    html = portal.build_html()
+    # 1) tab-border health styling is gone
+    assert ".nav-tab.status-up" not in html
+    assert ".nav-tab.status-down" not in html
+    # 2) dot health styling exists
+    assert ".status-indicator.up" in html
+    assert ".status-indicator.down" in html
+    # 3) JS retargets the dot (querySelector for the dot) and toggles up/down
+    assert "querySelector('.status-indicator')" in html
+    assert "dot.classList.add(isUp ? 'up' : 'down')" in html
+    # 4) the JS must NOT add the health class to the tab itself
+    assert "tab.classList.add(isUp ? 'up' : 'down')" not in html
+
+
+
+
 # --------------------------------------------------------------------------- #
 def test_strategies_qa_is_prod_plus_one():
     """QA port scheme is PROD+1 (ops convention). Lock it in."""
