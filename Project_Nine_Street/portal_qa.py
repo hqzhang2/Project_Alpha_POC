@@ -275,8 +275,13 @@ setInterval(updateStatusIndicators, 30000);
 
 def build_html():
     ts = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
-    strategies_json = str(STRATEGIES).replace("'", '"')
-    return HTML_TEMPLATE.format(ts=ts, strategies_json=strategies_json)
+    strategies_json = __import__('json').dumps(STRATEGIES)
+    # Safe literal substitution — avoids .format() choking on CSS/JS braces
+    # and avoids corrupting the STRATS JSON with brace unescaping.
+    html = HTML_TEMPLATE
+    html = html.replace('{ts}', ts)
+    html = html.replace('{strategies_json}', strategies_json)
+    return html
 
 class PortalHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
