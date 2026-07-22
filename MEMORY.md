@@ -180,3 +180,66 @@
 
 ## General Directives
 - **Memory Retention**: I must be extremely diligent about saving any context, port configurations, architectural changes, and task progression into `MEMORY.md` and daily memory files before yielding/finishing my turn, as I will lose transient conversational memory between long gaps or session restarts. This prevents wasting time/tokens.
+
+## Portal Health Monitoring (Feature v1.7)
+**Location:** `portal_qa.py` — built into the portal frontend
+**How it works:**
+- Each tab has a **status indicator dot**: ⚪ gray (unknown) → 🟢 green (up) → 🔴 red (down)
+- Tabs also get a **green/red left border** for quick visual scan
+- Status is checked every **30 seconds** via `fetch()` to each service's `/health` endpoint
+- Portal also exposes `/api/health` endpoint returning JSON statuses
+
+**Status check endpoints:**
+| Service | Health Check |
+|---------|-------------|
+| Alpha Terminal | `http://localhost:9099/dashboard.html` |
+| NS-1 | `http://localhost:9219/health` |
+| NS-3 | `http://localhost:9237/health` |
+| NS-4 | `http://localhost:9241/health` |
+
+## Morning Check Routine
+**Purpose:** Verify all services are up before trading day starts.
+
+### Step 1: Open Portal
+```bash
+open http://localhost:8000/
+```
+Check all tabs have green dots. Red dots = service down.
+
+### Step 2: Quick API Health Check
+```bash
+for port in 9099 9219 9237 9241 8000; do
+  echo -n "Port $port: "
+  curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/ 2>/dev/null || echo "DOWN"
+done
+```
+Expected: 5 × 200 responses.
+
+### Step 3: Restart Any Down Services
+```bash
+# Alpha Terminal
+cd /Users/chuck/Project_Alpha_POC/Project_Sequoia/QA_terminal && PORT=9099 /Library/Developer/CommandLineTools/usr/bin/python3 server.py &
+
+# NS-1
+cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS_1_QA && PORT=9219 PYTHONPATH="/Users/chuck/Project_Alpha_POC/Project_Nine_Street/scripts" /Library/Developer/CommandLineTools/usr/bin/python3 server_qa.py &
+
+# NS-3
+cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-3_QA && PORT=9237 /Library/Developer/CommandLineTools/usr/bin/python3 qa_server.py &
+
+# NS-4
+cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-4_QA && PORT=9241 /Library/Developer/CommandLineTools/usr/bin/python3 qa_server.py &
+
+# Portal
+cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street && PORT=8000 /Library/Developer/CommandLineTools/usr/bin/python3 portal_qa.py &
+```
+
+### Step 4: Regenerate GitHub Token (if pushing)
+```bash
+PYTHONPATH="" /Library/Developer/CommandLineTools/usr/bin/python3 \
+  /Users/chuck/.zeroclaw/agents/chuck/workspace/gen_github_token.py
+```
+
+### Fault Recovery
+- **NS-3/NS-4 down (FastAPI/pydantic error):** The QA servers use stdlib http.server, no FastAPI needed. Re-run the server script directly.
+- **NS-1 engines unavailable:** Engines require numba/vectorbt (numpy<2). Dashboard still loads; engine endpoints return 503 gracefully.
+- **Portal blank:** Check iframe URL construction. Portal uses `STRATS[key][env.toLowerCase()]` for port.
