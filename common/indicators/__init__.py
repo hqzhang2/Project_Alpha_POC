@@ -41,6 +41,7 @@ def ema(series: pd.Series, span: int) -> pd.Series:
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     """
     Relative Strength Index (Wilder's smoothing).
+    All-gains (avg_loss == 0) yields 100; all-losses yields 0.
     """
     delta = series.diff()
     gain = delta.clip(lower=0)
@@ -49,8 +50,15 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1/period, adjust=False, min_periods=period).mean()
     avg_loss = loss.ewm(alpha=1/period, adjust=False, min_periods=period).mean()
 
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    # All gains -> RSI 100; all losses -> RSI 0 (standard convention)
+    rs = avg_gain / avg_loss.where(avg_loss != 0, np.nan)
+    out = 100 - (100 / (1 + rs))
+    # Standard convention: all gains -> 100, all losses -> 0, flat -> nan
+    out = out.where(avg_loss != 0, 100.0)
+    out = out.where(avg_gain != 0, 0.0)
+    # both zero (flat series) -> undefined
+    out = out.mask((avg_gain == 0) & (avg_loss == 0))
+    return out
 
 
 def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[pd.Series, pd.Series, pd.Series]:

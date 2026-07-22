@@ -15,7 +15,10 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 def sharpe_ratio(returns: pd.Series, risk_free: float = 0.0) -> float:
     """Annualized Sharpe ratio."""
     excess = returns - risk_free / 252
-    return float(np.sqrt(252) * excess.mean() / excess.std().replace(0, np.nan))
+    std = excess.std()
+    if std == 0 or np.isnan(std):
+        return np.nan
+    return float(np.sqrt(252) * excess.mean() / std)
 
 
 def sortino_ratio(returns: pd.Series, risk_free: float = 0.0) -> float:
@@ -47,7 +50,10 @@ def beta(asset_returns: pd.Series, market_returns: pd.Series) -> float:
     """Beta vs market."""
     cov = asset_returns.cov(market_returns)
     var = market_returns.var()
-    return float(cov / var) if var != 0 else 0.0
+    # Treat near-zero market variance as zero (avoids divide-by-tiny-float)
+    if var == 0 or abs(var) < 1e-30:
+        return 0.0
+    return float(cov / var)
 
 
 def alpha(asset_returns: pd.Series, market_returns: pd.Series, risk_free: float = 0.0) -> float:
