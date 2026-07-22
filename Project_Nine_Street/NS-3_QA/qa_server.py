@@ -96,6 +96,16 @@ def calc_adx(prices, period=14):
     adx = dx.rolling(period).mean()
     return round(adx.iloc[-1], 1) if not pd.isna(adx.iloc[-1]) else 25.0
 
+def calc_obv(prices, volume=None):
+    """On-Balance Volume (approximate, using price only)"""
+    if len(prices) < 2:
+        return {'isRising': False, 'slope': 0}
+    change = prices.diff()
+    direction = change.apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    obv = direction.cumsum()
+    slope = (obv.iloc[-1] - obv.iloc[-5]) / 5 if len(obv) >= 5 else 0
+    return {'isRising': slope > 0, 'slope': round(slope, 1)}
+
 def run_tier1():
     closes = get_data()
     if closes.empty:
@@ -149,44 +159,88 @@ def run_tier2():
         name = next((s['name'] for s in SECTORS if s['symbol'] == sym), sym)
         prices = closes.get(sym, pd.Series()).dropna() if sym in closes.columns else pd.Series()
 
-        macd_signal = "bullish" if calc_macd(prices) > 0 else "bearish"
+        macd_val = calc_macd(prices)
         rsi_val = calc_rsi(prices)
         adx_val = calc_adx(prices)
+        obv = calc_obv(prices)
+        hmm_bull = max(0.1, min(0.9, 0.5 + (rsi_val - 50) / 100))
+
+        # Score: composite of indicators
+        score = 0
+        score += 15 if adx_val > 25 else 5
+        score += 15 if 40 <= rsi_val <= 70 else 5
+        score += 15 if macd_val > 0 else 5
+        score += 10 if obv['isRising'] else 0
+        score += 10 if i == 0 else 5  # rank bonus
+        maxScore = 65
+
+        # Decision based on score
+        if score >= 40:
+            decision = f"LONG {sym}"
+        elif score >= 25:
+            decision = "NEUTRAL"
+        else:
+            decision = f"AVOID {sym}"
 
         etfs.append({
             "symbol": sym,
             "name": name,
             "rank": i + 1,
-            "macdSignal": macd_signal,
-            "rsi": rsi_val,
-            "adx": adx_val,
-            "hmmScore": round(0.6 + i * 0.1, 2),
+            "currentPrice": round(float(prices.iloc[-1]), 2) if not prices.empty else 0,
+            "score": score,
+            "maxScore": maxScore,
+            "decision": decision,
+            "hmm": {"bullProb": round(hmm_bull, 4)},
+            "macd": {"value": macd_val},
+            "adx": {"value": adx_val},
+            "rsi": {"value": rsi_val},
+            "obv": obv,
             "holdings": [{"symbol": h, "name": h} for h in ETF_HOLDINGS.get(sym, [])],
         })
 
     return {"generatedAt": datetime.utcnow().isoformat() + "Z", "etfs": etfs}
 
 def run_tier3():
-    """Return consensus top stocks from top ETFs"""
+    """Return consensus top stocks from qualifying ETFs, grouped by sector"""
     tier1 = run_tier1()
     tier2 = run_tier2()
 
-    top_etfs = [e['symbol'] for e in tier2['etfs'][:2]]
-    stocks = []
-    for etf_sym in top_etfs:
-        sector_name = next((s['name'] for s in SECTORS if s['symbol'] == etf_sym), etf_sym)
-        for symbol in ETF_HOLDINGS.get(etf_sym, [])[:5]:
+    top_etfs = [e for e in tier2['etfs'][:2]]
+    sectors = []
+    for etf in top_etfs:
+        holdings = ETF_HOLDINGS.get(etf['symbol'], [])
+        stocks = []
+        for symbol in holdings[:5]:
+            # Simulate stock-level scores
+            rs26w = round(50 + np.random.uniform(-20, 40), 2)
+            fscore = np.random.randint(3, 9)
+            ta_score = round(30 + np.random.uniform(-10, 30), 1)
+            confidence = round((rs26w + fscore * 10 + ta_score) / 200, 2)
+
+            if confidence >= 0.6:
+                decision = "BUY"
+            elif confidence >= 0.35:
+                decision = "WATCH"
+            else:
+                decision = "AVOID"
+
             stocks.append({
                 "symbol": symbol,
                 "name": symbol,
-                "sector": sector_name,
-                "etf": etf_sym,
-                "price": round(100 + np.random.uniform(-20, 50), 2),
-                "momentum": round(np.random.uniform(-10, 30), 2),
-                "rsScore": round(np.random.uniform(40, 95), 1),
+                "decision": decision,
+                "confidence": confidence,
+                "rs26w": rs26w,
+                "fscore": fscore,
+                "taScore": ta_score,
             })
 
-    return {"generatedAt": datetime.utcnow().isoformat() + "Z", "stocks": stocks}
+        sectors.append({
+            "etf": etf['symbol'],
+            "name": etf['name'],
+            "stocks": stocks,
+        })
+
+    return {"generatedAt": datetime.utcnow().isoformat() + "Z", "sectors": sectors}
 
 class NS3Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -198,7 +252,8 @@ class NS3Handler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        # Convert numpy types to native Python for JSON serialization
+        self.wfile.write(json.dumps(data, default=lambda o: int(o) if isinstance(o, (np.bool_, np.integer)) else float(o) if isinstance(o, np.floating) else str(o)).encode())
 
     def do_GET(self):
         if self.path in ('/', '/ns3_dashboard.html'):
