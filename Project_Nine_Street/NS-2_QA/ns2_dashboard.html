@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NS-2 · MAG7 HMM</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#07090d; --panel:#0c0e14; --border:#1a1a2a; --text:#e8e8ec; --sub:#9aa0aa; --muted:#666;
+  --green:#76e4c4; --blue:#7ec8e3; --purple:#c9a6ff; --red:#ff6b6b; --orange:#ffb347; --yellow:#ffd166;
+  --app-bg:#080b10;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--app-bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:12px 14px 40px}
+
+/* Desktop: widen layout, 2-col charts */
+@media (min-width:768px){
+  body{max-width:960px;padding:20px 28px 60px}
+  .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  .charts-grid .chart-box.full{grid-column:1 / -1}
+  .chart-wrap{height:220px}
+  .chart-wrap.short{height:130px}
+  .stock-hdr .name,.stock-hdr .price{font-size:26px}
+  .pill{font-size:13px;padding:7px 18px}
+}
+h2{font-size:14px;font-weight:600;margin:16px 0 8px}
+.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.header h1{font-size:13px;font-weight:600;color:var(--sub);letter-spacing:.5px}
+.header .badge{font-size:10px;padding:2px 6px;border-radius:3px;font-weight:600}
+.badge-qa{background:#1a3a2a;color:var(--green)}
+
+/* Ticker pills */
+.pills{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.pills::-webkit-scrollbar{display:none}
+.pill{padding:6px 14px;border-radius:14px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent;background:var(--panel);color:var(--sub);transition:all .15s}
+.pill.active{border-color:currentColor;background:transparent}
+.pill.aapl{color:#a8d8a8}.pill.msft{color:#7ec8e3}.pill.nvda{color:#76e4c4}
+.pill.googl{color:#f7c59f}.pill.amzn{color:#ffb347}.pill.meta{color:#c9a6ff}.pill.tsla{color:#ff6b6b}
+
+/* Stock header */
+.stock-hdr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+.stock-hdr .name{font-size:20px;font-weight:700}
+.stock-hdr .meta{font-size:11px;color:var(--sub);margin-top:2px}
+.stock-hdr .price{font-size:20px;font-weight:700}
+.stock-hdr .price-label{font-size:10px;color:var(--sub);text-align:right}
+
+/* Regime cards */
+.regime-cards{display:flex;gap:8px;margin-bottom:14px}
+.regime-card{flex:1;background:var(--panel);border-radius:10px;padding:10px 12px;border-left:3px solid;font-size:11px}
+.regime-card .rc-label{font-size:13px;font-weight:700;margin-bottom:3px}
+.regime-card .rc-desc{color:var(--sub);font-size:10px;margin-bottom:2px}
+.regime-card .rc-days{font-size:18px;font-weight:700}
+
+/* Chart wrappers */
+.chart-box{background:var(--panel);border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}
+.chart-box h3{font-size:10px;color:var(--sub);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.chart-box canvas{display:block;width:100%!important}
+.chart-wrap{position:relative;width:100%;height:180px}
+.chart-wrap.short{height:100px}
+.chart-wrap.xshort{height:50px}
+
+/* Signal bar chart */
+.signal-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:9px;color:var(--sub);margin-top:6px}
+.signal-legend span{display:flex;align-items:center;gap:3px}
+.signal-legend .dot{width:8px;height:8px;border-radius:2px}
+
+/* Rules table */
+.rules-table{width:100%;font-size:10px;border-collapse:collapse;margin:8px 0}
+.rules-table th{color:var(--sub);text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}
+.rules-table td{padding:5px 6px;border-bottom:1px solid rgba(26,26,42,.4);vertical-align:top}
+.rules-table .regime-tag{font-weight:700}
+
+/* Active strategy card */
+.active-card{background:var(--panel);border-radius:10px;padding:12px 14px;margin-top:10px;border-left:3px solid var(--green)}
+.active-card .ac-date{font-size:10px;color:var(--sub)}
+.active-card .ac-header{display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px}
+.active-card .ac-title{font-size:15px;font-weight:700}
+.active-card .ac-btn{padding:7px 18px;border-radius:6px;font-size:12px;font-weight:700;background:#1a3a2a;color:var(--green);border:1px solid var(--green);cursor:pointer}
+.active-card .ac-metrics{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+.active-card .ac-metric .ac-val{font-size:14px;font-weight:700}
+.active-card .ac-metric .ac-lbl{font-size:9px;color:var(--sub)}
+.active-card .ac-rule{font-size:10px;color:var(--sub);font-style:italic}
+
+/* AI button */
+.ai-btn{width:100%;padding:12px;border-radius:10px;font-size:13px;font-weight:600;text-align:center;margin-top:12px;cursor:pointer;background:rgba(247,197,159,.08);color:#f7c59f;border:1px solid rgba(247,197,159,.2)}
+.ai-btn:hover{background:rgba(247,197,159,.14)}
+
+/* Macro indicator */
+.macro-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+
+/* Loading */
+.loader{text-align:center;padding:60px 0;color:var(--sub)}
+.spinner{display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Timeline */
+.timeline-bar{display:flex;gap:1px;height:24px;margin-top:4px;cursor:pointer}
+.timeline-bar .seg{flex:1;border-radius:1px;transition:opacity .1s}
+.timeline-bar .seg:hover{opacity:.7}
+#tlTip{position:fixed;pointer-events:none;background:#000;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:10px;z-index:100;display:none;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+<div id="tlTip"></div>
+
+<div class="header">
+  <div><h1>mag7 hmm</h1><span style="font-size:10px;color:var(--muted)" id="macroBadge">—</span></div>
+  <span class="badge badge-qa">QA :9229</span>
+</div>
+
+<!-- Ticker pills -->
+<div class="pills" id="tickerPills"></div>
+
+<!-- Stock header -->
+<div class="stock-hdr" id="stockHeader"></div>
+
+<!-- Regime cards -->
+<div class="regime-cards" id="regimeCards"></div>
+
+<!-- Charts grid (2-col on desktop) -->
+<div class="charts-grid">
+<!-- Price chart with regime-colored line -->
+<div class="chart-box full">
+  <h3>Price & Regime</h3>
+  <div class="chart-wrap"><canvas id="chartPrice"></canvas></div>
+  <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
+  <div style="font-size:9px;color:var(--muted);margin-top:4px">▲ REGIME TIMELINE — CLICK ANY SEGMENT TO INSPECT</div>
+</div>
+
+<!-- RSI Histogram -->
+<div class="chart-box">
+  <h3>RSI (14) — GREEN &lt;30 OVERSOLD · RED &gt;70 OVERBOUGHT</h3>
+  <div class="chart-wrap short"><canvas id="chartRSI"></canvas></div>
+</div>
+
+<!-- CCI + Signal dots -->
+<div class="chart-box">
+  <h3>CCI (20) — click dot to inspect signal</h3>
+  <div class="chart-wrap short"><canvas id="chartCCI"></canvas></div>
+</div>
+
+<!-- Signal bar chart -->
+<div class="chart-box full">
+  <h3>Signal History</h3>
+  <div class="chart-wrap xshort"><canvas id="chartSignals"></canvas></div>
+  <div class="signal-legend">
+    <span><span class="dot" style="background:#76e4c4"></span>BUY</span>
+    <span><span class="dot" style="background:#ff6b6b"></span>SHORT</span>
+    <span><span class="dot" style="background:#ffd166"></span>EXIT</span>
+    <span><span class="dot" style="background:#7ec8e3"></span>HOLD LONG</span>
+    <span><span class="dot" style="background:#444"></span>FLAT</span>
+    <span><span class="dot" style="background:#c9a6ff"></span>WATCH</span>
+  </div>
+  <div id="inspectPrompt" style="font-size:9px;color:var(--muted);margin-top:4px;border:1px dashed var(--border);padding:4px 8px;border-radius:4px;text-align:center">
+    ↑ Click a dot on the chart or a signal bar above to inspect
+  </div>
+</div>
+</div><!-- /charts-grid -->
+
+<!-- Strategy Rules Table -->
+<h2>Strategy Rules</h2>
+<table class="rules-table">
+  <thead><tr><th>Regime</th><th>Entry Condition</th><th>Exit Condition</th><th>Size</th><th>Direction</th></tr></thead>
+  <tbody id="rulesBody"></tbody>
+</table>
+
+<!-- Active Strategy Card -->
+<div class="active-card" id="activeCard"></div>
+
+<!-- AI Regime Analysis -->
+<div class="ai-btn" onclick="alert('AI analysis runs against /api/ticker for latest regime — full report coming.')">⚡ AI REGIME ANALYSIS · <span id="aiTicker">...</span></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+const COLORS = {AAPL:'#a8d8a8',MSFT:'#7ec8e3',NVDA:'#76e4c4',GOOGL:'#f7c59f',AMZN:'#ffb347',META:'#c9a6ff',TSLA:'#ff6b6b'};
+const REGIME_COLORS = {0:'#76e4c4',1:'#7ec8e3',2:'#ff6b6b'};
+const MACRO_LABELS = {'-1':'RISK OFF','0':'NEUTRAL','1':'RISK ON'};
+const MACRO_COLORS = {'-1':'#ff6b6b','0':'#ffb347','1':'#76e4c4'};
+const TICKERS = ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA'];
+let activeTicker = 'NVDA';
+let chartData = null;
+let chartInstances = {};
+
+// ── Build ticker pills ──
+function buildPills() {
+  document.getElementById('tickerPills').innerHTML = TICKERS.map(t =>
+    `<span class="pill ${t.toLowerCase()} ${t===activeTicker?'active':''}" onclick="selectTicker('${t}')">${t}</span>`
+  ).join('');
+}
+
+// ── Fetch & render ──
+async function selectTicker(ticker) {
+  activeTicker = ticker;
+  buildPills();
+  document.getElementById('stockHeader').innerHTML = '<div class="loader"><div class="spinner"></div> Loading '+ticker+'…</div>';
+  document.getElementById('aiTicker').textContent = ticker;
+  document.querySelectorAll('.pill').forEach(p => p.style.pointerEvents = 'none');
+
+  try {
+    const resp = await fetch(`/api/ticker?ticker=${ticker}&hmm=0`);
+    const data = await resp.json();
+    if (data.error) { document.getElementById('stockHeader').innerHTML = '<div class="loader" style="color:var(--red)">⚠ '+data.error+'</div>'; return; }
+    chartData = data.chart;
+    destroyCharts();
+    renderHeader();
+    renderRegimeCards();
+    renderPriceChart();
+    renderRegimeTimeline();
+    renderRSIChart();
+    renderCCIChart();
+    renderSignalBars();
+    renderRulesTable();
+    renderActiveCard();
+    updateMacro();
+  } catch(e) {
+    document.getElementById('stockHeader').innerHTML = '<div class="loader" style="color:var(--red)">⚠ '+e.message+'</div>';
+  } finally {
+    document.querySelectorAll('.pill').forEach(p => p.style.pointerEvents = 'auto');
+  }
+}
+
+// ── Header ──
+function renderHeader() {
+  const c = chartData;
+  document.getElementById('stockHeader').innerHTML = `
+    <div><div class="name">${c.name}</div><div class="meta">${c.sector} · ${c.lookback_days} TRADING DAYS</div></div>
+    <div><div class="price" style="color:${c.color}">$${c.last_close}</div><div class="price-label">LAST CLOSE</div></div>`;
+  document.getElementById('aiTicker').textContent = c.ticker;
+}
+
+// ── Regime cards ──
+function renderRegimeCards() {
+  const s = chartData.regime_summary;
+  document.getElementById('regimeCards').innerHTML = Object.entries(s).map(([label, info]) => `
+    <div class="regime-card" style="border-color:${info.color}">
+      <div class="rc-label" style="color:${info.color}">${label}</div>
+      <div class="rc-desc">${info.desc}</div>
+      <div class="rc-days" style="color:${info.color}">${info.days}<span style="font-size:10px;color:var(--sub)"> days</span></div>
+    </div>`).join('');
+}
+
+// ── Dark chart config ──
+function dc() { return {
+  responsive:true, maintainAspectRatio:false, animation:false,
+  plugins:{legend:{display:false},tooltip:{backgroundColor:'#0c0e14',borderColor:'#1a1a2a',borderWidth:1}},
+  scales:{x:{ticks:{color:'#555',font:{size:8},maxTicksLimit:8},grid:{display:false}},
+          y:{ticks:{color:'#555',font:{size:8}},grid:{color:'rgba(26,26,42,.3)'}}},
+  interaction:{intersect:false,mode:'index'}
+};}
+
+function makeCanvas(id, h) {
+  const el = document.getElementById(id);
+  el.style.width = '100%';
+  el.style.height = h + 'px';
+  el.width = el.parentElement.clientWidth || 400;
+  el.height = h;
+  return el.getContext('2d');
+}
+
+function destroyCharts() { Object.values(chartInstances).forEach(c => { try{c.destroy()}catch(e){} }); chartInstances={}; }
+
+// ── Price chart ──
+function renderPriceChart() {
+  const ctx = makeCanvas('chartPrice', 180);
+  chartInstances.price = new Chart(ctx, {
+    type:'line', data:{labels:chartData.dates, datasets:[{
+      label:'Close',data:chartData.close,borderColor:chartData.color,borderWidth:1.5,pointRadius:0,fill:false,tension:.1
+    }]}, options:dc()
+  });
+}
+
+// ── Regime timeline bar ──
+const REGIME_NAMES = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'};
+function renderRegimeTimeline() {
+  const el = document.getElementById('regimeTimeline');
+  el.innerHTML = chartData.regime_timeline.map((r,i) =>
+    `<span class="seg" style="background:${r.color}" data-idx="${i}" onclick="inspectBar(${i})"></span>`
+  ).join('');
+  const tip = document.getElementById('tlTip');
+  el.querySelectorAll('.seg').forEach(seg => {
+    seg.addEventListener('mousemove', e => {
+      const i = +seg.dataset.idx, r = chartData.regime_timeline[i];
+      tip.innerHTML = `<b>${chartData.dates[i]}</b> · <span style="color:${r.color}">${REGIME_NAMES[r.regime]}</span> · $${chartData.close[i].toFixed(2)}`;
+      tip.style.display = 'block';
+      tip.style.left = Math.min(e.clientX+12, window.innerWidth-tip.offsetWidth-8) + 'px';
+      tip.style.top = (e.clientY-34) + 'px';
+    });
+    seg.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  });
+}
+
+// ── RSI histogram ──
+function renderRSIChart() {
+  const ctx = makeCanvas('chartRSI', 100);
+  chartInstances.rsi = new Chart(ctx, {
+    type:'bar', data:{labels:chartData.dates, datasets:[{
+      label:'RSI',data:chartData.rsi,backgroundColor:chartData.rsi_colors,borderRadius:1,borderWidth:0
+    }]},
+    options:{...dc(), scales:{...dc().scales, y:{...dc().scales.y, min:0, max:100}}},
+    plugins:[{beforeDraw(chart){
+      const {ctx,chartArea,scales}=chart;
+      ctx.save();ctx.strokeStyle='#ff6b6b33';ctx.setLineDash([4,4]);
+      const y70=scales.y.getPixelForValue(70),y30=scales.y.getPixelForValue(30);
+      ctx.beginPath();ctx.moveTo(chartArea.left,y70);ctx.lineTo(chartArea.right,y70);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(chartArea.left,y30);ctx.lineTo(chartArea.right,y30);ctx.stroke();
+      ctx.restore();
+    }}]
+  });
+}
+
+// ── CCI chart ──
+function renderCCIChart() {
+  const ctx = makeCanvas('chartCCI', 100);
+  const sigColors = chartData.signal_bars.map(s => s.color);
+  chartInstances.cci = new Chart(ctx, {
+    type:'line', data:{labels:chartData.dates, datasets:[{
+      label:'CCI',data:chartData.cci,borderColor:'#c9a6ff',borderWidth:1,pointRadius:3,
+      pointBackgroundColor:sigColors,pointBorderWidth:0,fill:false
+    }]},
+    options:{...dc(), onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }},
+    plugins:[{beforeDraw(chart){
+      const {ctx,chartArea,scales}=chart;
+      ctx.save();ctx.setLineDash([4,4]);
+      ['#76e4c455','#ff6b6b55','#33333333'].forEach((color,i)=>{
+        ctx.strokeStyle=color;ctx.beginPath();
+        const y=scales.y.getPixelForValue(i===2?0:(i===0?100:-100));
+        ctx.moveTo(chartArea.left,y);ctx.lineTo(chartArea.right,y);ctx.stroke();
+      });ctx.restore();
+    }}]
+  });
+}
+
+// ── Signal bar chart ──
+function renderSignalBars() {
+  const ctx = makeCanvas('chartSignals', 50);
+  chartInstances.signals = new Chart(ctx, {
+    type:'bar', data:{labels:chartData.dates, datasets:[{
+      data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>s.color),borderRadius:0,borderWidth:0
+    }]},
+    options:{...dc(), scales:{...dc().scales, y:{display:false,min:0,max:1.2}}},
+    onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }
+  });
+}
+
+// ── Inspect bar ──
+function inspectBar(idx) {
+  const c = chartData;
+  const s = c.signal_bars[idx];
+  const r = c.regime_timeline[idx];
+  const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
+  document.getElementById('inspectPrompt').innerHTML = 
+    `<b>${c.dates[idx]}</b> — Close: $${c.close[idx].toFixed(2)} · RSI: ${c.rsi[idx].toFixed(1)} · CCI: ${c.cci[idx].toFixed(1)} · Regime: <span style="color:${r.color}">${regimeLabel}</span> · Signal: <span style="color:${s.color}">${s.label}</span>`;
+}
+
+// ── Rules table ──
+function renderRulesTable() {
+  document.getElementById('rulesBody').innerHTML = chartData.strategy_rules.map(r => `
+    <tr><td class="regime-tag" style="color:${r.color}">${r.regime}</td>
+    <td>${r.entry}</td><td>${r.exit}</td><td>${r.size}</td><td>${r.direction}</td></tr>`).join('');
+}
+
+// ── Active strategy card ──
+const REGIME_PLAYBOOK = {
+  TRENDING: {
+    title: 'CCI Breakout Strategy Active',
+    action: 'Momentum is confirmed — ride the trend at full size (100%). Enter LONG when CCI crosses above +100; exit when CCI drops below 0.',
+  },
+  MEAN_REV: {
+    title: 'RSI Fade Strategy Active',
+    action: 'Range-bound market — fade extremes at reduced size (60%). Buy when RSI < 30 (oversold), sell when RSI > 70 (overbought); exit as RSI returns to 45–55.',
+  },
+  CRISIS: {
+    title: 'Capital Preservation Active',
+    action: 'Elevated risk — cut exposure to 10%. Exit longs; only short on CCI < -250 (extreme panic). Hold flat until regime shifts.',
+  },
+};
+
+function renderActiveCard() {
+  const c = chartData;
+  const today = c.dates[c.dates.length-1];
+  const rc = REGIME_COLORS[c.regime[c.regime.length-1]]||'#7ec8e3';
+  const pb = REGIME_PLAYBOOK[c.active_regime] || {title:'Strategy Active', action:''};
+  document.getElementById('activeCard').style.borderLeftColor = rc;
+  document.getElementById('activeCard').innerHTML = `
+    <div class="ac-date">${today} · <span style="color:${rc};font-weight:700">${c.active_regime}</span></div>
+    <div class="ac-header">
+      <div class="ac-title">${pb.title}</div>
+      <div class="ac-btn" style="background:rgba(118,228,196,.08);color:${rc};border-color:${rc}">${c.active_signal}</div>
+    </div>
+    <div class="ac-metrics">
+      <div class="ac-metric"><div class="ac-val">$${c.last_close}</div><div class="ac-lbl">CLOSE</div></div>
+      <div class="ac-metric"><div class="ac-val" style="color:${c.active_rsi>70?'#ff6b6b':c.active_rsi<30?'#76e4c4':'#e8e8ec'}">${c.active_rsi}</div><div class="ac-lbl">RSI 14</div></div>
+      <div class="ac-metric"><div class="ac-val" style="color:${rc}">${c.active_cci}</div><div class="ac-lbl">CCI 20</div></div>
+      <div class="ac-metric"><div class="ac-val" style="color:${rc}">↗ ${c.active_regime}</div><div class="ac-lbl">REGIME</div></div>
+    </div>
+    <div class="ac-rule">${pb.action}</div>`;
+
+  document.getElementById('aiTicker').textContent = c.ticker;
+}
+
+// ── Macro ──
+function updateMacro() {
+  fetch('/api/macro').then(r=>r.json()).then(d=>{
+    const label = MACRO_LABELS[d.macro_filter]||'?';
+    const thr = (d.vix_low!=null && d.vix_high!=null) ? ` <span style="color:var(--muted)">(risk-on&lt;${d.vix_low} · risk-off&gt;${d.vix_high})</span>` : '';
+    document.getElementById('macroBadge').innerHTML =
+      `<span class="macro-dot" style="background:${MACRO_COLORS[d.macro_filter]||'#555'}"></span>VIX: ${label}${thr}`;
+  }).catch(()=>{ document.getElementById('macroBadge').innerHTML = '<span class="macro-dot" style="background:#555"></span>VIX: ?'; });
+}
+
+// ── Init ──
+buildPills();
+updateMacro();
+selectTicker('NVDA');
+</script>
+</body>
+</html>
