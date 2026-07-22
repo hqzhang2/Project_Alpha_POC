@@ -1,1 +1,46 @@
+# --- Python ---
 __pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments (never commit) ---
+venv/
+.venv/
+*/venv/
+*/*/venv/
+ns1_venv/
+*/*/ns1_venv/
+
+# --- Test / coverage artifacts ---
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+
+# --- Runtime logs (per-service logs dirs) ---
+logs/
+*/logs/
+*/*/logs/
+*.log
+
+# --- Private / security files (NEVER commit) ---
+github_installation_token.txt
+*installation_token.txt
+gen_token.py
+*.token
+secrets.json
+.env
+.env.*
+credentials*
+
+# --- Local agent memory (private, tracked historically; ignore local edits) ---
+MEMORY.md
+
+# --- Editor / OS cruft ---
+.DS_Store
+.idea/
+.vscode/
