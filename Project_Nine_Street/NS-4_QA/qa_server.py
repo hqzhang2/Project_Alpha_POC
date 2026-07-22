@@ -71,16 +71,16 @@ def compute_ratio(sym1, sym2, closes):
     signal = macd_line.ewm(span=9).mean()
     macd_val = round(macd_line.iloc[-1] - signal.iloc[-1], 4)
 
-    # ADX (14)
-    tr = pd.DataFrame({
-        'h': ratio,
-        'l': ratio,
-        'c': ratio
-    }).apply(lambda x: max(x['h'] - x['l'], abs(x['h'] - x['c']), abs(x['l'] - x['c'])), axis=1)
-    atr = tr.rolling(14).mean()
-    pos_dm = pd.Series(0.0, index=ratio[1:].index)
-    neg_dm = pd.Series(0.0, index=ratio[1:].index)
-    adx_val = round(20 + np.random.uniform(0, 20), 1)  # simplified
+    # ADX (14) — real calculation on ratio series
+    up = ratio.diff().clip(lower=0)
+    down = (-ratio.diff()).clip(lower=0)
+    tr_series = pd.concat([ratio, ratio.shift(1)], axis=1).max(axis=1) - pd.concat([ratio, ratio.shift(1)], axis=1).min(axis=1)
+    atr = tr_series.rolling(14).mean()
+    di_plus = 100 * up.rolling(14).mean() / atr.replace(0, np.nan)
+    di_minus = 100 * down.rolling(14).mean() / atr.replace(0, np.nan)
+    dx = 100 * abs(di_plus - di_minus) / (di_plus + di_minus).replace(0, np.nan)
+    adx_series = dx.rolling(14).mean()
+    adx_val = round(adx_series.iloc[-1], 1) if not pd.isna(adx_series.iloc[-1]) else 25.0
 
     # BB position
     ma = ratio.rolling(20).mean()

@@ -5,7 +5,6 @@ Exact API match with dashboard: tier1, tier2, tier3
 """
 import os
 import json
-import sys
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -61,6 +60,42 @@ def get_data():
     except:
         return pd.DataFrame()
 
+def calc_rsi(prices, period=14):
+    """Standard RSI (Wilder's method)"""
+    if len(prices) < period + 1:
+        return 50.0
+    delta = prices.diff()
+    gain = delta.clip(lower=0).rolling(period).mean()
+    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    rs = gain / loss.replace(0, np.nan)
+    val = 100 - (100 / (1 + rs.iloc[-1]))
+    return round(val, 1) if not pd.isna(val) else 50.0
+
+def calc_macd(prices, fast=12, slow=26, signal=9):
+    """MACD histogram value"""
+    if len(prices) < slow + signal:
+        return 0.0
+    ema_fast = prices.ewm(span=fast).mean()
+    ema_slow = prices.ewm(span=slow).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal).mean()
+    return round(macd_line.iloc[-1] - signal_line.iloc[-1], 4)
+
+def calc_adx(prices, period=14):
+    """ADX (simplified for performance)"""
+    if len(prices) < period * 2:
+        return 25.0
+    tr = pd.DataFrame({'h': prices, 'l': prices, 'c': prices})
+    tr['tr'] = tr.apply(lambda x: max(x['h'] - x['l'], abs(x['h'] - x['c']), abs(x['l'] - x['c'])), axis=1)
+    atr = tr['tr'].rolling(period).mean()
+    up = prices.diff().clip(lower=0)
+    down = (-prices.diff()).clip(lower=0)
+    di_plus = 100 * up.rolling(period).mean() / atr.replace(0, np.nan)
+    di_minus = 100 * down.rolling(period).mean() / atr.replace(0, np.nan)
+    dx = 100 * abs(di_plus - di_minus) / (di_plus + di_minus).replace(0, np.nan)
+    adx = dx.rolling(period).mean()
+    return round(adx.iloc[-1], 1) if not pd.isna(adx.iloc[-1]) else 25.0
+
 def run_tier1():
     closes = get_data()
     if closes.empty:
@@ -114,9 +149,9 @@ def run_tier2():
         name = next((s['name'] for s in SECTORS if s['symbol'] == sym), sym)
         prices = closes.get(sym, pd.Series()).dropna() if sym in closes.columns else pd.Series()
 
-        macd_signal = "bullish" if i < 2 else "neutral"
-        rsi_val = round(50 + i * 5 + np.random.uniform(-3, 3), 1) if not prices.empty else 50
-        adx_val = round(28 + i * 3 + np.random.uniform(-2, 2), 1) if not prices.empty else 25
+        macd_signal = "bullish" if calc_macd(prices) > 0 else "bearish"
+        rsi_val = calc_rsi(prices)
+        adx_val = calc_adx(prices)
 
         etfs.append({
             "symbol": sym,

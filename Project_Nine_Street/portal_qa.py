@@ -15,9 +15,9 @@ PORT = 8000
 # Strategy Configuration
 STRATEGIES = {
     'alpha': {'name': 'Alpha Terminal', 'path': 'dashboard.html', 'prod': 9098, 'qa': 9099},
-    'ns1': {'name': 'NS-1', 'path': 'index.html', 'prod': 9218, 'qa': 9219},
-    'ns3': {'name': 'NS-3 (Sector Rotation)', 'dashboard': 'ns3_dashboard.html', 'prod': 9236, 'qa': 9237},
-    'ns4': {'name': 'NS-4 (Ratio Trading)', 'dashboard': 'ns4_dashboard.html', 'prod': 9240, 'qa': 9241},
+    'ns1':   {'name': 'NS-1', 'path': 'index.html', 'prod': 9218, 'qa': 9219},
+    'ns3':   {'name': 'NS-3 (Sector Rotation)', 'path': 'ns3_dashboard.html', 'prod': 9236, 'qa': 9237},
+    'ns4':   {'name': 'NS-4 (Ratio Trading)', 'path': 'ns4_dashboard.html', 'prod': 9240, 'qa': 9241},
 }
 
 # HTML Template with all braces escaped for Python .format()

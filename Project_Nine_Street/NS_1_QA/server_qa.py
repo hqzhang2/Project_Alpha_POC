@@ -1,22 +1,32 @@
 import os
 import json
-import socket
 import pandas as pd
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import yfinance as yf
 import sys
 
-# Add parent dir to path so we can import our engines
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from nsae_features import NSAEFeatureEngineer
-from nsoe_pricing import NSOEOptionEngine
-from ns_backtester import NSBacktester
-from ns_quant_models import PhDAlphaModels
+# Engine imports (lazy — dashboard serves even without numba/vectorbt)
+ENGINES_AVAILABLE = False
+try:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    from nsae_features import NSAEFeatureEngineer
+    from nsoe_pricing import NSOEOptionEngine
+    from ns_backtester import NSBacktester
+    from ns_quant_models import PhDAlphaModels
+    ENGINES_AVAILABLE = True
+except ImportError as e:
+    print(f"NS-1: Engine imports unavailable — {e}")
 
 PORT = int(os.environ.get('PORT', 9219))
 
 class NSRequestHandler(SimpleHTTPRequestHandler):
+    def _json(self, code, data):
+        self.send_response(code)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
@@ -35,7 +45,16 @@ class NSRequestHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(f.read())
             return
 
+        if path == '/health':
+            self._json(200, {'status': 'ok', 'service': 'ns1-qa', 'engines_available': ENGINES_AVAILABLE})
+            return
+
         if path == '/api/chart':
+            if not ENGINES_AVAILABLE:
+                self.send_response(503)
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'Engine dependencies unavailable (numba/vectorbt)'}).encode())
+                return
             ticker = qs.get('ticker', ['SPY'])[0]
             try:
                 # Fetch more data to ensure we have enough for HMM
@@ -81,6 +100,9 @@ class NSRequestHandler(SimpleHTTPRequestHandler):
             return
 
         if path == '/api/nsae':
+            if not ENGINES_AVAILABLE:
+                self._json(503, {'error': 'Engine dependencies unavailable (numba/vectorbt)'})
+                return
             try:
                 universe = ["SPY", "QQQ", "XLK", "XLE", "XLV", "XLF", "XLI", "XLB", "XLY", "XLP", "XLU", "XLRE", "XLC", "EFA", "EEM", "AGG", "TLT", "IEI", "DBC", "GLD"]
                 engine = NSAEFeatureEngineer(tickers=universe, start_date="2024-01-01")
@@ -104,6 +126,9 @@ class NSRequestHandler(SimpleHTTPRequestHandler):
             return
 
         if path == '/api/nsoe':
+            if not ENGINES_AVAILABLE:
+                self._json(503, {'error': 'Engine dependencies unavailable (numba/vectorbt)'})
+                return
             ticker = qs.get('ticker', ['SPY'])[0]
             try:
                 engine = NSOEOptionEngine(ticker=ticker)
@@ -128,6 +153,9 @@ class NSRequestHandler(SimpleHTTPRequestHandler):
             return
 
         if path == '/api/backtest':
+            if not ENGINES_AVAILABLE:
+                self._json(503, {'error': 'Engine dependencies unavailable (numba/vectorbt)'})
+                return
             try:
                 universe = ["SPY", "QQQ", "XLK", "XLE", "XLV", "XLF", "XLI", "XLB", "XLY", "XLP", "XLU", "XLRE", "XLC", "EFA", "EEM", "AGG", "TLT", "IEI", "DBC", "GLD"]
                 bt = NSBacktester(tickers=universe, start_date="2022-01-01")
