@@ -4,6 +4,46 @@ Alpha Terminal Server - QA Environment
 Refactored for stability, observability, and maintainability.
 """
 
+# --- Environment hardening (PYTHONPATH isolation guard) -------------------
+# The runtime must NOT inherit a foreign site-packages path. A leaked
+# PYTHONPATH pointing at another interpreter's packages (e.g. a 3.11 venv
+# from a parent shell) makes this 3.9 process import 3.11-only wheels
+# (urllib3 using PEP 604 `X | Y` syntax) and crash with
+#   TypeError: unsupported operand type(s) for |: 'type' and 'type'
+# on `import requests` -> HTTP 500 on /api/sec/financials.
+# Strip any PYTHONPATH that references a python version / venv that is not
+# compatible, before any third-party import happens.
+import os as _os
+_PY = _os.path.realpath(_os.path.dirname(_os.__file__))
+_bad = []
+for _p in _os.environ.get("PYTHONPATH", "").split(":"):
+    _p = _p.strip()
+    if not _p:
+        continue
+    # Drop paths that resolve into a *different* interpreter's tree.
+    try:
+        _rp = _os.path.realpath(_p)
+    except OSError:
+        _rp = _p
+    if _rp == _PY or _rp.startswith(_PY + _os.sep):
+        continue  # own site-packages -> keep
+    # Drop anything that looks like a foreign venv / versioned site-packages.
+    if "hermes-agent" in _rp or "venv" in _rp.split(_os.sep) or "site-packages" in _rp:
+        _bad.append(_p)
+        continue
+    # keep benign local paths
+if _bad:
+    _new = ":".join(
+        p for p in _os.environ.get("PYTHONPATH", "").split(":")
+        if p.strip() and p.strip() not in _bad
+    )
+    if _new:
+        _os.environ["PYTHONPATH"] = _new
+    else:
+        _os.environ.pop("PYTHONPATH", None)
+    import sys as _sys
+    _sys.path = [p for p in _sys.path if p not in _bad]
+
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import json
 import math
@@ -308,10 +348,14 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             SimpleHTTPRequestHandler.do_GET(self)
     
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('X-Frame-Options', 'ALLOWALL')
+        super().end_headers()
+
     def send_json(self, data, status=200):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(clean_dict(data), cls=SafeJSONEncoder).encode())
     
