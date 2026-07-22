@@ -115,32 +115,49 @@ launchctl load ~/Library/LaunchAgents/com.alpha.terminal.qa.plist
 ```
 Then verify with the Section 3 check (port 9099 should return `200`).
 
+### Alpha Terminal QA (port 9099)
+```bash
+launchctl load ~/Library/LaunchAgents/com.alpha.terminal.qa.plist
+```
+
 ### Portal (port 8000)
 ```bash
-cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street && \
-env -u PYTHONPATH /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3 portal_qa.py &
+launchctl load ~/Library/LaunchAgents/com.ninestreet.portal.qa.plist
 ```
 
 ### NS-1 (port 9219)
 ```bash
-cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS_1_QA && \
-/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3 server_qa.py &
+launchctl load ~/Library/LaunchAgents/com.ninestreet.ns1.qa.plist
+```
+
+### NS-2 (port 9229)
+```bash
+launchctl load ~/Library/LaunchAgents/com.ninestreet.ns2.qa.plist
 ```
 
 ### NS-3 (port 9237)
 ```bash
-cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-3_QA && \
-/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3 qa_server.py &
+launchctl load ~/Library/LaunchAgents/com.ninestreet.ns3.qa.plist
 ```
 
 ### NS-4 (port 9241)
 ```bash
-cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-4_QA && \
-/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3 qa_server.py &
+launchctl load ~/Library/LaunchAgents/com.ninestreet.ns4.qa.plist
 ```
 
 After starting any of the above, wait ~3 seconds and run the Section 3 check
 to confirm it returns `200`.
+
+> **Manual start (fallback only):** if `launchctl load` fails, you may start
+> a service by hand, but you must use the clean-environment command so it does
+> not crash:
+> ```bash
+> cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/<DIR> && \
+> env -u PYTHONPATH /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3 <SCRIPT>.py &
+> ```
+> (NS-1 dir `NS_1_QA` script `server_qa.py`; NS-2/3/4 dir `NS-2_QA`/`NS-3_QA`/
+> `NS-4_QA` script `qa_server.py`; Portal dir `Project_Nine_Street` script
+> `portal_qa.py`.)
 
 ---
 
@@ -148,16 +165,17 @@ to confirm it returns `200`.
 
 | Symptom | Likely cause | L1 action |
 |---------|--------------|-----------|
-| All tabs blank in Portal | Portal (8000) down | Restart Portal (Section 5) |
-| One tab blank, others fine | That one dashboard down | Restart just that component (Sections 4–5) |
-| "Error: HTTP 500" inside a tab | That dashboard's data service errored | Restart that component; if it returns, escalate |
-| Health check returns `000` for a port | Program not running | Restart that component |
-| Mac was rebooted; tabs blank | Portal + NS dashboards don't auto-start after reboot (only Alpha Terminal does) | Start Portal, NS-1, NS-3, NS-4 per Section 5 |
-| Alpha Terminal tab down after reboot | Should auto-start; if not | `launchctl load` per Section 5 |
+| All tabs blank in Portal | Portal (8000) down | `launchctl load` Portal (Section 5) |
+| One tab blank, others fine | That one dashboard down | `launchctl load` that service (Section 5) |
+| "Error: HTTP 500" inside a tab | That dashboard's data service errored | `launchctl unload` then `launchctl load` that service; if it returns, escalate |
+| Health check returns `000` for a port | Program not running | `launchctl load` that service (Section 5) |
+| Service keeps dying (restarts repeatedly) | Fatal startup error | Check its log in `Project_Nine_Street/logs/`; escalate with the error |
 
-> **Known quirk:** After a **Mac reboot**, only the Alpha Terminal comes back
-> on its own. The Portal and the three NS dashboards must be started manually
-> using Section 5. This is expected — not a bug.
+> **All services are auto-managed by launchd** (`RunAtLoad` + `KeepAlive`), so
+> they start on boot and **auto-restart if they crash**. After a Mac reboot,
+> every service (Alpha Terminal, Portal, NS-1/2/3/4) comes back on its own.
+> You normally only intervene when a service is in a crash loop or a data
+> source errors.
 
 ---
 
