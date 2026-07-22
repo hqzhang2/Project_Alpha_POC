@@ -6,6 +6,7 @@ Aggregates Alpha Terminal + Nine Street projects.
 Default: QA environment.
 """
 import os
+import json
 import warnings
 warnings.filterwarnings("ignore")
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -144,6 +145,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     background: #4ade80;
     margin-right: 4px;
   }}
+  .status-indicator {{
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: #6b7280; /* gray - unknown */
+    border: 1px solid #333;
+  }}
+  .status-indicator.up { background: #3fb950; border-color: #2ea043; }
+  .status-indicator.down { background: #f85149; border-color: #da3633; }
+  .nav-tab.status-up { border-left: 3px solid #3fb950; }
+  .nav-tab.status-down { border-left: 3px solid #f85149; }
 </style>
 </head>
 <body>
@@ -151,10 +165,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="topbar-left">
       <div class="logo"><span>Trading Strategy Engine</span><span class="env-badge">QA</span></div>
       <div class="nav-tabs">
-              <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')">Alpha Terminal</button>
-              <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')">NS-1</button>
-              <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')">NS-3</button>
-              <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')">NS-4</button>
+              <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')"><span class="status-indicator" id="status-alpha"></span>Alpha Terminal</button>
+              <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')"><span class="status-indicator" id="status-ns1"></span>NS-1</button>
+              <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')"><span class="status-indicator" id="status-ns3"></span>NS-3</button>
+              <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')"><span class="status-indicator" id="status-ns4"></span>NS-4</button>
             </div>
     </div>
     <div class="env-toggle">
@@ -210,6 +224,51 @@ function onFrameLoad() {{
 
 // Initial load - Alpha Terminal QA
 document.getElementById('frame').src = 'http://localhost:9099/dashboard.html';
+
+// Health check system for status indicators
+const SERVICE_ENDPOINTS = {
+  'alpha': '/dashboard.html',
+  'ns1': '/health',
+  'ns3': '/health',
+  'ns4': '/health'
+};
+
+async function checkServiceHealth(key, port, path) {
+  try {
+    const res = await fetch(`http://localhost:${port}${path}`, { 
+      method: 'GET', 
+      cache: 'no-cache',
+      timeout: 3000 
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function updateStatusIndicators() {
+  const strategies = ['alpha', 'ns1', 'ns3', 'ns4'];
+  for (const key of strategies) {
+    const s = STRATS[key];
+    if (!s) continue;
+    
+    const port = s[currentEnv.toLowerCase()];
+    const path = SERVICE_ENDPOINTS[key];
+    const isUp = await checkServiceHealth(key, port, path);
+    
+    const tab = document.querySelector(`[data-strategy="${key}"]`);
+    if (tab) {
+      tab.classList.remove('status-up', 'status-down');
+      tab.classList.add(isUp ? 'status-up' : 'status-down');
+      tab.title = `${key.toUpperCase()}: ${isUp ? 'UP' : 'DOWN'}`;
+    }
+  }
+}
+
+// Initial check
+updateStatusIndicators();
+// Poll every 30 seconds
+setInterval(updateStatusIndicators, 30000);
 </script>
 </body>
 </html>"""
@@ -231,6 +290,18 @@ class PortalHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(self._html().encode())
             return
+
+        if self.path == '/api/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            statuses = {}
+            for key, cfg in STRATEGIES.items():
+                port = cfg.get('qa', cfg.get('prod', 0))
+                statuses[key] = 'up' if port else 'down'
+            self.wfile.write(json.dumps(statuses).encode())
+            return
+
         self.send_response(404)
         self.end_headers()
         self.wfile.write(b'Not Found')
