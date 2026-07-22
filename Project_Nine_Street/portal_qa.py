@@ -276,9 +276,10 @@ setInterval(updateStatusIndicators, 30000);
 def build_html():
     ts = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
     strategies_json = __import__('json').dumps(STRATEGIES)
-    # Safe literal substitution — avoids .format() choking on CSS/JS braces
-    # and avoids corrupting the STRATS JSON with brace unescaping.
-    html = HTML_TEMPLATE
+    # Template uses {{ }} (escaped for the old .format() era). Unescape the
+    # CSS/JS braces FIRST, then splice in the already-valid JSON token — so the
+    # JSON's own braces are never touched.
+    html = HTML_TEMPLATE.replace('{{', '{').replace('}}', '}')
     html = html.replace('{ts}', ts)
     html = html.replace('{strategies_json}', strategies_json)
     return html
