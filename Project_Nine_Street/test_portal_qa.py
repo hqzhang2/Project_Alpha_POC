@@ -188,5 +188,14 @@ def test_unknown_path_returns_404(server):
     assert exc.value.code == 404
 
 
+def test_health_loop_polls_all_tabs_including_ns2():
+    """Regression: updateStatusIndicators must poll ns2 too, or its dot stays dark."""
+    html = portal.build_html()
+    # the JS loop that drives the status dots must include ns2
+    m = re.search(r"const strategies = \[([^\]]*)\]", html)
+    assert m, "strategies loop not found in html"
+    assert "'ns2'" in m.group(1), "ns2 missing from health-poll loop -> dark dot"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

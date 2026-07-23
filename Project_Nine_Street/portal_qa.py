@@ -249,7 +249,7 @@ async function checkServiceHealth(key, port, path) {
 }
 
 async function updateStatusIndicators() {
-  const strategies = ['alpha', 'ns1', 'ns3', 'ns4'];
+  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4'];
   for (const key of strategies) {
     const s = STRATS[key];
     if (!s) continue;
