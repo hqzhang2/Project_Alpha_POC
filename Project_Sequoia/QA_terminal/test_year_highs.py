@@ -80,53 +80,51 @@ def test_today_est_str_format():
 
 
 # --------------------------------------------------------------------------- #
-# scan_year_highs uses yfinance -> mock it so no network
+# scan_year_highs sources from finviz (Overview) + enriches via yfinance.
+# Mock both so no network.
 # --------------------------------------------------------------------------- #
 def test_scan_year_highs_filters_below_threshold(monkeypatch):
     import year_highs as yh
-    import sys
     import types
+    import pandas as pd
 
-    class FakeHist:
-        def __init__(self, closes):
-            self._c = closes
-        def __len__(self):
-            return len(self._c)
-        @property
-        def iloc(self):
-            return _Iloc(self._c)
-        def tail(self, n):
-            return _Tail(self._c, n)
-        def dropna(self):
-            return self
+    class FakeOverview:
+        def __init__(self):
+            self._exchange = None
+        def set_filter(self, signal=None, filters_dict=None):
+            self._exchange = (filters_dict or {}).get("Exchange")
+        def screener_view(self):
+            if self._exchange == "NASDAQ":
+                return pd.DataFrame([
+                    {"Ticker": "FAKE", "Company": "FakeCo", "Sector": "Tech",
+                     "Exchange": "NASDAQ", "Price": 100.0, "Volume": 1000},
+                ])
+            return pd.DataFrame()
 
-    class _Iloc:
-        def __init__(self, closes): self.closes = closes
-        def __getitem__(self, i): return self.closes[i]
-        def __len__(self): return len(self.closes)
+    monkeypatch.setattr(yh, "Overview", FakeOverview)
+    monkeypatch.setattr(yh, "FINVIZ_AVAILABLE", True)
 
-    class _Tail:
-        def __init__(self, closes, n): self.closes = closes[-n:]
-        def max(self): return max(self.closes)
-
-    def fake_fetch(ticker):
-        # 100-day series; last close 95, 52w high 100 -> pct_off -5% (excluded)
-        return FakeHist([100.0] * 50 + [95.0] * 50)
-
-    monkeypatch.setattr(yh, "_fetch_history", fake_fetch)
-    # Patch yfinance in sys.modules so the in-function `import yfinance` gets the fake
-    fake_yf = types.SimpleNamespace(
-        Ticker=lambda t: types.SimpleNamespace(info={"exchange": "NMS", "sector": "X"})
-    )
-    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
-
-    rows = yh.scan_year_highs(universe=["FAKE"])
+    # Enrichment returns -5% -> stock is below threshold -> excluded
+    monkeypatch.setattr(yh, "_enrich_pct_off", lambda ticker, price: (-5.0, 100.0))
+    rows = yh.scan_year_highs()
     assert rows == [], "ticker 5% below 52w high must be excluded"
 
-    # Now a ticker at the high -> included and classified NASDAQ
-    monkeypatch.setattr(yh, "_fetch_history", lambda t: FakeHist([100.0] * 100))
-    rows2 = yh.scan_year_highs(universe=["FAKE2"])
-    assert len(rows2) == 1 and rows2[0]["exchange"] == "NASDAQ"
+    # Enrichment returns 0% (at the high) -> included, NASDAQ from finviz
+    monkeypatch.setattr(yh, "_enrich_pct_off", lambda ticker, price: (0.0, 100.0))
+    rows2 = yh.scan_year_highs()
+    assert len(rows2) == 1
+    assert rows2[0]["ticker"] == "FAKE"
+    assert rows2[0]["exchange"] == "NASDAQ"
+    assert rows2[0]["pct_off"] == 0.0
+
+
+def test_scan_year_highs_finviz_unavailable(monkeypatch):
+    """If finvizfinance is missing, scan returns [] gracefully (no crash)."""
+    import year_highs as yh
+    monkeypatch.setattr(yh, "FINVIZ_AVAILABLE", False)
+    monkeypatch.setattr(yh, "Overview", None)
+    rows = yh.scan_year_highs()
+    assert rows == []
 
 
 # --------------------------------------------------------------------------- #
