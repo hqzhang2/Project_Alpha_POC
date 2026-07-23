@@ -64,9 +64,11 @@ def test_build_html_strats_json_valid():
     m = re.search(r"const STRATS = (\{.*?\});", html, re.S)
     assert m, "STRATS token missing from output"
     data = json.loads(m.group(1))  # must not raise
-    assert set(data) == {"alpha", "ns1", "ns3", "ns4"}
+    assert set(data) == {"alpha", "ns1", "ns2", "ns3", "ns4"}
     assert data["alpha"]["qa"] == 9099
     assert data["ns1"]["qa"] == 9219
+    assert data["ns2"]["qa"] == 9229
+    assert data["ns2"]["path"] == ""
     assert data["ns3"]["qa"] == 9237
     assert data["ns4"]["qa"] == 9241
 
@@ -129,7 +131,7 @@ def test_strategies_qa_is_prod_plus_one():
 
 
 def test_strategies_all_keys_present():
-    assert set(portal.STRATEGIES) == {"alpha", "ns1", "ns3", "ns4"}
+    assert set(portal.STRATEGIES) == {"alpha", "ns1", "ns2", "ns3", "ns4"}
     for key, cfg in portal.STRATEGIES.items():
         assert "name" in cfg and "path" in cfg
         assert cfg["prod"] and cfg["qa"]
@@ -175,7 +177,7 @@ def test_api_health_returns_statuses(server):
         assert resp.status == 200
         assert "application/json" in resp.headers.get("Content-type", "")
         data = json.loads(resp.read())
-    assert set(data) == {"alpha", "ns1", "ns3", "ns4"}
+    assert set(data) == {"alpha", "ns1", "ns2", "ns3", "ns4"}
     assert all(v in ("up", "down") for v in data.values())
 
 
