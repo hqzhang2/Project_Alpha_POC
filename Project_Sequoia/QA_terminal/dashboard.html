@@ -210,7 +210,63 @@
         .add-ticker input {
             flex: 1;
         }
-    </style>
+
+        /* --- 52-Week Highs panel --- */
+        .yh-section {
+            margin: 24px;
+        }
+        .yh-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .yh-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+        .yh-header .date-label {
+            color: #8b949e;
+            font-size: 13px;
+        }
+        .yh-header input[type="date"] {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #e6edf3;
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+        .yh-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .yh-table th, .yh-table td {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 1px solid #21262d;
+        }
+        .yh-table th {
+            color: #8b949e;
+            text-transform: uppercase;
+            font-size: 11px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .yh-table th:hover { color: #e6edf3; }
+        .yh-table tbody tr:hover { background: #21262d; }
+        .yh-table .ticker { font-weight: 600; }
+        .yh-table .exch-nyse { color: #58a6ff; }
+        .yh-table .exch-nasdaq { color: #3fb950; }
+        .yh-table .pct-near { color: #3fb950; }
+        .yh-empty, .yh-error {
+            color: #8b949e;
+            padding: 16px;
+        }
+        .yh-error { color: #f85149; }
+
 </head>
 <body>
     <div class="header">
@@ -312,11 +368,40 @@
                     </label>
                 </div>
                 <canvas id="chart"></canvas>
-            </div>
-        </div>
-    </div>
-    
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                </div>
+                </div>
+                </div>
+
+                <div class="yh-section">
+                <div class="yh-header">
+                <h2>📈 52-Week Highs</h2>
+                <span class="date-label">Session:</span>
+                <input type="date" id="yhDate" onchange="yhLoad()">
+                <input type="text" class="search" id="yhSearch" placeholder="Search ticker / sector…" oninput="yhSearchInput()">
+                <button class="btn btn-secondary" onclick="yhLoad()">Reload</button>
+                <span id="yhStatus" style="color:#8b949e; font-size:13px;"></span>
+                </div>
+                <div id="yhTableWrap">
+                <table class="yh-table" id="yhTable">
+                    <thead>
+                        <tr>
+                            <th data-k="ticker" onclick="yhSort('ticker')">Ticker</th>
+                            <th data-k="company" onclick="yhSort('company')">Company</th>
+                            <th data-k="sector" onclick="yhSort('sector')">Sector</th>
+                            <th data-k="exchange" onclick="yhSort('exchange')">Exchange</th>
+                            <th data-k="close" onclick="yhSort('close')">Price</th>
+                            <th data-k="pct_off" onclick="yhSort('pct_off')">% off 52W High</th>
+                            <th data-k="volume" onclick="yhSort('volume')">Volume</th>
+                        </tr>
+                    </thead>
+                    <tbody id="yhBody"></tbody>
+                </table>
+                <div class="yh-empty" id="yhEmpty" style="display:none;">No 52-week highs stored for this session.</div>
+                <div class="yh-error" id="yhError" style="display:none;"></div>
+                </div>
+                </div>
+
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         let quotes = {};
         let watchlist = [];
@@ -673,6 +758,104 @@
             fetchQuotes();
         };
         setInterval(fetchQuotes, 5000); // Live-ish update every 5 seconds
+
+        // ---- 52-Week Highs panel ----
+        let yhRows = [];
+        let yhSortKey = 'pct_off';
+        let yhSortDir = 1; // 1 asc, -1 desc
+        let yhFilter = '';
+
+        function yhFmtPrice(v) {
+            return (v == null) ? '--' : '$' + Number(v).toFixed(2);
+        }
+        function yhFmtVol(v) {
+            if (v == null) return '--';
+            if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+            if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+            if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+            return String(v);
+        }
+        function yhExchClass(ex) {
+            return ex === 'NASDAQ' ? 'exch-nasdaq' : 'exch-nyse';
+        }
+
+        async function yhLoad() {
+            const dateEl = document.getElementById('yhDate');
+            const statusEl = document.getElementById('yhStatus');
+            const errEl = document.getElementById('yhError');
+            const emptyEl = document.getElementById('yhEmpty');
+            errEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+            const date = dateEl.value || '';
+            let url = '/api/year-highs';
+            if (yhFilter) {
+                url = `/api/year-highs?action=search&q=${encodeURIComponent(yhFilter)}`;
+            } else if (date) {
+                url = `/api/year-highs?date=${encodeURIComponent(date)}`;
+            }
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                yhRows = (data.results || []).slice();
+                statusEl.textContent = ` ${data.date || ''} · ${yhRows.length} names`;
+                if (!yhRows.length) emptyEl.style.display = 'block';
+                yhRender();
+            } catch (e) {
+                errEl.textContent = 'Failed to load 52-week highs: ' + e.message;
+                errEl.style.display = 'block';
+                console.error('year-highs error:', e);
+            }
+        }
+
+        function yhRender() {
+            const body = document.getElementById('yhBody');
+            const rows = yhRows.slice().sort((a, b) => {
+                const va = a[yhSortKey], vb = b[yhSortKey];
+                if (va == null) return 1;
+                if (vb == null) return -1;
+                if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * yhSortDir;
+                return String(va).localeCompare(String(vb)) * yhSortDir;
+            });
+            body.innerHTML = rows.map(r => {
+                const pct = (r.pct_off == null) ? '--' : r.pct_off.toFixed(2) + '%';
+                const pctCls = (r.pct_off != null && r.pct_off > -0.5) ? 'pct-near' : '';
+                return `<tr>
+                    <td class="ticker">${r.ticker || ''}</td>
+                    <td>${r.company || ''}</td>
+                    <td>${r.sector || ''}</td>
+                    <td class="${yhExchClass(r.exchange)}">${r.exchange || ''}</td>
+                    <td>${yhFmtPrice(r.close)}</td>
+                    <td class="${pctCls}">${pct}</td>
+                    <td>${yhFmtVol(r.volume)}</td>
+                </tr>`;
+            }).join('');
+            document.querySelectorAll('.yh-table th').forEach(th => {
+                th.classList.toggle('active', th.dataset.k === yhSortKey);
+            });
+        }
+
+        function yhSort(k) {
+            if (yhSortKey === k) { yhSortDir *= -1; }
+            else { yhSortKey = k; yhSortDir = 1; }
+            yhRender();
+        }
+
+        function yhSearchInput() {
+            const v = document.getElementById('yhSearch').value.trim();
+            yhFilter = v;
+            yhLoad();
+        }
+
+        // Init year-highs panel once DOM is ready
+        (function yhInit() {
+            const dEl = document.getElementById('yhDate');
+            if (dEl && !dEl.value) {
+                const today = new Date();
+                const iso = today.toISOString().slice(0, 10);
+                dEl.value = iso; // client-local default; API falls back to latest if no match
+            }
+            yhLoad();
+        })();
     </script>
 </body>
 </html>

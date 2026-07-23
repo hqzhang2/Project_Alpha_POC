@@ -44,6 +44,7 @@ def init_db():
                 ticker      TEXT NOT NULL,
                 exchange    TEXT,
                 sector      TEXT,
+                company     TEXT,
                 close       REAL,
                 high_52w    REAL,
                 pct_off     REAL,
@@ -58,6 +59,11 @@ def init_db():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_year_highs_ticker ON year_highs(ticker)"
         )
+        # Backfill company column on DBs created before it existed
+        try:
+            conn.execute("ALTER TABLE year_highs ADD COLUMN company TEXT")
+        except Exception:
+            pass  # column already present
         conn.commit()
     finally:
         conn.close()
@@ -76,9 +82,9 @@ def store_year_highs(date_str, rows):
         conn.executemany(
             """
             INSERT INTO year_highs
-                (date, ticker, exchange, sector, close, high_52w, pct_off, volume)
+                (date, ticker, exchange, sector, company, close, high_52w, pct_off, volume)
             VALUES
-                (:date, :ticker, :exchange, :sector, :close, :high_52w, :pct_off, :volume)
+                (:date, :ticker, :exchange, :sector, :company, :close, :high_52w, :pct_off, :volume)
             """,
             [{**{"date": date_str}, **r} for r in rows],
         )
