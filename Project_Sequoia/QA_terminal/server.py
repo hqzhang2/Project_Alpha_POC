@@ -52,7 +52,7 @@ import sys
 import signal
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 import logging
 from logging.handlers import RotatingFileHandler
@@ -282,6 +282,7 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/chart': 'handle_chart',
         '/api/estimates': 'handle_estimates',
         '/api/ratio': 'handle_ratio',
+        '/api/year-highs': 'handle_year_highs',
         '/api/health': 'handle_health',
     }
 
@@ -460,6 +461,46 @@ class Handler(SimpleHTTPRequestHandler):
         t1, t2 = qs.get('t1', ['XLE'])[0], qs.get('t2', ['SPY'])[0]
         tf, sma_p = qs.get('tf', ['1Y'])[0], int(qs.get('sma', ['20'])[0])
         self.send_json(self.get_ratio_data(t1, t2, tf, sma_p))
+
+    def handle_year_highs(self, qs):
+        """52-week-high snapshots.
+
+        GET /api/year-highs                          -> latest stored snapshot
+        GET /api/year-highs?date=YYYY-MM-DD          -> snapshot for date
+        GET /api/year-highs?action=store             -> store today if not saved
+        GET /api/year-highs?action=calendar          -> list of stored dates
+        GET /api/year-highs?action=search&q=AAPL     -> search latest snapshot
+        """
+        import db
+        import year_highs
+        action = qs.get('action', [None])[0]
+        date_str = qs.get('date', [None])[0]
+
+        if action == 'store':
+            d, count, existed = year_highs.store_today_snapshot()
+            self.send_json({'status': 'stored' if not existed else 'exists',
+                            'date': d, 'count': count, 'already_existed': existed})
+            return
+
+        if action == 'calendar':
+            self.send_json({'dates': db.list_dates()})
+            return
+
+        if action == 'search':
+            q = qs.get('q', [''])[0]
+            target = date_str or db.today_est_str()
+            self.send_json({'date': target, 'query': q, 'results': db.search_year_highs(target, q)})
+            return
+
+        # default: return a snapshot
+        target = date_str or db.today_est_str()
+        rows = db.get_year_highs(target)
+        if not rows and not date_str:
+            dates = db.list_dates()
+            if dates:
+                target = dates[0]
+                rows = db.get_year_highs(target)
+        self.send_json({'date': target, 'count': len(rows), 'results': rows})
     
     def handle_sec_financials(self, qs):
         import sec_financials
@@ -568,24 +609,81 @@ class AlphaTerminalServer:
         logger.info("Server stopped")
 
 
+class YearHighScheduler:
+    """Background thread that stores a 52-week-high snapshot daily at 5pm EST/EDT."""
+
+    def __init__(self, port=None):
+        self.port = port
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        logger.info("Year-high scheduler started (daily 5pm EST)")
+
+    def _run(self):
+        import db
+        import year_highs
+        db.init_db()
+        while not self._stop.is_set():
+            try:
+                self._wait_until_5pm_est()
+                if self._stop.is_set():
+                    break
+                # Only persist on trading days (skip Sat/Sun); store_today_snapshot
+                # is itself idempotent (no-op if today already saved).
+                from datetime import datetime as _dt
+                try:
+                    from zoneinfo import ZoneInfo
+                    today = _dt.now(ZoneInfo("America/New_York")).date()
+                except Exception:
+                    today = _dt.today().date()
+                if today.weekday() >= 5:  # 5=Sat, 6=Sun
+                    logger.info("year-highs: weekend, skip scheduled store")
+                else:
+                    year_highs.store_today_snapshot()
+            except Exception as e:
+                logger.exception(f"year-highs scheduler error: {e}")
+            self._stop.wait(60)
+
+    def _wait_until_5pm_est(self):
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/New_York")
+        now = datetime.now(tz)
+        target = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target = target + timedelta(days=1)
+        wait = (target - now).total_seconds()
+        if wait > 0:
+            self._stop.wait(wait)
+
+    def stop(self):
+        self._stop.set()
+
+
 def run(port=None):
     """Entry point for direct execution."""
     server = AlphaTerminalServer(port=port or PORT)
-    
+
     def signal_handler(sig, frame):
         logger.info(f"Received signal {sig}")
         server.stop()
         sys.exit(0)
-    
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     server.start()
+    # Daily 5pm EST snapshot scheduler
+    scheduler = YearHighScheduler(port=port)
+    scheduler.start()
     try:
         while not server._shutdown.is_set():
             time.sleep(1)
     except KeyboardInterrupt:
         server.stop()
+        scheduler.stop()
 
 
 if __name__ == '__main__':
