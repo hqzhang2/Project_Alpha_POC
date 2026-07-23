@@ -101,6 +101,16 @@ Example — stop NS-3 (port 9237):
 lsof -ti :9237 | xargs kill
 ```
 
+> **Stop-then-start in one move:** to restart a service cleanly, `unload`
+> first, then `load`. This avoids an "Address already in use" race if the old
+> process has not yet released the port:
+> ```bash
+> launchctl unload ~/Library/LaunchAgents/com.ninestreet.ns3.qa.plist
+> launchctl load  ~/Library/LaunchAgents/com.ninestreet.ns3.qa.plist
+> ```
+> (Substitute the correct label per Section 5.) The plists already sleep 2s
+> before binding to let the prior socket release.
+
 ---
 
 ## 5. Bringing a system UP (start)
