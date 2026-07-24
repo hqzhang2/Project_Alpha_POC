@@ -192,7 +192,8 @@ def store_today(table_name, get_fn, store_fn, scan_signal, enrich_fn, threshold_
         return date_str, len(existing), True
     candidates = scan_candidates(scan_signal)
     col_prefix = "high" if "high" in scan_signal.lower() else "low"
-    rows = build_rows(candidates, enrich_fn, threshold_pct, col_prefix)
+    pct_key = "pct_off" if col_prefix == "high" else "pct_from_low"
+    rows = build_rows(candidates, enrich_fn, threshold_pct, col_prefix, pct_key=pct_key)
     count = store_fn(date_str, rows)
     logger.info(f"{logger_name}: stored {count} rows for {date_str}")
     return date_str, count, False
