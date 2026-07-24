@@ -101,10 +101,10 @@
     <div class="header"><div class="nav"></div></div>
 
     <div class="toolbar">
-        <h2>📈 52-Week Highs</h2>
+        <h2><span style="color:#3fb950">▲</span> 52-Week Highs</h2>
         <span class="date-label">Session:</span>
         <input type="date" id="yhDate" onchange="yhLoad()">
-        <button onclick="document.getElementById('yhDate').showPicker()" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1;">📅</button>
+        <button onclick="var d=document.getElementById('yhDate');d.focus();d.showPicker?d.showPicker():d.click()" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1;" title="Open calendar">📅</button>
         <span class="status" id="yhStatus"></span>
     </div>
 
