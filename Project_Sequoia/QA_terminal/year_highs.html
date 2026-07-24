@@ -49,23 +49,25 @@
         }
         .yh-table th.active .sort-arrow { opacity: 1; }
         .yh-table th .sort-arrow.asc::before {
-            content: '▼';
-            display: block;
-            font-size: 8px;
-            line-height: 1;
-            color: currentColor;
-        }
-        .yh-table th .sort-arrow.desc::before {
             content: '▲';
             display: block;
             font-size: 8px;
             line-height: 1;
             color: currentColor;
         }
+        .yh-table th .sort-arrow.desc::before {
+            content: '▼';
+            display: block;
+            font-size: 8px;
+            line-height: 1;
+            color: currentColor;
+        }
+        .yh-table tbody tr:nth-child(even) { background: rgba(22, 27, 34, 0.6); }
         .yh-table tbody tr:hover { background: #21262d; }
-        .yh-table .ticker { font-weight: 600; }
+        .yh-table .ticker { font-weight: 700; color: #e6edf3; }
         .yh-table .exch-nyse { color: #58a6ff; }
         .yh-table .exch-nasdaq { color: #3fb950; }
+        .yh-table td { color: #c9d1d9; }
         .yh-empty, .yh-error { color: #8b949e; padding: 16px; }
         .yh-error { color: #f85149; }
     </style>
