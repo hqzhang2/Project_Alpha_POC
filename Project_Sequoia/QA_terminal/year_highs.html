@@ -57,11 +57,11 @@
             top: 0;
             z-index: 1;
         }
-        .yh-table thead::after {
-            content: '';
-            display: block;
+        .yh-table thead .gradient-row td {
+            padding: 0;
             height: 3px;
             background: linear-gradient(90deg, #3fb950, #58a6ff);
+            border: none;
         }
         .yh-table th .sort-arrow {
             display: inline-block;
@@ -121,6 +121,7 @@
                             <th data-k="market_cap" onclick="yhSort('market_cap')">Market Cap (B)<span class="sort-arrow"></span></th>
                             <th data-k="volume" onclick="yhSort('volume')">Volume<span class="sort-arrow"></span></th>
                         </tr>
+                        <tr class="gradient-row"><td colspan="7"></td></tr>
                     </thead>
                     <tbody id="yhBody"></tbody>
                 </table>
