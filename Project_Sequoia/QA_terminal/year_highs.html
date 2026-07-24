@@ -14,23 +14,25 @@
             min-height: 100vh;
         }
         .yh-section { padding: 24px; }
-        .yh-header {
+        .toolbar {
+            background: #161b22;
+            padding: 12px 24px;
             display: flex;
-            align-items: center;
             gap: 12px;
-            margin-bottom: 16px;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
             flex-wrap: wrap;
         }
-        .yh-header h2 { font-size: 18px; font-weight: 600; margin: 0; }
-        .yh-header .date-label { color: #8b949e; font-size: 13px; }
-        .yh-header input[type="date"] {
+        .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
+        .toolbar .date-label { color: #8b949e; font-size: 13px; }
+        .toolbar input[type="date"] {
             background: #0d1117;
             border: 1px solid #30363d;
             color: #e6edf3;
             padding: 8px 12px;
             border-radius: 6px;
         }
-        .yh-header .btn {
+        .toolbar .btn {
             background: #238636;
             color: white;
             border: none;
@@ -39,13 +41,14 @@
             cursor: pointer;
             font-size: 14px;
         }
-        .yh-header .btn:hover { background: #2ea043; }
-        .yh-header .btn-secondary {
+        .toolbar .btn:hover { background: #2ea043; }
+        .toolbar .btn-secondary {
             background: #21262d;
             border: 1px solid #30363d;
             color: #e6edf3;
         }
-        .yh-header .btn-secondary:hover { background: #30363d; }
+        .toolbar .btn-secondary:hover { background: #30363d; }
+        .toolbar .status { color: #8b949e; font-size: 13px; margin-left: auto; }
 
         .yh-table { width: 100%; border-collapse: collapse; font-size: 14px; }
         .yh-table th, .yh-table td {
@@ -97,14 +100,14 @@
 <body>
     <div class="header"><div class="nav"></div></div>
 
-    <div class="yh-section">
-        <div class="yh-header">
-            <h2>📈 52-Week Highs</h2>
-            <span class="date-label">Session:</span>
-            <input type="date" id="yhDate" onchange="yhLoad()">
-            <span id="yhStatus" style="color:#8b949e; font-size:13px;"></span>
-        </div>
-        <div id="yhTableWrap">
+    <div class="toolbar">
+        <h2>📈 52-Week Highs</h2>
+        <span class="date-label">Session:</span>
+        <input type="date" id="yhDate" onchange="yhLoad()">
+        <span class="status" id="yhStatus"></span>
+    </div>
+
+    <div id="yhTableWrap">
             <table class="yh-table" id="yhTable">
                 <thead>
                     <tr>
