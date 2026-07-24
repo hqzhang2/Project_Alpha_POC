@@ -400,6 +400,10 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_news_top(self, qs):
         import news
         cat = qs.get('cat', ['general'])[0]
+        action = qs.get('action', [None])[0]
+        if action == 'calendar':
+            self.send_json({'dates': news.list_news_dates()})
+            return
         self.send_json(news.get_top_news(cat))
     
     def handle_news_cn(self, qs):
