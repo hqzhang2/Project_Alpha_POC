@@ -1,41 +1,57 @@
 {
   "account": {
-    "initial_balance": 500000.0,
-    "cash": 7701.64,
-    "total_nav": 500684.0,
+    "initial_balance": 100000.0,
+    "cash": 0,
+    "total_nav": 100000.0,
     "commissions_paid": 0.0,
-    "last_updated": "2026-04-17"
+    "last_updated": "2026-07-24"
   },
   "positions": {
     "equities": {
-      "DBC": {
-        "shares": 17176,
-        "entry_price": 29.11,
-        "current_price": 29.11,
-        "allocation_pct": 100.0,
-        "strategy": "NS-Regime-1",
+      "SPY": {
+        "shares": 51,
+        "entry_price": 738.40,
+        "current_price": 738.40,
+        "allocation_pct": 37.9,
+        "strategy": "NS-Capital-Preservation",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "XLF": {
+        "shares": 605,
+        "entry_price": 55.92,
+        "current_price": 55.92,
+        "allocation_pct": 33.8,
+        "strategy": "NS-Capital-Preservation",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "XLV": {
+        "shares": 130,
+        "entry_price": 162.49,
+        "current_price": 162.49,
+        "allocation_pct": 21.3,
+        "strategy": "NS-Capital-Preservation",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "BIL": {
+        "shares": 76,
+        "entry_price": 91.60,
+        "current_price": 91.60,
+        "allocation_pct": 7.0,
+        "strategy": "NS-Capital-Preservation",
         "pnl": 0.0,
         "pnl_pct": 0.0
       }
     },
-    "options": {
-      "DBC260515C00031000": {
-        "contracts": -171,
-        "entry_price": 0.45,
-        "current_price": 0.41,
-        "type": "covered_call",
-        "underlying": "DBC",
-        "strike": 31.0,
-        "dte_at_entry": 27,
-        "pnl": 684.0,
-        "pnl_pct": 8.89
-      }
-    }
+    "options": {}
   },
   "history": [
     {
-      "date": "2026-04-11",
-      "nav": 500000.0
+      "date": "2026-07-24",
+      "nav": 100000.0,
+      "note": "BIL as cash equivalent (7%). VIX 18.6, exposure cap 93%."
     }
   ]
 }
