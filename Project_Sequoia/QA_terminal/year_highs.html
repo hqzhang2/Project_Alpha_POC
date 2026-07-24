@@ -26,19 +26,11 @@
         .yh-container {
             background: #161b22;
             border-radius: 8px;
-            overflow: hidden;
+            overflow: visible;
             border: 1px solid #21262d;
         }
-        .yh-container .accent-bar {
-            height: 3px;
-            background: linear-gradient(90deg, #3fb950, #58a6ff);
-        }
-        .yh-container .accent-bar2 {
-            height: 1px;
-            background: #30363d;
-        }
 
-        .yh-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .yh-table { width: 100%; border-collapse: collapse; font-size: 14px; position: relative; }
         .yh-table th, .yh-table td {
             text-align: left;
             padding: 8px 12px;
@@ -60,6 +52,17 @@
         }
         .yh-table th:hover { color: #e6edf3; }
         .yh-table th.active { color: #58a6ff; }
+        .yh-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .yh-table thead::after {
+            content: '';
+            display: block;
+            height: 3px;
+            background: linear-gradient(90deg, #3fb950, #58a6ff);
+        }
         .yh-table th .sort-arrow {
             display: inline-block;
             width: 12px;
@@ -106,7 +109,6 @@
 
     <div class="yh-section">
         <div class="yh-container">
-            <div class="accent-bar"></div>
             <div id="yhTableWrap">
                 <table class="yh-table" id="yhTable">
                     <thead>
