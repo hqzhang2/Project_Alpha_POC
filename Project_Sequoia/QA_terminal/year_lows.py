@@ -10,6 +10,7 @@ Results are persisted to the SQLite `year_lows` table (db.py) once per
 trading day at 5pm EST/EDT.
 """
 import logging
+from datetime import datetime
 
 logger = logging.getLogger("alpha-terminal.year-lows")
 
@@ -159,11 +160,15 @@ def scan_year_lows(threshold_pct=AT_LOW_THRESHOLD_PCT):
 def store_today_snapshot(threshold_pct=AT_LOW_THRESHOLD_PCT, force=False):
     """Scan + store the snapshot for today (EST) if not already stored.
 
-    force=True overwrites an existing snapshot for today.
+    If it's before 9:30am ET (market open), the snapshot is stored under
+    the previous trading day's date to avoid labelling pre-market data
+    with the current (unfinished) day.
+
+    force=True overwrites an existing snapshot for that date.
     Returns (date_str, count, already_existed: bool).
     """
     import db
-    date_str = db.today_est_str()
+    date_str = _snapshot_date()
     existing = db.get_year_lows(date_str)
     if existing and not force:
         logger.info(f"year-lows: {date_str} already stored ({len(existing)} rows); skip")
@@ -172,3 +177,19 @@ def store_today_snapshot(threshold_pct=AT_LOW_THRESHOLD_PCT, force=False):
     count = db.store_year_lows(date_str, rows)
     logger.info(f"year-lows: stored {count} rows for {date_str}")
     return date_str, count, False
+
+
+def _snapshot_date():
+    """Return today's date in EST, or yesterday if before 9:30am ET."""
+    import db
+    now = datetime.now()
+    try:
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        now_et = now
+    if now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30):
+        from datetime import timedelta
+        prev = now_et - timedelta(days=1)
+        return prev.strftime("%Y-%m-%d")
+    return db.today_est_str()
