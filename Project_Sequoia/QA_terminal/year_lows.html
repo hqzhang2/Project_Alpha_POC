@@ -172,6 +172,18 @@
                 const data = await res.json();
                 // Filter: only stocks at 52W low (pct_from_low <= 0)
                 ylRows = (data.results || []).filter(r => r.pct_from_low != null && r.pct_from_low <= 0);
+                // If no results and we queried a specific date, try without date (server fallback to latest)
+                if (!ylRows.length && date) {
+                    const res2 = await fetch('/api/year-lows');
+                    const data2 = await res2.json();
+                    ylRows = (data2.results || []).filter(r => r.pct_from_low != null && r.pct_from_low <= 0);
+                    if (ylRows.length) {
+                        dateEl.value = data2.date;
+                        statusEl.textContent = ` ${data2.date || ''} · ${ylRows.length} names at 52W low`;
+                        ylRender();
+                        return;
+                    }
+                }
                 statusEl.textContent = ` ${data.date || ''} · ${ylRows.length} names at 52W low`;
                 if (!ylRows.length) emptyEl.style.display = 'block';
                 ylRender();

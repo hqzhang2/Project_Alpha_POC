@@ -172,6 +172,18 @@
                 const data = await res.json();
                 // Filter: only stocks at 52W high (pct_off >= 0)
                 yhRows = (data.results || []).filter(r => r.pct_off != null && r.pct_off >= 0);
+                // If no results and we queried a specific date, try without date (server fallback to latest)
+                if (!yhRows.length && date) {
+                    const res2 = await fetch('/api/year-highs');
+                    const data2 = await res2.json();
+                    yhRows = (data2.results || []).filter(r => r.pct_off != null && r.pct_off >= 0);
+                    if (yhRows.length) {
+                        dateEl.value = data2.date;
+                        statusEl.textContent = ` ${data2.date || ''} · ${yhRows.length} names at 52W high`;
+                        yhRender();
+                        return;
+                    }
+                }
                 statusEl.textContent = ` ${data.date || ''} · ${yhRows.length} names at 52W high`;
                 if (!yhRows.length) emptyEl.style.display = 'block';
                 yhRender();
