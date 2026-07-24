@@ -9,7 +9,8 @@ import os
 # Add project path
 sys.path.insert(0, '/Users/chuck/Project_Alpha_POC/Project_Sequoia/QA_terminal')
 
-from year_highs import store_today_snapshot
+from year_highs import store_today_snapshot as store_highs
+from year_lows import store_today_snapshot as store_lows
 import logging
 
 # Configure logging
@@ -30,19 +31,22 @@ logger = logging.getLogger(__name__)
 
 def main():
     logger.info("=" * 50)
-    logger.info("Starting daily 52-week highs update")
+    logger.info("Starting daily update (highs + lows)")
     logger.info("=" * 50)
 
     try:
-        date_str, count, existed = store_today_snapshot(force=True)
-        if existed:
-            logger.info(f"Update skipped: {date_str} already exists ({count} rows)")
-        else:
-            logger.info(f"Update successful: {date_str} - {count} rows stored")
-        return 0
+        h_d, h_count, h_existed = store_highs(force=True)
+        logger.info(f"52W highs: {h_d} - {h_count} rows{' (skipped, already exists)' if h_existed else ''}")
     except Exception as e:
-        logger.exception(f"Update failed: {e}")
-        return 1
+        logger.exception(f"52W highs update failed: {e}")
+
+    try:
+        l_d, l_count, l_existed = store_lows(force=True)
+        logger.info(f"52W lows: {l_d} - {l_count} rows{' (skipped, already exists)' if l_existed else ''}")
+    except Exception as e:
+        logger.exception(f"52W lows update failed: {e}")
+
+    return 0
 
 
 if __name__ == '__main__':

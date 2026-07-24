@@ -34,7 +34,7 @@ def _connect():
 
 
 def init_db():
-    """Create the year_highs table if it does not exist."""
+    """Create the year_highs and year_lows tables if they do not exist."""
     conn = _connect()
     try:
         conn.execute(
@@ -70,6 +70,31 @@ def init_db():
             conn.execute("ALTER TABLE year_highs ADD COLUMN market_cap REAL")
         except Exception:
             pass  # column already present
+
+        # year_lows table (mirror of year_highs with low_52w / pct_from_low)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS year_lows (
+                date         TEXT NOT NULL,
+                ticker       TEXT NOT NULL,
+                exchange     TEXT,
+                sector       TEXT,
+                company      TEXT,
+                close        REAL,
+                low_52w      REAL,
+                pct_from_low REAL,
+                volume       REAL,
+                market_cap   REAL,
+                PRIMARY KEY (date, ticker)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_year_lows_date ON year_lows(date)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_year_lows_ticker ON year_lows(ticker)"
+        )
         conn.commit()
     finally:
         conn.close()
@@ -133,13 +158,84 @@ def search_year_highs(date_str, query):
         conn.close()
 
 
+def store_year_lows(date_str, rows):
+    """Replace (upsert) all rows for a given date.
+
+    rows: iterable of dicts with keys:
+        ticker, exchange, sector, close, low_52w, pct_from_low, volume, market_cap
+    """
+    init_db()
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM year_lows WHERE date = ?", (date_str,))
+        conn.executemany(
+            """
+            INSERT INTO year_lows
+                (date, ticker, exchange, sector, company, close, low_52w, pct_from_low, volume, market_cap)
+            VALUES
+                (:date, :ticker, :exchange, :sector, :company, :close, :low_52w, :pct_from_low, :volume, :market_cap)
+            """,
+            [{**{"date": date_str}, **r} for r in rows],
+        )
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def get_year_lows(date_str):
+    """Return all rows for a date, sorted by pct_from_low asc."""
+    init_db()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM year_lows WHERE date = ? ORDER BY pct_from_low ASC, ticker ASC",
+            (date_str,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def search_year_lows(date_str, query):
+    """Case-insensitive substring search on ticker within a date's snapshot."""
+    init_db()
+    conn = _connect()
+    try:
+        like = f"%{query.upper()}%"
+        cur = conn.execute(
+            """
+            SELECT * FROM year_lows
+            WHERE date = ? AND (ticker LIKE ? OR sector LIKE ?)
+            ORDER BY pct_from_low ASC, ticker ASC
+            """,
+            (date_str, like, like),
+        )
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def list_dates():
-    """Distinct snapshot dates, newest first."""
+    """Distinct snapshot dates from year_highs, newest first."""
     init_db()
     conn = _connect()
     try:
         cur = conn.execute(
             "SELECT DISTINCT date FROM year_highs ORDER BY date DESC"
+        )
+        return [r["date"] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def list_lows_dates():
+    """Distinct snapshot dates from year_lows, newest first."""
+    init_db()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "SELECT DISTINCT date FROM year_lows ORDER BY date DESC"
         )
         return [r["date"] for r in cur.fetchall()]
     finally:

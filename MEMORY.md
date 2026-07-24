@@ -44,6 +44,7 @@
 - On 2026-03-27, Implemented instant followup workflow for sequoia-strategy channel - after Hong posts in strategy/equity/trade-ideas, team automatically responds within minutes
 - On 2026-03-31, Released Terminal Alpha v1.3.1: Unified and refactored backend server, added comprehensive full-tab regression testing suite covering Dashboard, OMON, Ratio Analysis, and Financials.
 - **2026-07-21:** Restored NS-1/NS-3/NS-4 QA servers with full dashboard APIs. Created release/v1.6 and feature/v1.7 branches.
+- **2026-07-23:** 52-Week Highs feature completed in Alpha Terminal QA (feature/v1.8): Market Cap (B) column, finviz ticker cleanup (AADM→ADM etc), OMON-style toolbar + container panel with gradient accent bar, sticky header, sort arrows (▲=asc/▼=desc), zebra striping, removed $1B filter & Reload button. Launchd daily update job at 5pm ET Mon-Fri. All changes in feature/v1.8 branch.
 
 ## Project Nine Street - Quantitative Trading System
 **Status:** ACTIVE PRIMARY PROJECT
@@ -162,12 +163,13 @@
 **Tabs:** Alpha Terminal, NS-1, NS-3, NS-4
 **Toggle:** PROD/QA switcher updates all iframe URLs dynamically
 
-## Git Branches (as of 2026-07-21)
+## Git Branches (as of 2026-07-23)
 | Branch | Base | Status |
 |--------|------|--------|
 | `feature/v1.6` | main | ✅ Merged (commit 0832717) |
 | `release/v1.6` | feature/v1.6 | ✅ Created & pushed |
 | `feature/v1.7` | feature/v1.6 | ✅ Created & pushed (current) |
+| `feature/v1.8` | feature/v1.7 | ✅ Created & pushed (52-Week Highs feature) |
 
 ### Files Changed in v1.6:
 - `Project_Nine_Street/NS_1_QA/server_qa.py` (new)

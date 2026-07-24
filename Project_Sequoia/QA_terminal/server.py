@@ -283,6 +283,7 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/estimates': 'handle_estimates',
         '/api/ratio': 'handle_ratio',
         '/api/year-highs': 'handle_year_highs',
+        '/api/year-lows': 'handle_year_lows',
         '/api/health': 'handle_health',
     }
 
@@ -500,6 +501,46 @@ class Handler(SimpleHTTPRequestHandler):
             if dates:
                 target = dates[0]
                 rows = db.get_year_highs(target)
+        self.send_json({'date': target, 'count': len(rows), 'results': rows})
+    
+    def handle_year_lows(self, qs):
+        """52-week-low snapshots.
+
+        GET /api/year-lows                          -> latest stored snapshot
+        GET /api/year-lows?date=YYYY-MM-DD          -> snapshot for date
+        GET /api/year-lows?action=store             -> store today if not saved
+        GET /api/year-lows?action=calendar          -> list of stored dates
+        GET /api/year-lows?action=search&q=AAPL     -> search latest snapshot
+        """
+        import db
+        import year_lows
+        action = qs.get('action', [None])[0]
+        date_str = qs.get('date', [None])[0]
+
+        if action == 'store':
+            d, count, existed = year_lows.store_today_snapshot()
+            self.send_json({'status': 'stored' if not existed else 'exists',
+                            'date': d, 'count': count, 'already_existed': existed})
+            return
+
+        if action == 'calendar':
+            self.send_json({'dates': db.list_lows_dates()})
+            return
+
+        if action == 'search':
+            q = qs.get('q', [''])[0]
+            target = date_str or db.today_est_str()
+            self.send_json({'date': target, 'query': q, 'results': db.search_year_lows(target, q)})
+            return
+
+        # default: return a snapshot
+        target = date_str or db.today_est_str()
+        rows = db.get_year_lows(target)
+        if not rows and not date_str:
+            dates = db.list_lows_dates()
+            if dates:
+                target = dates[0]
+                rows = db.get_year_lows(target)
         self.send_json({'date': target, 'count': len(rows), 'results': rows})
     
     def handle_sec_financials(self, qs):
