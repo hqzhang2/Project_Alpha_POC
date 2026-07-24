@@ -7,48 +7,21 @@
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0d1117;
-            color: #e6edf3;
-            min-height: 100vh;
-        }
-        .yh-section { padding: 24px; }
-        .toolbar {
-            background: #161b22;
-            padding: 12px 24px;
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            border-bottom: 1px solid #30363d;
-            flex-wrap: wrap;
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
         .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
         .toolbar .date-label { color: #8b949e; font-size: 13px; }
-        .toolbar input[type="date"] {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            color: #e6edf3;
-            padding: 8px 12px;
-            border-radius: 6px;
-        }
-        .toolbar .btn {
-            background: #238636;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .toolbar .btn:hover { background: #2ea043; }
-        .toolbar .btn-secondary {
-            background: #21262d;
-            border: 1px solid #30363d;
-            color: #e6edf3;
-        }
-        .toolbar .btn-secondary:hover { background: #30363d; }
+        .toolbar input[type="date"] { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; }
         .toolbar .status { color: #8b949e; font-size: 13px; margin-left: auto; }
+        select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 6px; border-radius: 4px; }
+
+        .yh-section { padding: 24px; }
 
         .yh-table { width: 100%; border-collapse: collapse; font-size: 14px; }
         .yh-table th, .yh-table td {
@@ -107,7 +80,8 @@
         <span class="status" id="yhStatus"></span>
     </div>
 
-    <div id="yhTableWrap">
+    <div class="yh-section">
+        <div id="yhTableWrap">
             <table class="yh-table" id="yhTable">
                 <thead>
                     <tr>
