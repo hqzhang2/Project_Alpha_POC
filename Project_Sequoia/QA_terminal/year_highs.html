@@ -18,6 +18,7 @@
         .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
         .toolbar .date-label { color: #8b949e; font-size: 13px; }
         .toolbar input[type="date"] { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; }
+        .toolbar input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
         .toolbar .status { color: #8b949e; font-size: 13px; margin-left: auto; }
         select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 6px; border-radius: 4px; }
 
@@ -104,7 +105,6 @@
         <h2><span style="color:#3fb950">▲</span> 52-Week Highs</h2>
         <span class="date-label">Session:</span>
         <input type="date" id="yhDate" onchange="yhLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;cursor:pointer;width:150px;">
-        <select id="yhDateSelect" onchange="document.getElementById('yhDate').value=this.value;yhLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;"></select>
         <span class="status" id="yhStatus"></span>
     </div>
 
@@ -237,7 +237,6 @@
 
         (async function yhInit() {
             const dEl = document.getElementById('yhDate');
-            const sEl = document.getElementById('yhDateSelect');
             // Fetch available dates and set date picker to latest available
             try {
                 const res = await fetch('/api/year-highs?action=calendar');
@@ -245,15 +244,6 @@
                 if (data.dates && data.dates.length > 0) {
                     dEl.value = data.dates[0];  // Latest available date
                     dEl.max = data.dates[0];    // Can't pick future dates
-                    // Populate select dropdown
-                    sEl.innerHTML = '';
-                    data.dates.forEach(function(d) {
-                        var opt = document.createElement('option');
-                        opt.value = d;
-                        opt.textContent = d;
-                        sEl.appendChild(opt);
-                    });
-                    sEl.value = data.dates[0];
                 }
             } catch (e) {
                 console.warn('Could not fetch calendar dates:', e);
