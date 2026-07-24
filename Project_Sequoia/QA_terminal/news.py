@@ -117,3 +117,10 @@ def list_news_dates():
     """Return list of dates with news data available. Falls back to today if no cached data."""
     import datetime
     return [datetime.datetime.now().strftime("%Y-%m-%d")]
+
+
+# Module route registration (R2)
+ROUTES = {
+    '/api/news/top': 'handle_news_top',
+    '/api/news/cn': 'handle_news_cn',
+}

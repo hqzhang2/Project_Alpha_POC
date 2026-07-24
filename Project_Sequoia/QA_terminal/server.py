@@ -268,13 +268,32 @@ class ChartDataProcessor:
 
 class Handler(SimpleHTTPRequestHandler):
     """HTTP request handler with API routing."""
-    
-    # API route mapping
+
+    # Dynamic module route table — built by _discover_module_routes()
+    MODULE_ROUTES = {}
+
+    @classmethod
+    def _discover_module_routes(cls):
+        """Import known modules and collect their ROUTES dicts."""
+        modules = {
+            'year_highs': 'year_highs',
+            'year_lows': 'year_lows',
+            'news': 'news',
+        }
+        routes = {}
+        for mod_name, import_path in modules.items():
+            try:
+                mod = __import__(import_path, fromlist=['ROUTES'])
+                if hasattr(mod, 'ROUTES'):
+                    routes.update(mod.ROUTES)
+            except ImportError:
+                pass
+        cls.MODULE_ROUTES = routes
+
+    # Static API route mapping (legacy — new routes should use module ROUTES)
     API_ROUTES = {
         '/api/etf-holdings': 'handle_etf_holdings',
         '/api/quotes': 'handle_quotes',
-        '/api/news/top': 'handle_news_top',
-        '/api/news/cn': 'handle_news_cn',
         '/api/prediction': 'handle_prediction',
         '/api/options': 'handle_options',
         '/api/screen': 'handle_screen',
@@ -282,8 +301,6 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/chart': 'handle_chart',
         '/api/estimates': 'handle_estimates',
         '/api/ratio': 'handle_ratio',
-        '/api/year-highs': 'handle_year_highs',
-        '/api/year-lows': 'handle_year_lows',
         '/api/health': 'handle_health',
     }
 
@@ -298,6 +315,17 @@ class Handler(SimpleHTTPRequestHandler):
         
         # Route API calls
         if path.startswith('/api/'):
+            # Check module routes first (R2)
+            handler_name = self.MODULE_ROUTES.get(path)
+            if handler_name and hasattr(self, handler_name):
+                try:
+                    getattr(self, handler_name)(qs)
+                except Exception as e:
+                    logger.exception(f"API error on {path}")
+                    self.send_json({'error': str(e)}, status=500)
+                return
+
+            # Check static routes (legacy)
             handler_name = self.API_ROUTES.get(path)
             if handler_name and hasattr(self, handler_name):
                 try:
@@ -634,6 +662,7 @@ class AlphaTerminalServer:
     
     def start(self):
         """Start the HTTP server in a background thread."""
+        Handler._discover_module_routes()
         self.server = HTTPServer((self.host, self.port), Handler)
         self.server_thread = threading.Thread(target=self._serve, daemon=True)
         self.server_thread.start()
