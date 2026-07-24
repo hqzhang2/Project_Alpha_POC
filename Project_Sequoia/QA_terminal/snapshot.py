@@ -8,6 +8,8 @@ and snapshot-date logic used by both year_highs.py and year_lows.py.
 import logging
 from datetime import datetime, timedelta
 
+import config
+
 logger = logging.getLogger("alpha-terminal.snapshot")
 
 try:
@@ -24,7 +26,7 @@ except ImportError:
     YFINANCE_AVAILABLE = False
     yf = None
 
-EXCHANGES = ["NYSE", "NASDAQ"]
+EXCHANGES = config.SCAN_EXCHANGES
 
 
 def clean_ticker(ticker):

@@ -7,6 +7,13 @@ import os
 DEFAULT_PORT = 9098
 HOST = '0.0.0.0'
 
+# Snapshot scanner config
+SCAN_EXCHANGES = ['NYSE', 'NASDAQ']
+HIGH_WINDOW = 252
+LOW_WINDOW = 252
+AT_HIGH_THRESHOLD_PCT = 2.0
+AT_LOW_THRESHOLD_PCT = 2.0
+
 # Yahoo Finance config
 YF_CACHE_MINUTES = 5
 

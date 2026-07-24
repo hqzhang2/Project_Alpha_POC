@@ -10,11 +10,12 @@ from snapshot import (
     scan_candidates, enrich_yfinance, build_rows,
     store_today, snapshot_date
 )
+import config
 
 logger = logging.getLogger("alpha-terminal.year-lows")
 
-AT_LOW_THRESHOLD_PCT = 2.0
-LOW_WINDOW = 252
+AT_LOW_THRESHOLD_PCT = config.AT_LOW_THRESHOLD_PCT
+LOW_WINDOW = config.LOW_WINDOW
 
 
 def scan_year_lows(threshold_pct=AT_LOW_THRESHOLD_PCT):
