@@ -103,8 +103,10 @@
     <div class="toolbar">
         <h2><span style="color:#f85149">▼</span> 52-Week Lows</h2>
         <span class="date-label">Session:</span>
-        <input type="date" id="ylDate" onchange="ylLoad()">
-        <button onclick="var d=document.getElementById('ylDate');d.focus();d.showPicker?d.showPicker():d.click()" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1;" title="Open calendar">📅</button>
+        <label style="position:relative;display:inline-block;">
+            <input type="date" id="ylDate" onchange="ylLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 32px 8px 12px;border-radius:6px;cursor:pointer;">
+            <span onclick="this.previousElementSibling.showPicker()" style="position:absolute;right:0;top:0;bottom:0;width:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#8b949e;font-size:14px;">📅</span>
+        </label>
         <span class="status" id="ylStatus"></span>
     </div>
 
