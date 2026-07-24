@@ -23,6 +23,21 @@
 
         .yh-section { padding: 24px; }
 
+        .yh-container {
+            background: #161b22;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #21262d;
+        }
+        .yh-container .accent-bar {
+            height: 3px;
+            background: linear-gradient(90deg, #3fb950, #58a6ff);
+        }
+        .yh-container .accent-bar2 {
+            height: 1px;
+            background: #30363d;
+        }
+
         .yh-table { width: 100%; border-collapse: collapse; font-size: 14px; }
         .yh-table th, .yh-table td {
             text-align: left;
@@ -35,6 +50,13 @@
             font-size: 11px;
             cursor: pointer;
             user-select: none;
+            background: #161b22;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            border-bottom: 1px solid #30363d;
+            padding-top: 10px;
+            padding-bottom: 10px;
         }
         .yh-table th:hover { color: #e6edf3; }
         .yh-table th.active { color: #58a6ff; }
@@ -83,23 +105,26 @@
     </div>
 
     <div class="yh-section">
-        <div id="yhTableWrap">
-            <table class="yh-table" id="yhTable">
-                <thead>
-                    <tr>
-                        <th data-k="ticker" onclick="yhSort('ticker')">Ticker<span class="sort-arrow"></span></th>
-                        <th data-k="company" onclick="yhSort('company')">Company<span class="sort-arrow"></span></th>
-                        <th data-k="sector" onclick="yhSort('sector')">Sector<span class="sort-arrow"></span></th>
-                        <th data-k="exchange" onclick="yhSort('exchange')">Exchange<span class="sort-arrow"></span></th>
-                        <th data-k="close" onclick="yhSort('close')">Price<span class="sort-arrow"></span></th>
-                        <th data-k="market_cap" onclick="yhSort('market_cap')">Market Cap (B)<span class="sort-arrow"></span></th>
-                        <th data-k="volume" onclick="yhSort('volume')">Volume<span class="sort-arrow"></span></th>
-                    </tr>
-                </thead>
-                <tbody id="yhBody"></tbody>
-            </table>
-            <div class="yh-empty" id="yhEmpty" style="display:none;">No 52-week highs stored for this session.</div>
-            <div class="yh-error" id="yhError" style="display:none;"></div>
+        <div class="yh-container">
+            <div class="accent-bar"></div>
+            <div id="yhTableWrap">
+                <table class="yh-table" id="yhTable">
+                    <thead>
+                        <tr>
+                            <th data-k="ticker" onclick="yhSort('ticker')">Ticker<span class="sort-arrow"></span></th>
+                            <th data-k="company" onclick="yhSort('company')">Company<span class="sort-arrow"></span></th>
+                            <th data-k="sector" onclick="yhSort('sector')">Sector<span class="sort-arrow"></span></th>
+                            <th data-k="exchange" onclick="yhSort('exchange')">Exchange<span class="sort-arrow"></span></th>
+                            <th data-k="close" onclick="yhSort('close')">Price<span class="sort-arrow"></span></th>
+                            <th data-k="market_cap" onclick="yhSort('market_cap')">Market Cap (B)<span class="sort-arrow"></span></th>
+                            <th data-k="volume" onclick="yhSort('volume')">Volume<span class="sort-arrow"></span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="yhBody"></tbody>
+                </table>
+                <div class="yh-empty" id="yhEmpty" style="display:none;">No 52-week highs stored for this session.</div>
+                <div class="yh-error" id="yhError" style="display:none;"></div>
+            </div>
         </div>
     </div>
 
