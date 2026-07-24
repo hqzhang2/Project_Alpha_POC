@@ -40,10 +40,17 @@ except ImportError:
 _EXCHANGES = ["NYSE", "NASDAQ"]
 
 
+def _clean_ticker(ticker):
+    """Strip duplicated first character from finviz tickers (e.g. AADM -> ADM)."""
+    if len(ticker) > 1 and ticker[0] == ticker[1]:
+        return ticker[1:]
+    return ticker
+
+
 def get_candidates():
     """Return finviz new-high candidates as list of dicts.
 
-    Each: {ticker, exchange, sector, company, price, volume}
+    Each: {ticker, exchange, sector, company, price, volume, market_cap}
     """
     if not FINVIZ_AVAILABLE:
         logger.error("finvizfinance not available; cannot scan")
@@ -57,18 +64,47 @@ def get_candidates():
             if df is None or df.empty:
                 continue
             for _, row in df.iterrows():
+                # Market Cap from finviz (already in the screener data)
+                mc = row.get("Market Cap")
+                if isinstance(mc, float) and mc > 0:
+                    market_cap = mc
+                elif isinstance(mc, str):
+                    # Parse string like "4.16B" or "1.27T"
+                    market_cap = _parse_market_cap(mc)
+                else:
+                    market_cap = None
+                
                 candidates.append({
-                    "ticker": str(row.get("Ticker", "")).strip().upper(),
+                    "ticker": _clean_ticker(str(row.get("Ticker", "")).strip().upper()),
                     "exchange": str(row.get("Exchange", exchange)).strip().upper(),
                     "sector": str(row.get("Sector", "") or ""),
                     "company": str(row.get("Company", "") or ""),
                     "price": _to_float(row.get("Price")),
                     "volume": _to_int(row.get("Volume")),
+                    "market_cap": market_cap,
                 })
         except Exception as e:
             logger.warning(f"finviz scan failed for {exchange}: {e}")
             continue
     return candidates
+
+
+def _parse_market_cap(v):
+    """Parse market cap string like '4.16B' or '1.27T' to float."""
+    if v is None:
+        return None
+    try:
+        s = str(v).strip().upper()
+        if s.endswith('T'):
+            return float(s[:-1]) * 1e12
+        elif s.endswith('B'):
+            return float(s[:-1]) * 1e9
+        elif s.endswith('M'):
+            return float(s[:-1]) * 1e6
+        else:
+            return float(s)
+    except Exception:
+        return None
 
 
 def _to_float(v):
@@ -107,7 +143,7 @@ def scan_year_highs(threshold_pct=AT_HIGH_THRESHOLD_PCT):
     """Build rows for all NYSE/NASDAQ new-high candidates.
 
     Each row: dict(ticker, exchange, sector, company, close, high_52w,
-    pct_off, volume). pct_off is within `threshold_pct` of the high by
+    pct_off, volume, market_cap). pct_off is within `threshold_pct` of the high by
     construction (New High signal); enrichment keeps it precise.
     """
     candidates = get_candidates()
@@ -128,6 +164,7 @@ def scan_year_highs(threshold_pct=AT_HIGH_THRESHOLD_PCT):
             "high_52w": high_52w,
             "pct_off": pct_off,
             "volume": c["volume"] or 0,
+            "market_cap": c.get("market_cap"),
         })
     rows.sort(key=lambda r: (r["pct_off"] is None, r["pct_off"] if r["pct_off"] is not None else 999, r["ticker"]))
     return rows

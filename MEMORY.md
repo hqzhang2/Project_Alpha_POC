@@ -178,8 +178,11 @@
 - `Project_Nine_Street/scripts/nsoe_pricing.py` (vollib import fix)
 - `package.json` (new - npm scripts)
 
-## General Directives
-- **Memory Retention**: I must be extremely diligent about saving any context, port configurations, architectural changes, and task progression into `MEMORY.md` and daily memory files before yielding/finishing my turn, as I will lose transient conversational memory between long gaps or session restarts. This prevents wasting time/tokens.
+## Git Push Policy
+**IMPORTANT:** Git pushes should be **postponed until explicitly requested** by the user. Do not auto-push commits unless instructed.
+
+## Session Management
+This session has accumulated significant context. For new projects or major feature work, consider starting a fresh Hermes session to avoid context window saturation and ensure clean state. Current session is focused on Project Alpha POC / Nine Street v1.7.
 
 ## Portal Health Monitoring (Feature v1.7)
 **Location:** `portal_qa.py` — built into the portal frontend

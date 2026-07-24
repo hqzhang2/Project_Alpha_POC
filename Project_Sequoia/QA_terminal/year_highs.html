@@ -30,15 +30,6 @@
             padding: 8px 12px;
             border-radius: 6px;
         }
-        .yh-header .search {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            color: #e6edf3;
-            padding: 8px 12px;
-            border-radius: 6px;
-            width: 200px;
-        }
-        .yh-header .search:focus { outline: none; border-color: #58a6ff; }
         .yh-header .btn {
             background: #238636;
             color: white;
@@ -70,11 +61,35 @@
             user-select: none;
         }
         .yh-table th:hover { color: #e6edf3; }
+        .yh-table th.active { color: #58a6ff; }
+        .yh-table th .sort-arrow {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            opacity: 0.4;
+            transition: opacity 0.15s;
+            vertical-align: middle;
+            margin-left: 2px;
+        }
+        .yh-table th.active .sort-arrow { opacity: 1; }
+        .yh-table th .sort-arrow.asc::before {
+            content: '▼';
+            display: block;
+            font-size: 8px;
+            line-height: 1;
+            color: currentColor;
+        }
+        .yh-table th .sort-arrow.desc::before {
+            content: '▲';
+            display: block;
+            font-size: 8px;
+            line-height: 1;
+            color: currentColor;
+        }
         .yh-table tbody tr:hover { background: #21262d; }
         .yh-table .ticker { font-weight: 600; }
         .yh-table .exch-nyse { color: #58a6ff; }
         .yh-table .exch-nasdaq { color: #3fb950; }
-        .yh-table .pct-near { color: #3fb950; }
         .yh-empty, .yh-error { color: #8b949e; padding: 16px; }
         .yh-error { color: #f85149; }
     </style>
@@ -87,21 +102,19 @@
             <h2>📈 52-Week Highs</h2>
             <span class="date-label">Session:</span>
             <input type="date" id="yhDate" onchange="yhLoad()">
-            <input type="text" class="search" id="yhSearch" placeholder="Search ticker / sector…" oninput="yhSearchInput()">
-            <button class="btn btn-secondary" onclick="yhLoad()">Reload</button>
             <span id="yhStatus" style="color:#8b949e; font-size:13px;"></span>
         </div>
         <div id="yhTableWrap">
             <table class="yh-table" id="yhTable">
                 <thead>
                     <tr>
-                        <th data-k="ticker" onclick="yhSort('ticker')">Ticker</th>
-                        <th data-k="company" onclick="yhSort('company')">Company</th>
-                        <th data-k="sector" onclick="yhSort('sector')">Sector</th>
-                        <th data-k="exchange" onclick="yhSort('exchange')">Exchange</th>
-                        <th data-k="close" onclick="yhSort('close')">Price</th>
-                        <th data-k="pct_off" onclick="yhSort('pct_off')">% off 52W High</th>
-                        <th data-k="volume" onclick="yhSort('volume')">Volume</th>
+                        <th data-k="ticker" onclick="yhSort('ticker')">Ticker<span class="sort-arrow"></span></th>
+                        <th data-k="company" onclick="yhSort('company')">Company<span class="sort-arrow"></span></th>
+                        <th data-k="sector" onclick="yhSort('sector')">Sector<span class="sort-arrow"></span></th>
+                        <th data-k="exchange" onclick="yhSort('exchange')">Exchange<span class="sort-arrow"></span></th>
+                        <th data-k="close" onclick="yhSort('close')">Price<span class="sort-arrow"></span></th>
+                        <th data-k="market_cap" onclick="yhSort('market_cap')">Market Cap (B)<span class="sort-arrow"></span></th>
+                        <th data-k="volume" onclick="yhSort('volume')">Volume<span class="sort-arrow"></span></th>
                     </tr>
                 </thead>
                 <tbody id="yhBody"></tbody>
@@ -116,10 +129,13 @@
         let yhRows = [];
         let yhSortKey = 'pct_off';
         let yhSortDir = 1;
-        let yhFilter = '';
 
         function yhFmtPrice(v) {
             return (v == null) ? '--' : '$' + Number(v).toFixed(2);
+        }
+        function yhFmtMktCap(v) {
+            if (v == null) return '--';
+            return '$' + (v / 1e9).toFixed(2) + 'B';
         }
         function yhFmtVol(v) {
             if (v == null) return '--';
@@ -141,16 +157,15 @@
             emptyEl.style.display = 'none';
             const date = dateEl.value || '';
             let url = '/api/year-highs';
-            if (yhFilter) {
-                url = `/api/year-highs?action=search&q=${encodeURIComponent(yhFilter)}`;
-            } else if (date) {
+            if (date) {
                 url = `/api/year-highs?date=${encodeURIComponent(date)}`;
             }
             try {
                 const res = await fetch(url);
                 const data = await res.json();
-                yhRows = (data.results || []).slice();
-                statusEl.textContent = ` ${data.date || ''} · ${yhRows.length} names`;
+                // Filter: only stocks at 52W high (pct_off >= 0)
+                yhRows = (data.results || []).filter(r => r.pct_off != null && r.pct_off >= 0);
+                statusEl.textContent = ` ${data.date || ''} · ${yhRows.length} names at 52W high`;
                 if (!yhRows.length) emptyEl.style.display = 'block';
                 yhRender();
             } catch (e) {
@@ -178,12 +193,19 @@
                     <td>${r.sector || ''}</td>
                     <td class="${yhExchClass(r.exchange)}">${r.exchange || ''}</td>
                     <td>${yhFmtPrice(r.close)}</td>
-                    <td class="${pctCls}">${pct}</td>
+                    <td>${yhFmtMktCap(r.market_cap)}</td>
                     <td>${yhFmtVol(r.volume)}</td>
                 </tr>`;
             }).join('');
             document.querySelectorAll('.yh-table th').forEach(th => {
-                th.classList.toggle('active', th.dataset.k === yhSortKey);
+                const isActive = th.dataset.k === yhSortKey;
+                th.classList.toggle('active', isActive);
+                const arrow = th.querySelector('.sort-arrow');
+                if (isActive) {
+                    // Arrow points DOWN for descending (yhSortDir === -1), UP for ascending (yhSortDir === 1)
+                    arrow.classList.toggle('asc', yhSortDir === 1);
+                    arrow.classList.toggle('desc', yhSortDir === -1);
+                }
             });
         }
 
@@ -193,14 +215,19 @@
             yhRender();
         }
 
-        function yhSearchInput() {
-            const v = document.getElementById('yhSearch').value.trim();
-            yhFilter = v;
-            yhLoad();
-        }
-
-        (function yhInit() {
+        (async function yhInit() {
             const dEl = document.getElementById('yhDate');
+            // Fetch available dates and set date picker to latest available
+            try {
+                const res = await fetch('/api/year-highs?action=calendar');
+                const data = await res.json();
+                if (data.dates && data.dates.length > 0) {
+                    dEl.value = data.dates[0];  // Latest available date
+                    dEl.max = data.dates[0];    // Can't pick future dates
+                }
+            } catch (e) {
+                console.warn('Could not fetch calendar dates:', e);
+            }
             if (dEl && !dEl.value) {
                 const today = new Date();
                 dEl.value = today.toISOString().slice(0, 10);

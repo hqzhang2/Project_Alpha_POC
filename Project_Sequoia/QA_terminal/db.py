@@ -49,6 +49,7 @@ def init_db():
                 high_52w    REAL,
                 pct_off     REAL,
                 volume      REAL,
+                market_cap  REAL,
                 PRIMARY KEY (date, ticker)
             )
             """
@@ -64,6 +65,11 @@ def init_db():
             conn.execute("ALTER TABLE year_highs ADD COLUMN company TEXT")
         except Exception:
             pass  # column already present
+        # Backfill market_cap column
+        try:
+            conn.execute("ALTER TABLE year_highs ADD COLUMN market_cap REAL")
+        except Exception:
+            pass  # column already present
         conn.commit()
     finally:
         conn.close()
@@ -73,7 +79,7 @@ def store_year_highs(date_str, rows):
     """Replace (upsert) all rows for a given date.
 
     rows: iterable of dicts with keys:
-        ticker, exchange, sector, close, high_52w, pct_off, volume
+        ticker, exchange, sector, close, high_52w, pct_off, volume, market_cap
     """
     init_db()
     conn = _connect()
@@ -82,9 +88,9 @@ def store_year_highs(date_str, rows):
         conn.executemany(
             """
             INSERT INTO year_highs
-                (date, ticker, exchange, sector, company, close, high_52w, pct_off, volume)
+                (date, ticker, exchange, sector, company, close, high_52w, pct_off, volume, market_cap)
             VALUES
-                (:date, :ticker, :exchange, :sector, :company, :close, :high_52w, :pct_off, :volume)
+                (:date, :ticker, :exchange, :sector, :company, :close, :high_52w, :pct_off, :volume, :market_cap)
             """,
             [{**{"date": date_str}, **r} for r in rows],
         )
