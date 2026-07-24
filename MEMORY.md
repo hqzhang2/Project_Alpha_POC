@@ -45,6 +45,7 @@
 - On 2026-03-31, Released Terminal Alpha v1.3.1: Unified and refactored backend server, added comprehensive full-tab regression testing suite covering Dashboard, OMON, Ratio Analysis, and Financials.
 - **2026-07-21:** Restored NS-1/NS-3/NS-4 QA servers with full dashboard APIs. Created release/v1.6 and feature/v1.7 branches.
 - **2026-07-23:** 52-Week Highs feature completed in Alpha Terminal QA (feature/v1.8): Market Cap (B) column, finviz ticker cleanup (AADM→ADM etc), OMON-style toolbar + container panel with gradient accent bar, sticky header, sort arrows (▲=asc/▼=desc), zebra striping, removed $1B filter & Reload button. Launchd daily update job at 5pm ET Mon-Fri. All changes in feature/v1.8 branch.
+- **2026-07-24:** Release v1.9 cut and deployed to PROD/QA: Alpha Terminal (9098/9099), Nine Street NS-1/2/3/4 (9218-9241/9219-9241), Portal (8000). All PROD plists created and loaded. Calendar icon visibility fixed in 52-Week Highs/Lows with `filter:invert(1)` on native date picker. Calendar button replaced with native dropdown select populated from calendar API. Calendar button bug fixed: changed from `showPicker()` to `.click()` with `type="button"` for reliable cross-browser dropdown. v1.9 released and pushed to feature/v2.0 branch.
 
 ## Project Nine Street - Quantitative Trading System
 **Status:** ACTIVE PRIMARY PROJECT

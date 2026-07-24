@@ -203,9 +203,9 @@ class NS1Handler(SimpleHTTPRequestHandler):
             if bt is None:
                 try:
                     from ns_capital_preservation import run_capital_preservation_backtest
-                    m, nav, vix, spy, trades, weights = run_capital_preservation_backtest()
+                    metrics, nav, spy_bm, trades, weights = run_capital_preservation_backtest()
                     nav_norm = nav / nav.iloc[0] * 100
-                    spy_norm = spy / spy.iloc[0] * 100
+                    spy_norm = spy_bm / spy_bm.iloc[0] * 100
                     bt = {'dates': nav.index.strftime('%Y-%m-%d').tolist(), 'strategy': nav_norm.round(2).tolist(), 'benchmark': spy_norm.round(2).tolist()}
                     cache_set('backtest_curve', bt)
                 except Exception as e:
