@@ -103,8 +103,8 @@
     <div class="toolbar">
         <h2><span style="color:#f85149">▼</span> 52-Week Lows</h2>
         <span class="date-label">Session:</span>
-        <input type="date" id="ylDate" onchange="ylLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;cursor:pointer;">
-        <button type="button" onclick="document.getElementById('ylDate').showPicker()" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1;" title="Open calendar">📅</button>
+        <input type="date" id="ylDate" onchange="ylLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;cursor:pointer;width:150px;">
+        <select id="ylDateSelect" onchange="document.getElementById('ylDate').value=this.value;ylLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;"></select>
         <span class="status" id="ylStatus"></span>
     </div>
 
@@ -234,12 +234,22 @@
 
         (async function ylInit() {
             const dEl = document.getElementById('ylDate');
+            const sEl = document.getElementById('ylDateSelect');
             try {
                 const res = await fetch('/api/year-lows?action=calendar');
                 const data = await res.json();
                 if (data.dates && data.dates.length > 0) {
                     dEl.value = data.dates[0];
                     dEl.max = data.dates[0];
+                    // Populate select dropdown
+                    sEl.innerHTML = '';
+                    data.dates.forEach(function(d) {
+                        var opt = document.createElement('option');
+                        opt.value = d;
+                        opt.textContent = d;
+                        sEl.appendChild(opt);
+                    });
+                    sEl.value = data.dates[0];
                 }
             } catch (e) {
                 console.warn('Could not fetch calendar dates:', e);
