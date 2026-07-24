@@ -654,59 +654,6 @@ class AlphaTerminalServer:
         logger.info("Server stopped")
 
 
-class YearHighScheduler:
-    """Background thread that stores a 52-week-high snapshot daily at 5pm EST/EDT."""
-
-    def __init__(self, port=None):
-        self.port = port
-        self._stop = threading.Event()
-        self._thread = None
-
-    def start(self):
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        logger.info("Year-high scheduler started (daily 5pm EST)")
-
-    def _run(self):
-        import db
-        import year_highs
-        db.init_db()
-        while not self._stop.is_set():
-            try:
-                self._wait_until_5pm_est()
-                if self._stop.is_set():
-                    break
-                # Only persist on trading days (skip Sat/Sun); store_today_snapshot
-                # is itself idempotent (no-op if today already saved).
-                from datetime import datetime as _dt
-                try:
-                    from zoneinfo import ZoneInfo
-                    today = _dt.now(ZoneInfo("America/New_York")).date()
-                except Exception:
-                    today = _dt.today().date()
-                if today.weekday() >= 5:  # 5=Sat, 6=Sun
-                    logger.info("year-highs: weekend, skip scheduled store")
-                else:
-                    year_highs.store_today_snapshot()
-            except Exception as e:
-                logger.exception(f"year-highs scheduler error: {e}")
-            self._stop.wait(60)
-
-    def _wait_until_5pm_est(self):
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo("America/New_York")
-        now = datetime.now(tz)
-        target = now.replace(hour=17, minute=0, second=0, microsecond=0)
-        if target <= now:
-            target = target + timedelta(days=1)
-        wait = (target - now).total_seconds()
-        if wait > 0:
-            self._stop.wait(wait)
-
-    def stop(self):
-        self._stop.set()
-
-
 def run(port=None):
     """Entry point for direct execution."""
     server = AlphaTerminalServer(port=port or PORT)
@@ -720,15 +667,11 @@ def run(port=None):
     signal.signal(signal.SIGTERM, signal_handler)
 
     server.start()
-    # Daily 5pm EST snapshot scheduler
-    scheduler = YearHighScheduler(port=port)
-    scheduler.start()
     try:
         while not server._shutdown.is_set():
             time.sleep(1)
     except KeyboardInterrupt:
         server.stop()
-        scheduler.stop()
 
 
 if __name__ == '__main__':

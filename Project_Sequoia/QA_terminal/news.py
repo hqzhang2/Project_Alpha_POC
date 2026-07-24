@@ -7,8 +7,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY', 'd767d8hr01qm4b7t7tfgd767d8hr01qm4b7t7tg0')
-NEWSAPI_KEY = os.environ.get('NEWSAPI_KEY', '038953ee9b8a4af986b2f758dd26b14b')
+FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
+NEWSAPI_KEY = os.environ.get('NEWSAPI_KEY')
 
 
 def _fetch_from_api(url, timeout=5):
