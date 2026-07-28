@@ -233,8 +233,8 @@ function syncHover(idx) {
     const c = chartData, s = c.signal_bars[idx], r = c.regime_timeline[idx];
     const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
     document.getElementById('inspectPrompt').innerHTML =
-      `<b>${c.dates[idx]}</b> · $${c.close[idx].toFixed(2)} · RSI <b>${c.rsi[idx].toFixed(1)}</b> · CCI <b>${c.cci[idx].toFixed(0)}</b> · ` +
-      `<span style="color:${r.color}">${regimeLabel}</span> · <span style="color:${s.color};font-weight:700">${s.label}</span>`;
+      `$${c.close[idx].toFixed(2)} · RSI <b>${c.rsi[idx].toFixed(1)}</b> · CCI <b>${c.cci[idx].toFixed(0)}</b> · ` +
+      `<span style="color:${r.color}">${regimeLabel}</span>`;
     document.getElementById('inspectPrompt').style.border = '1px solid rgba(255,255,255,.15)';
   } else {
     document.getElementById('inspectPrompt').innerHTML =
@@ -448,7 +448,7 @@ function renderSignalBars() {
     type:'bar', data:{labels:chartData.dates, datasets:[{
       data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>s.color),borderRadius:0,borderWidth:0
     }]},
-    options:{...dc(), onHover(e){sync(e,this)}, scales:{...dc().scales, x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}}, y:{display:false,min:0,max:1.2}}},
+    options:{...dc(), onHover(e){sync(e,this)}, plugins:{tooltip:{enabled:false},legend:{display:false}}, scales:{...dc().scales, x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}}, y:{display:false,min:0,max:1.2}}},
     onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }
   });
 }
