@@ -222,6 +222,17 @@ Chart.register({
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#e6edf3';
       ctx.fillText(txt, lx + tw + 8, y);
+      // Date label at top of vertical line
+      const dateTxt = chartData.dates[crosshairIdx];
+      ctx.font = 'bold 12px Monaco,monospace';
+      const dw = ctx.measureText(dateTxt).width;
+      const dx = Math.max(Math.min(x - dw/2 - 4, chartArea.right - dw - 4), chartArea.left);
+      ctx.fillStyle = 'rgba(12,14,20,.85)';
+      ctx.fillRect(dx, chartArea.top + 2, dw + 8, 18);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#e6edf3';
+      ctx.fillText(dateTxt, dx + dw/2 + 4, chartArea.top + 11);
     }
     ctx.restore();
   }
