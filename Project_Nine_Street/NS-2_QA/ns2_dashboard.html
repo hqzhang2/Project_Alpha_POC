@@ -166,6 +166,7 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 // ── State ────────────────────────────────────────────────────────────────────
 const COLORS = {AAPL:'#a8d8a8',MSFT:'#7ec8e3',NVDA:'#76e4c4',GOOGL:'#f7c59f',AMZN:'#ffb347',META:'#c9a6ff',TSLA:'#ff6b6b'};
 const REGIME_COLORS = {0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'};
+const SIGNAL_COLORS = {BUY:'#22c55e',SHORT:'#ff6b6b',EXIT:'#ffd166','HOLD LONG':'#7ec8e3',FLAT:'#444',WATCH:'#c9a6ff'};
 const MACRO_LABELS = {'-1':'RISK OFF','0':'NEUTRAL','1':'RISK ON'};
 const MACRO_COLORS = {'-1':'#ff6b6b','0':'#ffb347','1':'#76e4c4'};
 const TICKERS = ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA'];
@@ -239,7 +240,7 @@ function syncHover(idx) {
     const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
     document.getElementById('inspectPrompt').innerHTML =
           `Close: <span style="color:#888">Close:</span> <span style="color:${c.color}">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#888">RSI:</span> <span style="color:#7ec8e3">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#888">CCI:</span> <span style="color:#c9a6ff">${c.cci[idx].toFixed(0)}</span> · ` +
-          `<span style="color:${{0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'}[r.regime]||r.color}">${regimeLabel}</span>`;
+          `<span style="color:${REGIME_COLORS[r.regime]||r.color}">${regimeLabel}</span>`;
     document.getElementById('inspectPrompt').style.border = '1px solid rgba(255,255,255,.15)';
   } else {
     document.getElementById('inspectPrompt').innerHTML =
@@ -386,7 +387,7 @@ const REGIME_NAMES = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'};
 function renderRegimeTimeline() {
   const el = document.getElementById('regimeTimeline');
   el.innerHTML = chartData.regime_timeline.map((r,i) =>
-    `<span class="seg" style="background:${{0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'}[r.regime]||r.color}" data-idx="${i}"></span>`
+    `<span class="seg" style="background:${REGIME_COLORS[r.regime]||r.color}" data-idx="${i}"></span>`
   ).join('');
   el.querySelectorAll('.seg').forEach(seg => {
     seg.addEventListener('mousemove', e => {
@@ -452,9 +453,27 @@ function renderSignalBars() {
   const ctx = makeCanvas('chartSignals', 55);
   chartInstances.signals = new Chart(ctx, {
     type:'bar', data:{labels:chartData.dates, datasets:[{
-      data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>{const m={BUY:'#22c55e',SHORT:'#ff6b6b',EXIT:'#ffd166','HOLD LONG':'#7ec8e3',FLAT:'#444',WATCH:'#c9a6ff'};return m[s.label]||s.color}),borderRadius:0,borderWidth:0
+      data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>SIGNAL_COLORS[s.label]||s.color),borderRadius:0,borderWidth:0
     }]},
-    options:{...dc(), plugins:{tooltip:{enabled:false},legend:{display:false}}, onHover(e){const els=this.getElementsAtEventForMode(e,'index',{intersect:false});const idx=els.length?els[0].index:-1;syncHover(idx);if(idx>=0)inspectBar(idx);else{document.getElementById('inspectPrompt').innerHTML='↑ Hover any chart or timeline bar to cross-reference';document.getElementById('inspectPrompt').style.border='1px dashed var(--border)';}}, scales:{...dc().scales, x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}}, y:{display:false,min:0,max:1.2}}},
+    options:{
+      ...dc(),
+      plugins:{tooltip:{enabled:false},legend:{display:false}},
+      onHover(e){
+        const els=this.getElementsAtEventForMode(e,'index',{intersect:false});
+        const idx=els.length?els[0].index:-1;
+        syncHover(idx);
+        if(idx>=0) inspectBar(idx);
+        else{
+          document.getElementById('inspectPrompt').innerHTML='↑ Hover any chart or timeline bar to cross-reference';
+          document.getElementById('inspectPrompt').style.border='1px dashed var(--border)';
+        }
+      },
+      scales:{
+        ...dc().scales,
+        x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}},
+        y:{display:false,min:0,max:1.2}
+      }
+    },
     onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }
   });
 }
@@ -466,7 +485,7 @@ function inspectBar(idx) {
   const r = c.regime_timeline[idx];
   const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
   document.getElementById('inspectPrompt').innerHTML = 
-    `<b>${c.dates[idx]}</b> — Close: <span style="color:${c.color};font-family:Monaco,monospace">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#7ec8e3;font-family:Monaco,monospace">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#c9a6ff;font-family:Monaco,monospace">${c.cci[idx].toFixed(1)}</span> · Regime: <span style="color:${{0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'}[r.regime]||r.color}">${regimeLabel}</span> · Signal: <span style="color:${{BUY:'#22c55e',SHORT:'#ff6b6b',EXIT:'#ffd166','HOLD LONG':'#7ec8e3',FLAT:'#444',WATCH:'#c9a6ff'}[s.label]||s.color}">${s.label}</span>`;
+    `<b>${c.dates[idx]}</b> — Close: <span style="color:${c.color};font-family:Monaco,monospace">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#7ec8e3;font-family:Monaco,monospace">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#c9a6ff;font-family:Monaco,monospace">${c.cci[idx].toFixed(1)}</span> · Regime: <span style="color:${REGIME_COLORS[r.regime]||r.color}">${regimeLabel}</span> · Signal: <span style="color:${SIGNAL_COLORS[s.label]||s.color}">${s.label}</span>`;
 }
 
 // ── Rules table ──
