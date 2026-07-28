@@ -243,8 +243,8 @@ function syncHover(idx) {
     const c = chartData, s = c.signal_bars[idx], r = c.regime_timeline[idx];
     const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
     document.getElementById('inspectPrompt').innerHTML =
-      `$${c.close[idx].toFixed(2)} · RSI <b>${c.rsi[idx].toFixed(1)}</b> · CCI <b>${c.cci[idx].toFixed(0)}</b> · ` +
-      `<span style="color:${r.color}">${regimeLabel}</span>`;
+          `Close: <span style="color:#888">Close:</span> <span style="color:${c.color}">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#888">RSI:</span> <span style="color:#7ec8e3">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#888">CCI:</span> <span style="color:#c9a6ff">${c.cci[idx].toFixed(0)}</span> · ` +
+          `<span style="color:${r.color}">${regimeLabel}</span>`;
     document.getElementById('inspectPrompt').style.border = '1px solid rgba(255,255,255,.15)';
   } else {
     document.getElementById('inspectPrompt').innerHTML =
@@ -474,7 +474,7 @@ function inspectBar(idx) {
   const r = c.regime_timeline[idx];
   const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
   document.getElementById('inspectPrompt').innerHTML = 
-    `<b>${c.dates[idx]}</b> — Close: $${c.close[idx].toFixed(2)} · RSI: ${c.rsi[idx].toFixed(1)} · CCI: ${c.cci[idx].toFixed(1)} · Regime: <span style="color:${r.color}">${regimeLabel}</span> · Signal: <span style="color:${s.color}">${s.label}</span>`;
+    `<b>${c.dates[idx]}</b> — Close: <span style="color:${c.color}">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#7ec8e3">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#c9a6ff">${c.cci[idx].toFixed(1)}</span> · Regime: <span style="color:${r.color}">${regimeLabel}</span> · Signal: <span style="color:${s.color}">${s.label}</span>`;
 }
 
 // ── Rules table ──
