@@ -59,6 +59,10 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 
 /* Signal bar chart */
 
+/* Legend items */
+.legend-item{display:flex;align-items:center;gap:4px}
+.legend-dot{width:10px;height:10px;border-radius:2px}
+
 /* Rules table */
 .rules-table{width:100%;font-size:11px;border-collapse:collapse;margin:8px 0}
 .rules-table th{color:var(--sub);text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}
@@ -118,21 +122,21 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
     <canvas id="chartPrice" style="height:220px"></canvas>
     <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
     <div style="display:flex;gap:12px;padding:4px 0 4px 0;font-size:11px;color:var(--sub)">
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#22c55e"></span>TRENDING</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#7ec8e3"></span>MEAN_REV</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#ff6b6b"></span>CRISIS</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>TRENDING</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#7ec8e3"></span>MEAN_REV</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span>CRISIS</span>
     </div>
     <canvas id="chartRSI" style="height:110px"></canvas>
     <canvas id="chartCCI" style="height:110px"></canvas>
     <canvas id="chartSignals" style="height:55px;width:100%;margin-bottom:6px"></canvas>
     <div style="display:flex;align-items:center;gap:8px">
     <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin-bottom:2px;flex-shrink:0">
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#22c55e"></span>BUY</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#ff6b6b"></span>SHORT</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#ffd166"></span>EXIT</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#7ec8e3"></span>HOLD LONG</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#444"></span>FLAT</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#c9a6ff"></span>WATCH</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>BUY</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span>SHORT</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ffd166"></span>EXIT</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#7ec8e3"></span>HOLD LONG</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#444"></span>FLAT</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#c9a6ff"></span>WATCH</span>
     </div>
     <div id="inspectPrompt" style="flex:1;font-size:11px;color:var(--sub);border:1px dashed var(--border);padding:3px 8px;border-radius:4px;text-align:center">
       ↑ Hover any chart or timeline bar to cross-reference
@@ -237,7 +241,7 @@ function syncHover(idx) {
   crosshairIdx = idx;
   if (idx >= 0 && chartData) {
     const c = chartData, s = c.signal_bars[idx], r = c.regime_timeline[idx];
-    const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
+    const regimeLabel = REGIME_NAMES[r.regime]||'?';
     document.getElementById('inspectPrompt').innerHTML =
           `Close: <span style="color:#888">Close:</span> <span style="color:${c.color}">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#888">RSI:</span> <span style="color:#7ec8e3">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#888">CCI:</span> <span style="color:#c9a6ff">${c.cci[idx].toFixed(0)}</span> · ` +
           `<span style="color:${REGIME_COLORS[r.regime]||r.color}">${regimeLabel}</span>`;
@@ -346,10 +350,11 @@ function makeCanvas(id, h) {
   const el = document.getElementById(id);
   const box = el.closest('.chart-box');
   const w = Math.max((box ? box.clientWidth - 24 : el.parentElement.clientWidth) || window.innerWidth - 40, 200);
+  const height = h || parseInt(el.style.height) || 110;
   el.style.width = w + 'px';
-  el.style.height = h + 'px';
+  el.style.height = height + 'px';
   el.width = w;
-  el.height = h;
+  el.height = height;
   return el.getContext('2d');
 }
 
@@ -483,7 +488,7 @@ function inspectBar(idx) {
   const c = chartData;
   const s = c.signal_bars[idx];
   const r = c.regime_timeline[idx];
-  const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
+  const regimeLabel = REGIME_NAMES[r.regime]||'?';
   document.getElementById('inspectPrompt').innerHTML = 
     `<b>${c.dates[idx]}</b> — Close: <span style="color:${c.color};font-family:Monaco,monospace">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#7ec8e3;font-family:Monaco,monospace">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#c9a6ff;font-family:Monaco,monospace">${c.cci[idx].toFixed(1)}</span> · Regime: <span style="color:${REGIME_COLORS[r.regime]||r.color}">${regimeLabel}</span> · Signal: <span style="color:${SIGNAL_COLORS[s.label]||s.color}">${s.label}</span>`;
 }
