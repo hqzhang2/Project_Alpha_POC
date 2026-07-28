@@ -133,7 +133,7 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
     </div>
     <canvas id="chartRSI" style="height:110px"></canvas>
     <canvas id="chartCCI" style="height:110px"></canvas>
-    <canvas id="chartSignals" style="height:40px;width:100%;margin-bottom:10px"></canvas>
+    <canvas id="chartSignals" style="height:55px;width:100%;margin-bottom:6px"></canvas>
     <div style="display:flex;align-items:center;gap:8px">
     <div class="signal-legend" style="flex-shrink:0">
       <span><span class="dot" style="background:#76e4c4"></span>BUY</span>
@@ -462,7 +462,7 @@ function renderCCIChart() {
 
 // ── Signal bar chart ──
 function renderSignalBars() {
-  const ctx = makeCanvas('chartSignals', 40);
+  const ctx = makeCanvas('chartSignals', 55);
   chartInstances.signals = new Chart(ctx, {
     type:'bar', data:{labels:chartData.dates, datasets:[{
       data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>s.color),borderRadius:0,borderWidth:0
