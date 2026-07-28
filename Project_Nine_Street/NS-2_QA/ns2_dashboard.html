@@ -255,7 +255,10 @@ function syncHover(idx) {
 }
 function sync(e, chart) {
   const el = chart.getElementsAtEventForMode(e, 'index', {intersect:false});
-  syncHover(el.length ? el[0].index : -1);
+  const idx = el.length ? el[0].index : -1;
+  syncHover(idx);
+  if (idx >= 0) inspectBar(idx);
+  else { document.getElementById('inspectPrompt').innerHTML = '↑ Hover any chart or timeline bar to cross-reference'; document.getElementById('inspectPrompt').style.border = '1px dashed var(--border)'; }
 }
 function setPeriod(p) {
   currentPeriod = p;
@@ -338,7 +341,7 @@ function renderRegimeCards() {
 // ── Dark chart config ──
 function dc() { return {
   responsive:false, maintainAspectRatio:false, animation:false,
-  plugins:{legend:{display:false},tooltip:{backgroundColor:'#0c0e14',borderColor:'#1a1a2a',borderWidth:1}},
+  plugins:{legend:{display:false},tooltip:{enabled:false}},
   scales:{x:{offset:false,ticks:{color:'#555',font:{size:8},maxTicksLimit:8},grid:{display:false}},
           y:{offset:false,ticks:{color:'#555',font:{size:8}},grid:{color:'rgba(26,26,42,.3)'},
              afterFit:s=>{s.width=Math.max(s.width,40)}}},
