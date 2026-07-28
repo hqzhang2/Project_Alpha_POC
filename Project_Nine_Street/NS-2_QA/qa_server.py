@@ -568,7 +568,7 @@ def performance_summary(df, ticker):
 # PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_ticker(ticker, use_hmm=True):
+def run_ticker(ticker, use_hmm=True, display_days=90):
     """Full v2 pipeline for one ticker."""
     meta = MAG7.get(ticker, {"name": ticker, "color": "#888"})
 
@@ -596,8 +596,8 @@ def run_ticker(ticker, use_hmm=True):
     perf["name"] = meta["name"]
     perf["color"] = meta["color"]
 
-    # Chart data (last 90 days for display)
-    display = df.last("90D").copy()
+    # Chart data (display window)
+    display = df.last(f"{display_days}D").copy()
     n = len(display)
 
     # Per-bar arrays
@@ -760,7 +760,8 @@ class NS2Handler(SimpleHTTPRequestHandler):
                 return
 
             use_hmm = qs.get("hmm", ["1"])[0] != "0"
-            chart_data, perf = run_ticker(ticker, use_hmm=use_hmm)
+            display_days = int(qs.get("display", ["90"])[0])
+            chart_data, perf = run_ticker(ticker, use_hmm=use_hmm, display_days=display_days)
             if perf and "error" in perf:
                 self._json(500, perf)
             else:

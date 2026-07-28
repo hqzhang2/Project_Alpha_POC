@@ -12,15 +12,13 @@
   --app-bg:#080b10;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--app-bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:12px 14px 40px}
+body{background:var(--app-bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;width:100%;min-height:100vh;padding:12px 14px 40px;overflow-x:hidden}
 
 /* Desktop: widen layout, 2-col charts */
 @media (min-width:768px){
-  body{max-width:960px;padding:20px 28px 60px}
+  body{padding:20px 28px 60px}
   .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
   .charts-grid .chart-box.full{grid-column:1 / -1}
-  .chart-wrap{height:220px}
-  .chart-wrap.short{height:130px}
   .stock-hdr .name,.stock-hdr .price{font-size:26px}
   .pill{font-size:13px;padding:7px 18px}
 }
@@ -52,13 +50,12 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .regime-card .rc-desc{color:var(--sub);font-size:10px;margin-bottom:2px}
 .regime-card .rc-days{font-size:18px;font-weight:700}
 
-/* Chart wrappers */
-.chart-box{background:var(--panel);border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}
-.chart-box h3{font-size:10px;color:var(--sub);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+/* Chart wrappers — flush stacked panels */
+.chart-box{background:var(--panel);border-radius:10px;padding:12px;margin-bottom:10px;position:relative}
+.chart-box h3{font-size:10px;color:var(--sub);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
 .chart-box canvas{display:block;width:100%!important}
-.chart-wrap{position:relative;width:100%;height:180px}
-.chart-wrap.short{height:100px}
-.chart-wrap.xshort{height:50px}
+.chart-stack{display:flex;flex-direction:column;gap:0;width:100%;min-width:0;margin-bottom:6px}
+.chart-stack canvas{display:block;width:100%!important}
 
 /* Signal bar chart */
 .signal-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:9px;color:var(--sub);margin-top:6px}
@@ -95,8 +92,11 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* Timeline */
-.timeline-bar{display:flex;gap:1px;height:24px;margin-top:4px;cursor:pointer}
-.timeline-bar .seg{flex:1;border-radius:1px;transition:opacity .1s}
+.period-btn{background:#161b22;border:1px solid #30363d;color:#8b949e;padding:4px 10px;cursor:pointer;border-radius:4px;font-size:10px;font-weight:600}
+.period-btn:hover{background:#21262d}
+.period-btn.active{background:#238636;color:#fff;border-color:#2ea043}
+.timeline-bar{display:flex;height:28px;cursor:pointer;border:1px solid rgba(255,255,255,.06);border-radius:3px}
+.timeline-bar .seg{flex:1;border-radius:1px;transition:opacity .1s;margin:0 1px}
 .timeline-bar .seg:hover{opacity:.7}
 #tlTip{position:fixed;pointer-events:none;background:#000;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:10px;z-index:100;display:none;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5)}
 </style>
@@ -120,40 +120,35 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 
 <!-- Charts grid (2-col on desktop) -->
 <div class="charts-grid">
-<!-- Price chart with regime-colored line -->
+<!-- Composite chart: Price + RSI + CCI stacked -->
 <div class="chart-box full">
-  <h3>Price & Regime</h3>
-  <div class="chart-wrap"><canvas id="chartPrice"></canvas></div>
-  <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
-  <div style="font-size:9px;color:var(--muted);margin-top:4px">▲ REGIME TIMELINE — CLICK ANY SEGMENT TO INSPECT</div>
-</div>
-
-<!-- RSI Histogram -->
-<div class="chart-box">
-  <h3>RSI (14) — GREEN &lt;30 OVERSOLD · RED &gt;70 OVERBOUGHT</h3>
-  <div class="chart-wrap short"><canvas id="chartRSI"></canvas></div>
-</div>
-
-<!-- CCI + Signal dots -->
-<div class="chart-box">
-  <h3>CCI (20) — click dot to inspect signal</h3>
-  <div class="chart-wrap short"><canvas id="chartCCI"></canvas></div>
-</div>
-
-<!-- Signal bar chart -->
-<div class="chart-box full">
-  <h3>Signal History</h3>
-  <div class="chart-wrap xshort"><canvas id="chartSignals"></canvas></div>
-  <div class="signal-legend">
-    <span><span class="dot" style="background:#76e4c4"></span>BUY</span>
-    <span><span class="dot" style="background:#ff6b6b"></span>SHORT</span>
-    <span><span class="dot" style="background:#ffd166"></span>EXIT</span>
-    <span><span class="dot" style="background:#7ec8e3"></span>HOLD LONG</span>
-    <span><span class="dot" style="background:#444"></span>FLAT</span>
-    <span><span class="dot" style="background:#c9a6ff"></span>WATCH</span>
+  <h3>Price · RSI · CCI</h3>
+  <div class="chart-stack">
+    <canvas id="chartPrice" style="height:220px"></canvas>
+    <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
+    <div style="font-size:9px;color:var(--muted);line-height:1">REGIME TIMELINE — CLICK ANY SEGMENT</div>
+    <canvas id="chartRSI" style="height:110px"></canvas>
+    <canvas id="chartCCI" style="height:110px"></canvas>
+    <div class="signal-legend">
+      <span><span class="dot" style="background:#76e4c4"></span>BUY</span>
+      <span><span class="dot" style="background:#ff6b6b"></span>SHORT</span>
+      <span><span class="dot" style="background:#ffd166"></span>EXIT</span>
+      <span><span class="dot" style="background:#7ec8e3"></span>HOLD LONG</span>
+      <span><span class="dot" style="background:#444"></span>FLAT</span>
+      <span><span class="dot" style="background:#c9a6ff"></span>WATCH</span>
+    </div>
+    <canvas id="chartSignals" style="height:40px;width:100%;margin-bottom:2px"></canvas>
+    <div id="inspectPrompt" style="font-size:9px;color:var(--muted);border:1px dashed var(--border);padding:3px 8px;border-radius:4px;text-align:center">
+      ↑ Hover any chart or timeline bar to cross-reference
+    </div>
   </div>
-  <div id="inspectPrompt" style="font-size:9px;color:var(--muted);margin-top:4px;border:1px dashed var(--border);padding:4px 8px;border-radius:4px;text-align:center">
-    ↑ Click a dot on the chart or a signal bar above to inspect
+  <div style="display:flex;gap:4px;margin:4px 0 0" id="periodBar">
+    <button class="tab period-btn active" data-period="1M" onclick="setPeriod('1M')">1M</button>
+    <button class="tab period-btn" data-period="3M" onclick="setPeriod('3M')">3M</button>
+    <button class="tab period-btn" data-period="6M" onclick="setPeriod('6M')">6M</button>
+    <button class="tab period-btn" data-period="YTD" onclick="setPeriod('YTD')">YTD</button>
+    <button class="tab period-btn" data-period="1Y" onclick="setPeriod('1Y')">1Y</button>
+    <button class="tab period-btn" data-period="2Y" onclick="setPeriod('2Y')">2Y</button>
   </div>
 </div>
 </div><!-- /charts-grid -->
@@ -182,15 +177,91 @@ let activeTicker = 'NVDA';
 let chartData = null;
 let chartInstances = {};
 
+// ── Cross-chart hover sync ──
+let crosshairIdx = -1;
+let currentPeriod = '1M';
+Chart.register({
+  id: 'crosshairSync',
+  afterDraw(chart) {
+    // Crosshair
+    if (crosshairIdx < 0) return;
+    const meta = chart.getDatasetMeta(0);
+    if (!meta || !meta.data || !meta.data[crosshairIdx]) return;
+    const {ctx, chartArea, scales} = chart;
+    const ds = chart.data.datasets[0];
+    const pt = meta.data[crosshairIdx];
+    if (!pt || pt.x == null) return;
+    const x = pt.x;
+    ctx.save();
+    // Vertical line
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.stroke();
+    // Horizontal line on price chart only
+    if (ds && ds.label === 'Close' && scales && scales.y) {
+      const y = pt.y;
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.stroke();
+      // Price label on left y-axis at price level
+      const val = chartData.close[crosshairIdx];
+      const txt = '$' + val.toFixed(2);
+      ctx.font = 'bold 12px Monaco,monospace';
+      const tw = ctx.measureText(txt).width;
+      const lx = Math.max(chartArea.left - tw - 12, 2);
+      ctx.fillStyle = 'rgba(12,14,20,.85)';
+      ctx.fillRect(lx, y - 9, tw + 10, 18);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#e6edf3';
+      ctx.fillText(txt, lx + tw + 8, y);
+    }
+    ctx.restore();
+  }
+});
+function syncHover(idx) {
+  crosshairIdx = idx;
+  if (idx >= 0 && chartData) {
+    const c = chartData, s = c.signal_bars[idx], r = c.regime_timeline[idx];
+    const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
+    document.getElementById('inspectPrompt').innerHTML =
+      `<b>${c.dates[idx]}</b> · $${c.close[idx].toFixed(2)} · RSI <b>${c.rsi[idx].toFixed(1)}</b> · CCI <b>${c.cci[idx].toFixed(0)}</b> · ` +
+      `<span style="color:${r.color}">${regimeLabel}</span> · <span style="color:${s.color};font-weight:700">${s.label}</span>`;
+    document.getElementById('inspectPrompt').style.border = '1px solid rgba(255,255,255,.15)';
+  } else {
+    document.getElementById('inspectPrompt').innerHTML =
+      '↑ Hover any chart or timeline bar to cross-reference';
+    document.getElementById('inspectPrompt').style.border = '1px dashed var(--border)';
+  }
+  Object.values(chartInstances).forEach(c => { try{c.render()}catch(e){} });
+}
+function sync(e, chart) {
+  const el = chart.getElementsAtEventForMode(e, 'index', {intersect:false});
+  syncHover(el.length ? el[0].index : -1);
+}
+function setPeriod(p) {
+  currentPeriod = p;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === p));
+  const m = {"1M":30, "3M":90, "6M":180, "YTD":200, "1Y":365, "2Y":730};
+  selectTicker(activeTicker, m[p] || 90);
+}
+
 // ── Build ticker pills ──
 function buildPills() {
   document.getElementById('tickerPills').innerHTML = TICKERS.map(t =>
-    `<span class="pill ${t.toLowerCase()} ${t===activeTicker?'active':''}" onclick="selectTicker('${t}')">${t}</span>`
+    `<span class="pill ${t.toLowerCase()} ${t===activeTicker?'active':''}" onclick="selectTicker('${t}',0)">${t}</span>`
   ).join('');
 }
 
 // ── Fetch & render ──
-async function selectTicker(ticker) {
+async function selectTicker(ticker, days) {
+  if (!days || days <= 0) { const m = {"1M":30, "3M":90, "6M":180, "YTD":200, "1Y":365, "2Y":730}; days = m[currentPeriod] || 90; }
   activeTicker = ticker;
   buildPills();
   document.getElementById('stockHeader').innerHTML = '<div class="loader"><div class="spinner"></div> Loading '+ticker+'…</div>';
@@ -198,7 +269,7 @@ async function selectTicker(ticker) {
   document.querySelectorAll('.pill').forEach(p => p.style.pointerEvents = 'none');
 
   try {
-    const resp = await fetch(`/api/ticker?ticker=${ticker}&hmm=0`);
+    const resp = await fetch(`/api/ticker?ticker=${ticker}&hmm=0&display=${days}`);
     const data = await resp.json();
     if (data.error) { document.getElementById('stockHeader').innerHTML = '<div class="loader" style="color:var(--red)">⚠ '+data.error+'</div>'; return; }
     chartData = data.chart;
@@ -213,6 +284,18 @@ async function selectTicker(ticker) {
     renderRulesTable();
     renderActiveCard();
     updateMacro();
+    syncHover(-1);
+    // Align timeline & signal bars with RSI chart data area
+    setTimeout(() => {
+      const rsi = chartInstances.rsi;
+      if (rsi && rsi.chartArea) {
+        const tl = document.getElementById('regimeTimeline');
+        if (tl) {
+          tl.style.marginLeft = Math.max(rsi.chartArea.left - 12, 0) + 'px';
+          tl.style.marginRight = Math.max(rsi.width - rsi.chartArea.right - 12, 0) + 'px';
+        }
+      }
+    }, 150);
   } catch(e) {
     document.getElementById('stockHeader').innerHTML = '<div class="loader" style="color:var(--red)">⚠ '+e.message+'</div>';
   } finally {
@@ -242,31 +325,51 @@ function renderRegimeCards() {
 
 // ── Dark chart config ──
 function dc() { return {
-  responsive:true, maintainAspectRatio:false, animation:false,
+  responsive:false, maintainAspectRatio:false, animation:false,
   plugins:{legend:{display:false},tooltip:{backgroundColor:'#0c0e14',borderColor:'#1a1a2a',borderWidth:1}},
-  scales:{x:{ticks:{color:'#555',font:{size:8},maxTicksLimit:8},grid:{display:false}},
-          y:{ticks:{color:'#555',font:{size:8}},grid:{color:'rgba(26,26,42,.3)'}}},
+  scales:{x:{offset:false,ticks:{color:'#555',font:{size:8},maxTicksLimit:8},grid:{display:false}},
+          y:{offset:false,ticks:{color:'#555',font:{size:8}},grid:{color:'rgba(26,26,42,.3)'},
+             afterFit:s=>{s.width=Math.max(s.width,40)}}},
   interaction:{intersect:false,mode:'index'}
 };}
 
 function makeCanvas(id, h) {
   const el = document.getElementById(id);
-  el.style.width = '100%';
+  const box = el.closest('.chart-box');
+  const w = Math.max((box ? box.clientWidth - 24 : el.parentElement.clientWidth) || window.innerWidth - 40, 200);
+  el.style.width = w + 'px';
   el.style.height = h + 'px';
-  el.width = el.parentElement.clientWidth || 400;
+  el.width = w;
   el.height = h;
   return el.getContext('2d');
 }
 
+// Resize handler — re-render charts on window resize
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!activeTicker) return;
+    destroyCharts();
+    renderPriceChart();
+    renderRegimeTimeline();
+    renderRSIChart();
+    renderCCIChart();
+    renderSignalBars();
+    syncHover(crosshairIdx);
+  }, 250);
+});
+
 function destroyCharts() { Object.values(chartInstances).forEach(c => { try{c.destroy()}catch(e){} }); chartInstances={}; }
 
-// ── Price chart ──
+// ── Price chart with regime background bands ──
 function renderPriceChart() {
-  const ctx = makeCanvas('chartPrice', 180);
+  const ctx = makeCanvas('chartPrice', 220);
   chartInstances.price = new Chart(ctx, {
     type:'line', data:{labels:chartData.dates, datasets:[{
       label:'Close',data:chartData.close,borderColor:chartData.color,borderWidth:1.5,pointRadius:0,fill:false,tension:.1
-    }]}, options:dc()
+    }]},
+    options:{...dc(), onHover(e){sync(e,this)}, scales:{...dc().scales, x:{...dc().scales.x, display:false}}}
   });
 }
 
@@ -285,19 +388,20 @@ function renderRegimeTimeline() {
       tip.style.display = 'block';
       tip.style.left = Math.min(e.clientX+12, window.innerWidth-tip.offsetWidth-8) + 'px';
       tip.style.top = (e.clientY-34) + 'px';
+      syncHover(i);
     });
-    seg.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    seg.addEventListener('mouseleave', () => { tip.style.display = 'none'; syncHover(-1); });
   });
 }
 
 // ── RSI histogram ──
 function renderRSIChart() {
-  const ctx = makeCanvas('chartRSI', 100);
+  const ctx = makeCanvas('chartRSI', 110);
   chartInstances.rsi = new Chart(ctx, {
     type:'bar', data:{labels:chartData.dates, datasets:[{
       label:'RSI',data:chartData.rsi,backgroundColor:chartData.rsi_colors,borderRadius:1,borderWidth:0
     }]},
-    options:{...dc(), scales:{...dc().scales, y:{...dc().scales.y, min:0, max:100}}},
+    options:{...dc(), onHover(e){sync(e,this)}, scales:{...dc().scales, x:{...dc().scales.x, display:false}, y:{...dc().scales.y, min:0, max:100, ticks:{...dc().scales.y.ticks, maxTicksLimit:4}}}},
     plugins:[{beforeDraw(chart){
       const {ctx,chartArea,scales}=chart;
       ctx.save();ctx.strokeStyle='#ff6b6b33';ctx.setLineDash([4,4]);
@@ -311,14 +415,18 @@ function renderRSIChart() {
 
 // ── CCI chart ──
 function renderCCIChart() {
-  const ctx = makeCanvas('chartCCI', 100);
+  const ctx = makeCanvas('chartCCI', 110);
   const sigColors = chartData.signal_bars.map(s => s.color);
   chartInstances.cci = new Chart(ctx, {
     type:'line', data:{labels:chartData.dates, datasets:[{
       label:'CCI',data:chartData.cci,borderColor:'#c9a6ff',borderWidth:1,pointRadius:3,
       pointBackgroundColor:sigColors,pointBorderWidth:0,fill:false
     }]},
-    options:{...dc(), onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }},
+    options:{...dc(), onHover(e){sync(e,this)}, onClick:(e,els) => { if(els.length) inspectBar(els[0].index); },
+      scales:{...dc().scales,
+        x:{...dc().scales.x, display:false},
+        y:{...dc().scales.y, ticks:{...dc().scales.y.ticks, maxTicksLimit:4}}
+      }},
     plugins:[{beforeDraw(chart){
       const {ctx,chartArea,scales}=chart;
       ctx.save();ctx.setLineDash([4,4]);
@@ -333,12 +441,12 @@ function renderCCIChart() {
 
 // ── Signal bar chart ──
 function renderSignalBars() {
-  const ctx = makeCanvas('chartSignals', 50);
+  const ctx = makeCanvas('chartSignals', 40);
   chartInstances.signals = new Chart(ctx, {
     type:'bar', data:{labels:chartData.dates, datasets:[{
       data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>s.color),borderRadius:0,borderWidth:0
     }]},
-    options:{...dc(), scales:{...dc().scales, y:{display:false,min:0,max:1.2}}},
+    options:{...dc(), onHover(e){sync(e,this)}, scales:{...dc().scales, x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}}, y:{display:false,min:0,max:1.2}}},
     onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }
   });
 }
@@ -412,7 +520,7 @@ function updateMacro() {
 // ── Init ──
 buildPills();
 updateMacro();
-selectTicker('NVDA');
+selectTicker('NVDA', 0);
 </script>
 </body>
 </html>
