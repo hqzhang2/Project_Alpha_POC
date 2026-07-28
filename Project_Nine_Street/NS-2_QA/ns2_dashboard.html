@@ -127,7 +127,7 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
     <canvas id="chartPrice" style="height:220px"></canvas>
     <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
     <div style="display:flex;gap:12px;padding:4px 0 4px 0;font-size:11px;color:var(--sub)">
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#76e4c4"></span>TRENDING</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#22c55e"></span>TRENDING</span>
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#7ec8e3"></span>MEAN_REV</span>
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#ff6b6b"></span>CRISIS</span>
     </div>
@@ -175,7 +175,7 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
 const COLORS = {AAPL:'#a8d8a8',MSFT:'#7ec8e3',NVDA:'#76e4c4',GOOGL:'#f7c59f',AMZN:'#ffb347',META:'#c9a6ff',TSLA:'#ff6b6b'};
-const REGIME_COLORS = {0:'#76e4c4',1:'#7ec8e3',2:'#ff6b6b'};
+const REGIME_COLORS = {0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'};
 const MACRO_LABELS = {'-1':'RISK OFF','0':'NEUTRAL','1':'RISK ON'};
 const MACRO_COLORS = {'-1':'#ff6b6b','0':'#ffb347','1':'#76e4c4'};
 const TICKERS = ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA'];
@@ -249,7 +249,7 @@ function syncHover(idx) {
     const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
     document.getElementById('inspectPrompt').innerHTML =
           `Close: <span style="color:#888">Close:</span> <span style="color:${c.color}">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#888">RSI:</span> <span style="color:#7ec8e3">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#888">CCI:</span> <span style="color:#c9a6ff">${c.cci[idx].toFixed(0)}</span> · ` +
-          `<span style="color:${r.color}">${regimeLabel}</span>`;
+          `<span style="color:${{0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'}[r.regime]||r.color}">${regimeLabel}</span>`;
     document.getElementById('inspectPrompt').style.border = '1px solid rgba(255,255,255,.15)';
   } else {
     document.getElementById('inspectPrompt').innerHTML =
@@ -398,7 +398,7 @@ const REGIME_NAMES = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'};
 function renderRegimeTimeline() {
   const el = document.getElementById('regimeTimeline');
   el.innerHTML = chartData.regime_timeline.map((r,i) =>
-    `<span class="seg" style="background:${r.color}" data-idx="${i}"></span>`
+    `<span class="seg" style="background:${{0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'}[r.regime]||r.color}" data-idx="${i}"></span>`
   ).join('');
   const tip = document.getElementById('tlTip');
   el.querySelectorAll('.seg').forEach(seg => {
@@ -479,7 +479,7 @@ function inspectBar(idx) {
   const r = c.regime_timeline[idx];
   const regimeLabel = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'}[r.regime]||'?';
   document.getElementById('inspectPrompt').innerHTML = 
-    `<b>${c.dates[idx]}</b> — Close: <span style="color:${c.color}">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#7ec8e3">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#c9a6ff">${c.cci[idx].toFixed(1)}</span> · Regime: <span style="color:${r.color}">${regimeLabel}</span> · Signal: <span style="color:${s.color}">${s.label}</span>`;
+    `<b>${c.dates[idx]}</b> — Close: <span style="color:${c.color};font-family:Monaco,monospace">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#7ec8e3;font-family:Monaco,monospace">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#c9a6ff;font-family:Monaco,monospace">${c.cci[idx].toFixed(1)}</span> · Regime: <span style="color:${{0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'}[r.regime]||r.color}">${regimeLabel}</span> · Signal: <span style="color:${{BUY:'#22c55e',SHORT:'#ff6b6b',EXIT:'#ffd166','HOLD LONG':'#7ec8e3',FLAT:'#444',WATCH:'#c9a6ff'}[s.label]||s.color}">${s.label}</span>`;
 }
 
 // ── Rules table ──
