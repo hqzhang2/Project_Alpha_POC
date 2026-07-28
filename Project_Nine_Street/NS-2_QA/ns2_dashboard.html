@@ -129,7 +129,9 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
     <div style="font-size:9px;color:var(--muted);line-height:1">REGIME TIMELINE — CLICK ANY SEGMENT</div>
     <canvas id="chartRSI" style="height:110px"></canvas>
     <canvas id="chartCCI" style="height:110px"></canvas>
-    <div class="signal-legend">
+    <canvas id="chartSignals" style="height:40px;width:100%;margin-bottom:10px"></canvas>
+    <div style="display:flex;align-items:center;gap:8px">
+    <div class="signal-legend" style="flex-shrink:0">
       <span><span class="dot" style="background:#76e4c4"></span>BUY</span>
       <span><span class="dot" style="background:#ff6b6b"></span>SHORT</span>
       <span><span class="dot" style="background:#ffd166"></span>EXIT</span>
@@ -137,9 +139,9 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
       <span><span class="dot" style="background:#444"></span>FLAT</span>
       <span><span class="dot" style="background:#c9a6ff"></span>WATCH</span>
     </div>
-    <canvas id="chartSignals" style="height:40px;width:100%;margin-bottom:2px"></canvas>
-    <div id="inspectPrompt" style="font-size:9px;color:var(--muted);border:1px dashed var(--border);padding:3px 8px;border-radius:4px;text-align:center">
+    <div id="inspectPrompt" style="flex:1;font-size:9px;color:var(--muted);border:1px dashed var(--border);padding:3px 8px;border-radius:4px;text-align:center">
       ↑ Hover any chart or timeline bar to cross-reference
+    </div>
     </div>
   </div>
   <div style="display:flex;gap:4px;margin:4px 0 0" id="periodBar">
