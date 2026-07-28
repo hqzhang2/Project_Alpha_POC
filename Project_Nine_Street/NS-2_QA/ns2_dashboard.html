@@ -63,21 +63,21 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .signal-legend .dot{width:8px;height:8px;border-radius:2px}
 
 /* Rules table */
-.rules-table{width:100%;font-size:10px;border-collapse:collapse;margin:8px 0}
+.rules-table{width:100%;font-size:11px;border-collapse:collapse;margin:8px 0}
 .rules-table th{color:var(--sub);text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}
 .rules-table td{padding:5px 6px;border-bottom:1px solid rgba(26,26,42,.4);vertical-align:top}
 .rules-table .regime-tag{font-weight:700}
 
 /* Active strategy card */
 .active-card{background:var(--panel);border-radius:10px;padding:12px 14px;margin-top:10px;border-left:3px solid var(--green)}
-.active-card .ac-date{font-size:10px;color:var(--sub)}
+.active-card .ac-date{font-size:11px;color:var(--sub)}
 .active-card .ac-header{display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px}
-.active-card .ac-title{font-size:15px;font-weight:700}
-.active-card .ac-btn{padding:7px 18px;border-radius:6px;font-size:12px;font-weight:700;background:#1a3a2a;color:var(--green);border:1px solid var(--green);cursor:pointer}
+.active-card .ac-title{font-size:16px;font-weight:700}
+.active-card .ac-btn{padding:7px 18px;border-radius:6px;font-size:13px;font-weight:700;background:#1a3a2a;color:var(--green);border:1px solid var(--green);cursor:pointer}
 .active-card .ac-metrics{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px}
-.active-card .ac-metric .ac-val{font-size:14px;font-weight:700}
-.active-card .ac-metric .ac-lbl{font-size:9px;color:var(--sub)}
-.active-card .ac-rule{font-size:10px;color:var(--sub);font-style:italic}
+.active-card .ac-metric .ac-val{font-size:15px;font-weight:700}
+.active-card .ac-metric .ac-lbl{font-size:10px;color:var(--sub)}
+.active-card .ac-rule{font-size:11px;color:var(--sub);font-style:italic}
 
 /* AI button */
 .ai-btn{width:100%;padding:12px;border-radius:10px;font-size:13px;font-weight:600;text-align:center;margin-top:12px;cursor:pointer;background:rgba(247,197,159,.08);color:#f7c59f;border:1px solid rgba(247,197,159,.2)}
@@ -170,7 +170,6 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 <div class="active-card" id="activeCard"></div>
 
 <!-- AI Regime Analysis -->
-<div class="ai-btn" onclick="alert('AI analysis runs against /api/ticker for latest regime — full report coming.')">⚡ AI REGIME ANALYSIS · <span id="aiTicker">...</span></div>
 
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
@@ -285,7 +284,6 @@ async function selectTicker(ticker, days) {
   activeTicker = ticker;
   buildPills();
   document.getElementById('stockHeader').innerHTML = '<div class="loader"><div class="spinner"></div> Loading '+ticker+'…</div>';
-  document.getElementById('aiTicker').textContent = ticker;
   document.querySelectorAll('.pill').forEach(p => p.style.pointerEvents = 'none');
 
   try {
@@ -329,8 +327,7 @@ function renderHeader() {
   document.getElementById('stockHeader').innerHTML = `
     <div><div class="name">${c.name}</div><div class="meta">${c.sector} · ${c.lookback_days} TRADING DAYS</div></div>
     <div><div class="price" style="color:${c.color}">$${c.last_close}</div><div class="price-label">LAST CLOSE</div></div>`;
-  document.getElementById('aiTicker').textContent = c.ticker;
-}
+  }
 
 // ── Regime cards ──
 function renderRegimeCards() {
@@ -525,8 +522,7 @@ function renderActiveCard() {
     </div>
     <div class="ac-rule">${pb.action}</div>`;
 
-  document.getElementById('aiTicker').textContent = c.ticker;
-}
+  }
 
 // ── Macro ──
 function updateMacro() {
