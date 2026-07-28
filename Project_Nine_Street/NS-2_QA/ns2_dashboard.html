@@ -58,9 +58,6 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .chart-stack canvas{display:block;width:100%!important}
 
 /* Signal bar chart */
-.signal-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:9px;color:var(--sub);margin-top:6px}
-.signal-legend span{display:flex;align-items:center;gap:3px}
-.signal-legend .dot{width:8px;height:8px;border-radius:2px}
 
 /* Rules table */
 .rules-table{width:100%;font-size:11px;border-collapse:collapse;margin:8px 0}
@@ -79,10 +76,6 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .active-card .ac-metric .ac-lbl{font-size:10px;color:var(--sub)}
 .active-card .ac-rule{font-size:11px;color:var(--sub);font-style:italic}
 
-/* AI button */
-.ai-btn{width:100%;padding:12px;border-radius:10px;font-size:13px;font-weight:600;text-align:center;margin-top:12px;cursor:pointer;background:rgba(247,197,159,.08);color:#f7c59f;border:1px solid rgba(247,197,159,.2)}
-.ai-btn:hover{background:rgba(247,197,159,.14)}
-
 /* Macro indicator */
 .macro-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
 
@@ -98,11 +91,9 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .timeline-bar{display:flex;height:28px;cursor:pointer;border:1px solid rgba(255,255,255,.06);border-radius:3px}
 .timeline-bar .seg{flex:1;border-radius:1px;transition:opacity .1s;margin:0 1px}
 .timeline-bar .seg:hover{opacity:.7}
-#tlTip{position:fixed;pointer-events:none;background:#000;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:10px;z-index:100;display:none;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5)}
 </style>
 </head>
 <body>
-<div id="tlTip"></div>
 
 <div class="header">
   <div><h1>mag7 hmm</h1><span style="font-size:10px;color:var(--muted)" id="macroBadge">—</span></div>
@@ -397,7 +388,6 @@ function renderRegimeTimeline() {
   el.innerHTML = chartData.regime_timeline.map((r,i) =>
     `<span class="seg" style="background:${{0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'}[r.regime]||r.color}" data-idx="${i}"></span>`
   ).join('');
-  const tip = document.getElementById('tlTip');
   el.querySelectorAll('.seg').forEach(seg => {
     seg.addEventListener('mousemove', e => {
       const i = +seg.dataset.idx;
