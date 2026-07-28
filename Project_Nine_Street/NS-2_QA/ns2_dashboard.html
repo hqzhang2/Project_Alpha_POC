@@ -33,8 +33,6 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .pills::-webkit-scrollbar{display:none}
 .pill{padding:6px 14px;border-radius:14px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent;background:var(--panel);color:var(--sub);transition:all .15s}
 .pill.active{border-color:currentColor;background:transparent}
-.pill.aapl{color:#a8d8a8}.pill.msft{color:#7ec8e3}.pill.nvda{color:#76e4c4}
-.pill.googl{color:#f7c59f}.pill.amzn{color:#ffb347}.pill.meta{color:#c9a6ff}.pill.tsla{color:#ff6b6b}
 
 /* Stock header */
 .stock-hdr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
@@ -95,6 +93,21 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .timeline-bar{display:flex;height:28px;cursor:pointer;border:1px solid rgba(255,255,255,.06);border-radius:3px}
 .timeline-bar .seg{flex:1;border-radius:1px;transition:opacity .1s;margin:0 1px}
 .timeline-bar .seg:hover{opacity:.7}
+
+/* Watchlist modal */
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:1000;justify-content:center;align-items:center}
+.modal-overlay.show{display:flex}
+.modal-box{background:var(--panel);border-radius:12px;border:1px solid var(--border);padding:20px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto}
+.modal-box h2{font-size:16px;margin:0 0 12px}
+.modal-row{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid rgba(26,26,42,.4);font-size:11px}
+.modal-row .ticker-name{font-weight:700;width:60px}
+.modal-row .signal-badge{font-size:9px;padding:1px 6px;border-radius:3px;font-weight:600;width:60px;text-align:center}
+.modal-row .actions{display:flex;gap:6px}
+.btn-sm{padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--sub)}
+.btn-sm.danger{color:var(--red);border-color:var(--red)}
+.btn-sm.primary{background:var(--green);color:#000;border-color:var(--green)}
+.modal-input{flex:1;padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:#161b22;color:var(--text);font-size:11px;margin-right:8px}
+.modal-footer{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:10px;color:var(--sub)}
 </style>
 </head>
 <body>
@@ -166,14 +179,32 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 
 <!-- AI Regime Analysis -->
 
+<!-- Watchlist Modal -->
+<div class="modal-overlay" id="watchlistModal">
+  <div class="modal-box">
+    <h2>Manage Watchlist</h2>
+    <div style="display:flex;margin-bottom:12px">
+      <input class="modal-input" id="newTicker" placeholder="Add ticker (e.g. SPY)" onkeypress="if(event.key==='Enter')addTicker()">
+      <button class="btn-sm primary" onclick="addTicker()">+ Add</button>
+    </div>
+    <div id="modalList"></div>
+    <div class="modal-footer">
+      <span>Focus: <b id="focusCount">0</b>/20</span>
+      <div>
+        <button class="btn-sm" onclick="closeWatchlistModal()">Cancel</button>
+        <button class="btn-sm primary" onclick="saveFocus()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
-const COLORS = {AAPL:'#a8d8a8',MSFT:'#7ec8e3',NVDA:'#76e4c4',GOOGL:'#f7c59f',AMZN:'#ffb347',META:'#c9a6ff',TSLA:'#ff6b6b'};
 const REGIME_COLORS = {0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'};
 const SIGNAL_COLORS = {BUY:'#22c55e',SHORT:'#ff6b6b',EXIT:'#ffd166','HOLD LONG':'#7ec8e3',FLAT:'#444',WATCH:'#c9a6ff'};
 const MACRO_LABELS = {'-1':'RISK OFF','0':'NEUTRAL','1':'RISK ON'};
 const MACRO_COLORS = {'-1':'#ff6b6b','0':'#ffb347','1':'#76e4c4'};
-const TICKERS = ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA'];
+let watchlistData = {watchlist:[], focus:[], signals:{}};
 let activeTicker = 'NVDA';
 let chartData = null;
 let chartInstances = {};
@@ -267,17 +298,108 @@ function setPeriod(p) {
 }
 
 // ── Build ticker pills ──
+async function loadWatchlist() {
+  try {
+    const r = await fetch('/api/watchlist');
+    watchlistData = await r.json();
+    localStorage.setItem('ns2_watchlist', JSON.stringify(watchlistData));
+  } catch(e) {
+    const cached = localStorage.getItem('ns2_watchlist');
+    if (cached) watchlistData = JSON.parse(cached);
+  }
+  buildPills();
+}
+
 function buildPills() {
-  document.getElementById('tickerPills').innerHTML = TICKERS.map(t =>
-    `<span class="pill ${t.toLowerCase()} ${t===activeTicker?'active':''}" onclick="selectTicker('${t}',0)">${t}</span>`
-  ).join('');
+  const focus = watchlistData.focus || [];
+  const signals = watchlistData.signals || {};
+  document.getElementById('tickerPills').innerHTML =
+    focus.map(t => {
+      const s = signals[t];
+      const color = s ? s.color : 'var(--sub)';
+      const activeClass = t === activeTicker ? ' active' : '';
+      return '<span class="pill' + activeClass + '" style="color:' + color + ';border-color:' + color + '" onclick="selectTicker(\'' + t + '\',0)">' + t + '</span>';
+    }).join('') +
+    '<span class="pill" style="font-size:36px;color:var(--text);cursor:pointer;padding:6px 6px;line-height:1;align-self:flex-start" onclick="openWatchlistModal()">⚙</span>';
+}
+
+// ── Watchlist modal ──
+function openWatchlistModal() {
+  document.getElementById('watchlistModal').classList.add('show');
+  renderModalList();
+}
+function closeWatchlistModal() {
+  document.getElementById('watchlistModal').classList.remove('show');
+}
+function renderModalList() {
+  const all = watchlistData.watchlist || [];
+  const focus = watchlistData.focus || [];
+  const signals = watchlistData.signals || {};
+  document.getElementById('modalList').innerHTML = all.map(t => {
+    const inFocus = focus.includes(t);
+    const s = signals[t];
+    return `<div class="modal-row">
+      <span style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" ${inFocus?'checked':''} onchange="toggleFocus('${t}',this.checked)" ${!inFocus && focus.length>=20?'disabled':''}>
+        <span class="ticker-name">${t}</span>
+        ${s ? `<span class="signal-badge" style="color:${s.color};border:1px solid ${s.color}">${s.signal}</span>` : ''}
+      </span>
+      <span class="actions">
+        <button class="btn-sm danger" onclick="removeTicker('${t}')">✕</button>
+      </span>
+    </div>`;
+  }).join('');
+  document.getElementById('focusCount').textContent = focus.length;
+}
+function toggleFocus(ticker, add) {
+  const focus = watchlistData.focus || [];
+  if (add) {
+    if (focus.length >= 20) return;
+    if (!focus.includes(ticker)) focus.push(ticker);
+  } else {
+    watchlistData.focus = focus.filter(t => t !== ticker);
+  }
+  renderModalList();
+}
+async function addTicker() {
+  const inp = document.getElementById('newTicker');
+  const ticker = inp.value.trim().toUpperCase();
+  if (!ticker) return;
+  try {
+    const r = await fetch('/api/watchlist', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'add',ticker})});
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    watchlistData.watchlist = d.watchlist;
+    inp.value = '';
+    renderModalList();
+  } catch(e) { alert('Failed to add: '+e.message); }
+}
+async function removeTicker(ticker) {
+  try {
+    const r = await fetch('/api/watchlist', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'remove',ticker})});
+    const d = await r.json();
+    watchlistData.watchlist = d.watchlist;
+    watchlistData.focus = watchlistData.focus.filter(t => t !== ticker);
+    renderModalList();
+  } catch(e) { alert('Failed to remove: '+e.message); }
+}
+async function saveFocus() {
+  try {
+    const r = await fetch('/api/watchlist', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'focus',focus:watchlistData.focus})});
+    watchlistData = await r.json();
+    localStorage.setItem('ns2_watchlist', JSON.stringify(watchlistData));
+    buildPills();
+    closeWatchlistModal();
+  } catch(e) { alert('Failed to save: '+e.message); }
 }
 
 // ── Fetch & render ──
 async function selectTicker(ticker, days) {
   if (!days || days <= 0) { const m = {"1M":30, "3M":90, "6M":180, "YTD":200, "1Y":365, "2Y":730}; days = m[currentPeriod] || 90; }
   activeTicker = ticker;
-  buildPills();
   document.getElementById('stockHeader').innerHTML = '<div class="loader"><div class="spinner"></div> Loading '+ticker+'…</div>';
   document.querySelectorAll('.pill').forEach(p => p.style.pointerEvents = 'none');
 
@@ -320,7 +442,7 @@ async function selectTicker(ticker, days) {
 function renderHeader() {
   const c = chartData;
   document.getElementById('stockHeader').innerHTML = `
-    <div><div class="name">${c.name}</div><div class="meta">${c.sector} · ${c.lookback_days} TRADING DAYS</div></div>
+    <div><div class="name">${c.name}</div></div>
     <div><div class="price" style="color:${c.color}">$${c.last_close}</div><div class="price-label">LAST CLOSE</div></div>`;
   }
 
@@ -548,7 +670,7 @@ function updateMacro() {
 }
 
 // ── Init ──
-buildPills();
+loadWatchlist();
 updateMacro();
 selectTicker('NVDA', 0);
 </script>

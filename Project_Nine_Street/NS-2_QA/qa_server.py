@@ -34,6 +34,7 @@ warnings.filterwarnings("ignore")
 # ── Configuration ────────────────────────────────────────────────────────────
 PORT = int(os.environ.get("PORT", 9229))
 DASHBOARD_PATH = os.path.join(os.path.dirname(__file__), "ns2_dashboard.html")
+WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "ns2_watchlist.json")
 CACHE_TTL = 300  # seconds
 
 MAG7 = {
@@ -688,6 +689,63 @@ def run_all(use_hmm=True):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# WATCHLIST
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _load_watchlist():
+    if not os.path.exists(WATCHLIST_PATH):
+        _bootstrap_watchlist()
+    with open(WATCHLIST_PATH) as f:
+        return json.load(f)
+
+def _save_watchlist(data):
+    with open(WATCHLIST_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
+def _bootstrap_watchlist():
+    data = {"watchlist": list(MAG7.keys()), "focus": list(MAG7.keys())[:7]}
+    _save_watchlist(data)
+
+def _validate_ticker(ticker):
+    """Quick validation — try downloading 5 days of history."""
+    try:
+        t = yf.Ticker(ticker)
+        hist = t.history(period="5d")
+        return not hist.empty
+    except Exception:
+        return False
+
+def _get_ticker_signal(ticker):
+    """Lightweight signal — fetch latest bar, compute regime+signal without HMM."""
+    try:
+        df = fetch_ohlcv(ticker)
+        if len(df) < 30:
+            return None
+        df = add_rich_features(df)
+        # Simple regime: trending if CCI > 0 else mean_rev if RSI 30-70 else crisis
+        last = df.iloc[-1]
+        if last["cci"] > 100:
+            regime = 0   # TRENDING
+        elif last["rsi"] > 70 or last["rsi"] < 30:
+            regime = 2   # CRISIS
+        else:
+            regime = 1   # MEAN_REV
+
+        macro = get_macro_filter()
+        df["regime"] = regime
+        df = generate_signals_v2(df, [regime]*len(df), 0, None, [], macro)
+        df = add_signal_labels_v2(df)
+        label = df.iloc[-1]["signal_label"]
+
+        signal_colors = {"BUY":"#22c55e","SHORT":"#ff6b6b","EXIT":"#ffd166",
+                         "HOLD LONG":"#7ec8e3","FLAT":"#444","WATCH":"#c9a6ff"}
+        color = signal_colors.get(label, "#888")
+        return {"signal": label, "color": color}
+    except Exception:
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # HTTP SERVER
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -755,9 +813,6 @@ class NS2Handler(SimpleHTTPRequestHandler):
                 self._json(400, {"error": "?ticker= required"})
                 return
             ticker = ticker.upper()
-            if ticker not in MAG7:
-                self._json(400, {"error": f"Unknown ticker. Must be one of: {list(MAG7.keys())}"})
-                return
 
             use_hmm = qs.get("hmm", ["1"])[0] != "0"
             display_days = int(qs.get("display", ["90"])[0])
@@ -806,6 +861,70 @@ class NS2Handler(SimpleHTTPRequestHandler):
             return
 
         # Chart data for single ticker (already served by /api/ticker above)
+
+        # ── Watchlist ──
+        if path == "/api/watchlist":
+            data = _load_watchlist()
+            signals = {}
+            for t in data.get("focus", []):
+                s = _get_ticker_signal(t)
+                if s:
+                    signals[t] = s
+            data["signals"] = signals
+            self._json(200, data)
+            return
+
+        self._json(404, {"error": "Not found"})
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(content_length)) if content_length else {}
+
+        if path == "/api/watchlist":
+            action = body.get("action", "")
+            data = _load_watchlist()
+            ticker = body.get("ticker", "").upper()
+
+            if action == "add":
+                if not ticker or not _validate_ticker(ticker):
+                    self._json(400, {"error": f"Invalid ticker: {ticker}"})
+                    return
+                if ticker not in data["watchlist"]:
+                    data["watchlist"].append(ticker)
+                _save_watchlist(data)
+                self._json(200, {"status": "ok", "watchlist": data["watchlist"]})
+                return
+
+            if action == "remove":
+                data["watchlist"] = [t for t in data["watchlist"] if t != ticker]
+                data["focus"] = [t for t in data["focus"] if t != ticker]
+                _save_watchlist(data)
+                self._json(200, {"status": "ok", "watchlist": data["watchlist"]})
+                return
+
+            if action == "focus":
+                focus = body.get("focus", [])
+                if len(focus) > 20:
+                    self._json(400, {"error": "Max 20 focus tickers"})
+                    return
+                data["focus"] = focus
+                _save_watchlist(data)
+
+                # Return signals for focus tickers
+                signals = {}
+                for t in focus:
+                    s = _get_ticker_signal(t)
+                    if s:
+                        signals[t] = s
+                data["signals"] = signals
+                self._json(200, data)
+                return
+
+            self._json(400, {"error": "Unknown action"})
+            return
+
         self._json(404, {"error": "Not found"})
 
 
