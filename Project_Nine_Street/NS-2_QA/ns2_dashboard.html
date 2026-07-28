@@ -126,7 +126,6 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
   <div class="chart-stack">
     <canvas id="chartPrice" style="height:220px"></canvas>
     <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
-    <div style="font-size:9px;color:var(--muted);line-height:1">REGIME TIMELINE — CLICK ANY SEGMENT</div>
     <canvas id="chartRSI" style="height:110px"></canvas>
     <canvas id="chartCCI" style="height:110px"></canvas>
     <canvas id="chartSignals" style="height:40px;width:100%;margin-bottom:10px"></canvas>
@@ -380,15 +379,20 @@ const REGIME_NAMES = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'};
 function renderRegimeTimeline() {
   const el = document.getElementById('regimeTimeline');
   el.innerHTML = chartData.regime_timeline.map((r,i) =>
-    `<span class="seg" style="background:${r.color}" data-idx="${i}" onclick="inspectBar(${i})"></span>`
+    `<span class="seg" style="background:${r.color}" data-idx="${i}"></span>`
   ).join('');
   const tip = document.getElementById('tlTip');
   el.querySelectorAll('.seg').forEach(seg => {
     seg.addEventListener('mousemove', e => {
-      const i = +seg.dataset.idx, r = chartData.regime_timeline[i];
+      const i = +seg.dataset.idx;
       syncHover(i);
+      inspectBar(i);
     });
-    seg.addEventListener('mouseleave', () => { syncHover(-1); });
+    seg.addEventListener('mouseleave', () => {
+      document.getElementById('inspectPrompt').innerHTML = '↑ Hover any chart or timeline bar to cross-reference';
+      document.getElementById('inspectPrompt').style.border = '1px dashed var(--border)';
+      syncHover(-1);
+    });
   });
 }
 
@@ -444,7 +448,7 @@ function renderSignalBars() {
     type:'bar', data:{labels:chartData.dates, datasets:[{
       data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>s.color),borderRadius:0,borderWidth:0
     }]},
-    options:{...dc(), onHover(e){sync(e,this)}, plugins:{tooltip:{enabled:false},legend:{display:false}}, scales:{...dc().scales, x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}}, y:{display:false,min:0,max:1.2}}},
+    options:{...dc(), plugins:{tooltip:{enabled:false},legend:{display:false}}, onHover(e){const els=this.getElementsAtEventForMode(e,'index',{intersect:false});const idx=els.length?els[0].index:-1;syncHover(idx);if(idx>=0)inspectBar(idx);else{document.getElementById('inspectPrompt').innerHTML='↑ Hover any chart or timeline bar to cross-reference';document.getElementById('inspectPrompt').style.border='1px dashed var(--border)';}}, scales:{...dc().scales, x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}}, y:{display:false,min:0,max:1.2}}},
     onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }
   });
 }
