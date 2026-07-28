@@ -258,7 +258,6 @@ function sync(e, chart) {
   const idx = el.length ? el[0].index : -1;
   syncHover(idx);
   if (idx >= 0) inspectBar(idx);
-  else { document.getElementById('inspectPrompt').innerHTML = '↑ Hover any chart or timeline bar to cross-reference'; document.getElementById('inspectPrompt').style.border = '1px dashed var(--border)'; }
 }
 function setPeriod(p) {
   currentPeriod = p;
