@@ -387,7 +387,7 @@ function renderPriceChart() {
   const ctx = makeCanvas('chartPrice', 220);
   chartInstances.price = new Chart(ctx, {
     type:'line', data:{labels:chartData.dates, datasets:[{
-      label:'Close',data:chartData.close,borderColor:chartData.color,borderWidth:1.5,pointRadius:0,fill:false,tension:.1
+      label:'Close',data:chartData.close,borderColor:'#4ade80',borderWidth:1.5,pointRadius:0,fill:false,tension:.1
     }]},
     options:{...dc(), onHover(e){sync(e,this)}, scales:{...dc().scales, x:{...dc().scales.x, display:false}}}
   });
