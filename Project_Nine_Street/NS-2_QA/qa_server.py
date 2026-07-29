@@ -35,6 +35,7 @@ warnings.filterwarnings("ignore")
 PORT = int(os.environ.get("PORT", 9229))
 DASHBOARD_PATH = os.path.join(os.path.dirname(__file__), "ns2_dashboard.html")
 WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "ns2_watchlist.json")
+SIGNAL_CACHE_PATH = os.path.join(os.path.dirname(__file__), "ns2_signal_cache.json")
 CACHE_TTL = 300  # seconds
 
 MAG7 = {
@@ -674,6 +675,13 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
         "strategy_rules": strategy_rules,
     }
 
+    # Cache the signal from the full pipeline
+    signal_colors = {"BUY":"#22c55e","SHORT":"#ff6b6b","EXIT":"#ffd166",
+                     "HOLD LONG":"#7ec8e3","FLAT":"#444","WATCH":"#c9a6ff"}
+    cache = _load_signal_cache()
+    cache[ticker] = {"signal": current_signal, "color": signal_colors.get(current_signal, "#888")}
+    _save_signal_cache(cache)
+
     return chart_data, perf
 
 
@@ -706,6 +714,16 @@ def _bootstrap_watchlist():
     data = {"watchlist": list(MAG7.keys()), "focus": list(MAG7.keys())[:7]}
     _save_watchlist(data)
 
+def _load_signal_cache():
+    if not os.path.exists(SIGNAL_CACHE_PATH):
+        return {}
+    with open(SIGNAL_CACHE_PATH) as f:
+        return json.load(f)
+
+def _save_signal_cache(data):
+    with open(SIGNAL_CACHE_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
 def _validate_ticker(ticker):
     """Quick validation — try downloading 5 days of history."""
     try:
@@ -716,33 +734,9 @@ def _validate_ticker(ticker):
         return False
 
 def _get_ticker_signal(ticker):
-    """Lightweight signal — fetch latest bar, compute regime+signal without HMM."""
-    try:
-        df = fetch_ohlcv(ticker)
-        if len(df) < 30:
-            return None
-        df = add_rich_features(df)
-        # Simple regime: trending if CCI > 0 else mean_rev if RSI 30-70 else crisis
-        last = df.iloc[-1]
-        if last["cci"] > 100:
-            regime = 0   # TRENDING
-        elif last["rsi"] > 70 or last["rsi"] < 30:
-            regime = 2   # CRISIS
-        else:
-            regime = 1   # MEAN_REV
-
-        macro = get_macro_filter()
-        df["regime"] = regime
-        df = generate_signals_v2(df, [regime]*len(df), 0, None, [], macro)
-        df = add_signal_labels_v2(df)
-        label = df.iloc[-1]["signal_label"]
-
-        signal_colors = {"BUY":"#22c55e","SHORT":"#ff6b6b","EXIT":"#ffd166",
-                         "HOLD LONG":"#7ec8e3","FLAT":"#444","WATCH":"#c9a6ff"}
-        color = signal_colors.get(label, "#888")
-        return {"signal": label, "color": color}
-    except Exception:
-        return None
+    """Return cached signal from last full pipeline run."""
+    cache = _load_signal_cache()
+    return cache.get(ticker)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
