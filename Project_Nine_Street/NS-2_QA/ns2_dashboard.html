@@ -29,7 +29,7 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .badge-qa{background:#1a3a2a;color:var(--green)}
 
 /* Ticker pills */
-.pills{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.pills{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none;align-items:flex-start}
 .pills::-webkit-scrollbar{display:none}
 .pill{padding:6px 14px;border-radius:14px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent;background:var(--panel);color:var(--sub);transition:all .15s}
 .pill.active{border-color:currentColor;background:transparent}
@@ -320,7 +320,7 @@ function buildPills() {
       const activeClass = t === activeTicker ? ' active' : '';
       return '<span class="pill' + activeClass + '" style="color:' + color + ';border-color:' + color + '" onclick="selectTicker(\'' + t + '\',0)">' + t + '</span>';
     }).join('') +
-    '<span class="pill" style="font-size:36px;color:var(--text);cursor:pointer;padding:6px 6px;line-height:1;align-self:flex-start" onclick="openWatchlistModal()">⚙</span>';
+    '<span class="pill" style="font-size:24px;color:var(--text);cursor:pointer;padding:6px 6px;line-height:1;align-self:flex-start" onclick="openWatchlistModal()">⚙</span>';
 }
 
 // ── Watchlist modal ──
