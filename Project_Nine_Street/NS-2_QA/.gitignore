@@ -1,0 +1,8 @@
+# Hermes agent runtime
+.hermes/
+
+# Runtime signal cache
+ns2_signal_cache.json
+
+# Runtime watchlist
+ns2_watchlist.json

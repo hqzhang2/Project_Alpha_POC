@@ -13,6 +13,7 @@ venv/
 */*/venv/
 ns1_venv/
 */*/ns1_venv/
+project_alpha_env/
 
 # --- Test / coverage artifacts ---
 .coverage
