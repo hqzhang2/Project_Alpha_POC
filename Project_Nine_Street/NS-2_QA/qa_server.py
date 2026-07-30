@@ -58,6 +58,7 @@ REGIME_META = {
 SIGNAL_COLORS = {
     "BUY": "#22c55e", "SELL": "#ff6b6b", "SHORT": "#ff6b6b", "EXIT": "#ffd166",
     "HOLD LONG": "#7ec8e3", "FLAT": "#444", "WATCH": "#c9a6ff",
+    "NO-EDGE": "#666",  # Phase 4: acceptance gate — no OOS edge, signal withheld
 }
 
 # Strategy parameters
@@ -748,6 +749,9 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
     current_signal = signal_labels[-1]
     current_close = closes[-1]
 
+    # Phase 4: acceptance gate — NO-EDGE tickers get their live signal withheld
+    current_signal, gate_info = apply_acceptance_gate(ticker, current_signal)
+
     # Strategy rules
     strategy_rules = [
         {"regime": "TRENDING",  "color": "#76e4c4", "entry": "CCI crosses above +100", "exit": "CCI drops below 0 or ATR stop", "size": "100%", "direction": "LONG"},
@@ -778,6 +782,7 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
         "active_rsi": round(current_rsi, 2),
         "active_cci": round(current_cci, 2),
         "active_signal": current_signal,
+        "gate": gate_info,
         "strategy_rules": strategy_rules,
     }
 
@@ -841,6 +846,41 @@ def _get_ticker_signal(ticker):
     """Return cached signal from last full pipeline run."""
     cache = _load_signal_cache()
     return cache.get(ticker)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 4: ACCEPTANCE GATES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+WF_RESULTS_PATH = os.path.join(os.path.dirname(__file__), "ns2_walkforward_results.json")
+
+
+def _load_wf_verdicts():
+    """{ticker: {verdict, profit_factor, sharpe}} from the latest walk-forward run.
+    Empty dict if no results file — every ticker then passes ungated."""
+    if not os.path.exists(WF_RESULTS_PATH):
+        return {}
+    try:
+        with open(WF_RESULTS_PATH) as f:
+            data = json.load(f)
+        return {r["ticker"]: {"verdict": r.get("verdict", "UNKNOWN"),
+                              "profit_factor": r.get("profit_factor"),
+                              "sharpe": r.get("sharpe")}
+                for r in data.get("results", []) if "ticker" in r}
+    except Exception:
+        return {}
+
+
+def apply_acceptance_gate(ticker, signal_label):
+    """Withhold actionable signals for tickers with no proven OOS edge.
+    Returns (label, gate_info). NO-EDGE verdict → label forced to 'NO-EDGE';
+    charts remain visible, but pill/cache/active card show the gate."""
+    wf = _load_wf_verdicts().get(ticker)
+    if wf is None:
+        return signal_label, {"gated": False, "verdict": "UNTESTED"}
+    if wf["verdict"] == "NO-EDGE":
+        return "NO-EDGE", {"gated": True, **wf}
+    return signal_label, {"gated": False, **wf}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

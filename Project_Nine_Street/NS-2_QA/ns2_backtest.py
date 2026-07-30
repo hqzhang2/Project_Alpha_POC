@@ -252,7 +252,8 @@ def main():
     ap.add_argument("--cost-bps", type=float, default=10.0)
     ap.add_argument("--rule-based", action="store_true", help="use rule-based regimes instead of HMM")
     ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                  "ns2_walkforward_results.json"))
+                                                  "ns2_walkforward_results.json"),
+                    help="output JSON; default is the service dir so /api/backtest + acceptance gates see it")
     args = ap.parse_args()
 
     print(f"# NS-2 Walk-Forward Report — {datetime.now():%Y-%m-%d %H:%M}")
