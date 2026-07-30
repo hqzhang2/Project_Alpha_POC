@@ -164,9 +164,158 @@
 **Tabs:** Alpha Terminal, NS-1, NS-3, NS-4
 **Toggle:** PROD/QA switcher updates all iframe URLs dynamically
 
-## Git Branches (as of 2026-07-23)
-| Branch | Base | Status |
-|--------|------|--------|
+## Production Deployment Procedure (All Services)
+
+### Overview
+All services (Alpha Terminal + NS-1/2/3/4) share a single monorepo and single release branch. One release branch = one version for ALL services. No per-service release branches.
+
+### Directory Structure
+```
+/Users/chuck/Project_Alpha_POC/
+├── Project_Sequoia/
+│   ├── QA_terminal/          # Alpha Terminal QA (feature branch)
+│   └── terminal/             # Alpha Terminal PROD (release branch)
+├── Project_Nine_Street/
+│   ├── NS_1_QA/              # NS-1 QA (feature branch)
+│   ├── NS-2_QA/              # NS-2 QA (feature branch)
+│   ├── NS-2_PROD/            # NS-2 PROD (release branch)
+│   ├── NS-3_QA/              # NS-3 QA (feature branch)
+│   ├── NS-3_PROD/            # NS-3 PROD (release branch)
+│   ├── NS-4_QA/              # NS-4 QA (feature branch)
+│   ├── NS-4_PROD/            # NS-4 PROD (release branch)
+│   ├── NS_1_QA/              # Legacy NS-1 QA
+│   └── ... (shared configs, scripts, docs)
+```
+
+### Service Inventory
+
+| Service | QA Dir | PROD Dir | QA Port | PROD Port | Launchd Job (QA) | Launchd Job (PROD) |
+|---|---|---|---|---|---|---|
+| Alpha Terminal | `Project_Sequoia/QA_terminal` | `Project_Sequoia/terminal` | 9099 | 9098 | `com.ninestreet.alpha.qa` | `com.ninestreet.alpha.prod` |
+| NS-1 | `NS_1_QA` / `NS-1_QA` | *(none)* | 9219 | 9218 | `com.ninestreet.ns1.qa` | `com.ninestreet.ns1.prod` |
+| NS-2 | `NS-2_QA` | `NS-2_PROD` | 9229 | 9228 | `com.ninestreet.ns2.qa` | `com.ninestreet.ns2.prod` |
+| NS-3 | `NS-3_QA` | `NS-3_PROD` | 9237 | 9236 | `com.ninestreet.ns3.qa` | `com.ninestreet.ns3.prod` |
+| NS-4 | `NS-4_QA` | `NS-4_PROD` | 9241 | 9240 | `com.ninestreet.ns4.qa` | `com.ninestreet.ns4.prod` |
+
+### Branch Strategy
+| Environment | Branch Pattern | Purpose |
+|---|---|---|
+| QA | `feature/vX.Y` | Development, testing, commits allowed |
+| PROD | `release/vX.Y` | Stable, no commits, deployment source |
+
+**Critical rule:** Single release branch = single version for ALL services. No per-service release branches.
+
+### Deployment Procedure
+```bash
+# 1. Verify current state
+git status                          # must be clean
+git fetch origin
+
+# 2. Checkout release branch locally
+git checkout release/vX.Y           # e.g., release/v2.0
+
+# 3. Deploy to ALL PROD directories
+git checkout release/vX.Y -- Project_Sequoia/terminal
+# NS-1 PROD (if directory exists)
+# git checkout release/vX.Y -- Project_Nine_Street/NS_1_PROD
+git checkout release/vX.Y -- Project_Nine_Street/NS-2_PROD
+git checkout release/vX.Y -- Project_Nine_Street/NS-3_PROD
+git checkout release/vX.Y -- Project_Nine_Street/NS-4_PROD
+
+# 4. Restart ALL PROD launchd services
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.alpha.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns1.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns2.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns3.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns4.prod
+
+# 5. Verify ALL PROD health endpoints
+curl -s http://localhost:9098/health   # Alpha Terminal PROD
+curl -s http://localhost:9218/health   # NS-1 PROD
+curl -s http://localhost:9228/health   # NS-2 PROD
+curl -s http://localhost:9236/health   # NS-3 PROD
+curl -s http://localhost:9240/health   # NS-4 PROD
+
+# 6. Return to feature branch for continued development
+git checkout feature/vX.Y
+```
+
+### Automated Deploy Script
+```bash
+#!/bin/bash
+# deploy_prod.sh - Deploy release branch to all PROD dirs
+set -euo pipefail
+
+RELEASE="${1:-release/v2.0}"
+SERVICES=(
+    "Project_Sequoia/terminal"
+    "Project_Nine_Street/NS_1_PROD"
+    "Project_Nine_Street/NS-2_PROD"
+    "Project_Nine_Street/NS-3_PROD"
+    "Project_Nine_Street/NS-4_PROD"
+)
+
+echo "Deploying $RELEASE to all PROD directories..."
+git checkout "$RELEASE" -- "${SERVICES[@]}"
+
+echo "Restarting PROD services..."
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.alpha.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns1.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns2.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns3.prod
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns4.prod
+
+echo "Verifying health..."
+sleep 3
+for port in 9098 9218 9228 9236 9240; do
+    if curl -sf "http://localhost:$port/health" >/dev/null; then
+        echo "  Port $port: OK"
+    else
+        echo "  Port $port: FAILED"
+        exit 1
+    fi
+done
+echo "Deployment complete."
+```
+
+### Rollback Procedure
+```bash
+# 1. Identify previous release tag
+git tag -l "release/v*" | sort -V | tail -2
+
+# 2. Deploy previous release
+./deploy_prod.sh release/vX.Y-1
+
+# 3. Or manually checkout previous release
+git checkout release/vX.Y-1 -- "${SERVICES[@]}"
+# restart services, verify health
+```
+
+### Environment Isolation
+- Each environment has separate launchd jobs (see table above)
+- Separate log files per environment:
+  - QA: `logs/ns2.out.log`
+  - PROD: `logs/ns2_prod.out.log`
+- Separate working directories (`WorkingDirectory` in plist)
+- Separate environment variables (`ENV=QA` vs `ENV=PROD`)
+
+### Monitoring Separation
+| Aspect | QA | PROD |
+|---|---|---|
+| Health endpoint | `http://localhost:9099/health` | `http://localhost:9098/health` |
+| Log files | `*_qa.out.log` | `*_prod.out.log` |
+| Metrics | Separate dashboards | Separate dashboards |
+| Alerting | Dev team | On-call + dev team |
+
+### Post-Deployment Verification
+- [ ] All `/health` endpoints return `{"status":"ok"}`
+- [ ] NS-2 walk-forward gate status matches expectations
+- [ ] Logs show clean startup (no errors in `*_prod.err.log`)
+- [ ] Ports listening on correct interfaces
+- [ ] Dashboards load at PROD ports
+- [ ] No cross-environment contamination
+
+### Fault Recovery
 | `feature/v1.6` | main | ✅ Merged (commit 0832717) |
 | `release/v1.6` | feature/v1.6 | ✅ Created & pushed |
 | `feature/v1.7` | feature/v1.6 | ✅ Created & pushed (current) |
@@ -242,10 +391,7 @@ cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street && PORT=8000 /Library/Deve
 ### Step 4: Regenerate GitHub Token (if pushing)
 ```bash
 PYTHONPATH="" /Library/Developer/CommandLineTools/usr/bin/python3 \
-  /Users/chuck/.zeroclaw/agents/chuck/workspace/gen_github_token.py
-```
-
-### Fault Recovery
+  ### Fault Recovery
 - **NS-3/NS-4 down (FastAPI/pydantic error):** The QA servers use stdlib http.server, no FastAPI needed. Re-run the server script directly.
 - **NS-1 engines unavailable:** Engines require numba/vectorbt (numpy<2). Dashboard still loads; engine endpoints return 503 gracefully.
 - **Portal blank:** Check iframe URL construction. Portal uses `STRATS[key][env.toLowerCase()]` for port.
