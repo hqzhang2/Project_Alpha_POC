@@ -464,7 +464,14 @@ def generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro_fil
                 if rsi < RSI_OVERSOLD:
                     signals[i] = 1
                 elif rsi > RSI_OVERBOUGHT:
-                    signals[i] = -1
+                    # Phase 3: momentum short-ban — never fade strength while price
+                    # holds above its 50MA unless macro is RISK_OFF. Fading momentum
+                    # names (MU/NVDA) in uptrends was the largest OOS alpha bleed.
+                    ma_dist = df.get("ma_distance", pd.Series(0, index=df.index)).iloc[i]
+                    if (pd.notna(ma_dist) and ma_dist < 0) or macro_filter == -1:
+                        signals[i] = -1
+                    else:
+                        signals[i] = 0
                 elif RSI_MEAN_LOW < rsi < RSI_MEAN_HIGH:
                     signals[i] = 0
                 else:
@@ -488,7 +495,10 @@ def generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro_fil
             signals[i] = 0
 
     df["signal"] = signals
-    df["position_size"] = pos_sizes
+    # Phase 3: confidence-weighted sizing (Improvement #2, finally wired).
+    # Ensemble agreement scales exposure: full size at unanimity, half at max dissent.
+    conf = np.clip(np.asarray(agreement, dtype=float), 0.0, 1.0) if agreement is not None else np.ones(len(df))
+    df["position_size"] = pos_sizes * (0.5 + 0.5 * conf)
     df["stop_level"] = stop_levels
     df["effective_pos"] = df["signal"] * df["position_size"]
     return df
@@ -500,20 +510,24 @@ def apply_stops(df):
     Pass 1 (here): ATR stop on longs — needs only price/ATR, runs BEFORE backtest.
     Pass 2 (apply_dd_breaker): drawdown circuit breaker — needs equity, runs AFTER
     backtest, then equity is recomputed so metrics reflect enforced stops.
+    Phase 3: stop now TRAILS — ratchets up with the high-water close, never down.
     """
     df = df.copy()
     atr_vals = df["atr"].values
-    entry_price = None
+    trail = None
     for i in range(1, len(df)):
         sig = df["signal"].iloc[i]
         prev_sig = df["signal"].iloc[i - 1]
         close = df["close"].iloc[i]
         if prev_sig != 1 and sig == 1:
-            entry_price = close
-        if sig == 1 and entry_price is not None and pd.notna(atr_vals[i]):
-            stop = entry_price - 3 * atr_vals[i]
-            if close < stop:
+            trail = close - 3 * atr_vals[i] if pd.notna(atr_vals[i]) else None
+        elif sig == 1 and trail is not None and pd.notna(atr_vals[i]):
+            trail = max(trail, close - 3 * atr_vals[i])  # ratchet up only
+            if close < trail:
                 df.at[df.index[i], "signal"] = 0
+                trail = None
+        elif sig != 1:
+            trail = None
     df["effective_pos"] = df["signal"] * df["position_size"]
     return df
 

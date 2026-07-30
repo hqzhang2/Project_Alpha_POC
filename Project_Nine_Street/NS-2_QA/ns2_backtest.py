@@ -230,7 +230,11 @@ GATE_SHARPE = 1.0
 def verdict(m):
     if m.get("error"):
         return "ERROR"
-    pf = m.get("profit_factor") or 0
+    pf = m.get("profit_factor")
+    # pf None = zero losing trades; with wins present that's a pass on PF,
+    # gated by min trade count so 1-2 lucky trades can't sneak through.
+    if pf is None:
+        pf = np.inf if m.get("n_trades", 0) >= 3 and m.get("win_rate_pct", 0) > 0 else 0
     if pf >= GATE_PF and m["sharpe"] >= GATE_SHARPE:
         return "PASS"
     if pf >= 1.0:
