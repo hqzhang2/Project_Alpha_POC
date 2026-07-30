@@ -279,7 +279,7 @@ class TestConfidenceSizing:
 # Acceptance gates (Phase 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
-import tempfile, json as _json
+import json as _json
 
 def _make_wf_json(verdicts_dict, path):
     """Write a synthetic walk-forward JSON for testing gates."""
