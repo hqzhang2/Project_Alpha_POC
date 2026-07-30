@@ -644,9 +644,9 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
 
     # Strategy rules
     strategy_rules = [
-        {"regime": "TRENDING",  "color": "#76e4c4", "entry": "CCI crosses above +100", "exit": "CCI drops below 0", "size": "100%", "direction": "LONG"},
-        {"regime": "MEAN_REV",  "color": "#7ec8e3", "entry": "RSI < 30 (oversold) / RSI > 70 (overbought)", "exit": "RSI returns to 45-55", "size": "60%", "direction": "BOTH"},
-        {"regime": "CRISIS",    "color": "#ff6b6b", "entry": "CCI < -250 (extreme panic only)", "exit": "Regime change", "size": "10%", "direction": "SHORT/FLAT"},
+        {"regime": "TRENDING",  "color": "#76e4c4", "entry": "CCI crosses above +100", "exit": "CCI drops below 0 or ATR stop", "size": "100%", "direction": "LONG"},
+        {"regime": "MEAN_REV",  "color": "#7ec8e3", "entry": "RSI < 30 (BUY) / RSI > 70 (SELL)", "exit": "RSI returns to 45-55", "size": "60%", "direction": "BOTH"},
+        {"regime": "CRISIS",    "color": "#ff6b6b", "entry": "CCI < -250 → SHORT", "exit": "CCI ≥ -250 or ATR stop", "size": "10%", "direction": "SHORT/FLAT"},
     ]
 
     chart_data = {
