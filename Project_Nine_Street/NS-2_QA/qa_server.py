@@ -54,6 +54,12 @@ REGIME_META = {
     2: {"label": "CRISIS",    "color": "#ff6b6b", "desc": "Capital Preservation"},
 }
 
+# Single source of truth: pill = dashboard = legend = bars = prompt (matches ns2_dashboard.html)
+SIGNAL_COLORS = {
+    "BUY": "#22c55e", "SELL": "#ff6b6b", "SHORT": "#ff6b6b", "EXIT": "#ffd166",
+    "HOLD LONG": "#7ec8e3", "FLAT": "#444", "WATCH": "#c9a6ff",
+}
+
 # Strategy parameters
 LOOKBACK_DAYS      = 180
 RSI_PERIOD         = 14
@@ -112,18 +118,24 @@ def compute_atr(high, low, close, length=14):
     return tr.ewm(alpha=1/length, adjust=False).mean()  # Wilder's smoothing
 
 def compute_adx(high, low, close, length=14):
-    """ADX using Wilder's smoothing."""
+    """ADX using Wilder's smoothing.
+
+    Phase 0 fix: previous version built the result from numpy arrays via
+    pd.Series(...) with a RangeIndex; assigning that to a DatetimeIndex frame
+    made df["adx"] all-NaN, which emptied the HMM feature matrix and silently
+    forced the rule-based fallback on every run. Index is now preserved.
+    """
+    idx = close.index
     up = high.diff()
     down = -low.diff()
     plus_dm = np.where((up > down) & (up > 0), up, 0.0)
     minus_dm = np.where((down > up) & (down > 0), down, 0.0)
     tr = compute_true_range(high, low, close).fillna(0)
-    atr_arr = pd.Series(tr).ewm(alpha=1/length, adjust=False).mean().values
-    plus_di = 100 * pd.Series(plus_dm).ewm(alpha=1/length, adjust=False).mean() / atr_arr
-    minus_di = 100 * pd.Series(minus_dm).ewm(alpha=1/length, adjust=False).mean() / atr_arr
-    dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
-    adx_val = pd.Series(dx).ewm(alpha=1/length, adjust=False).mean()
-    return adx_val
+    atr_s = tr.ewm(alpha=1/length, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=idx).ewm(alpha=1/length, adjust=False).mean() / atr_s
+    minus_di = 100 * pd.Series(minus_dm, index=idx).ewm(alpha=1/length, adjust=False).mean() / atr_s
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-10)
+    return dx.ewm(alpha=1/length, adjust=False).mean()
 
 def compute_true_range(high, low, close):
     tr1 = high - low
@@ -449,7 +461,12 @@ def generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro_fil
 
 
 def apply_stops(df):
-    """Improvement #6: ATR trailing stops + drawdown circuit breaker."""
+    """
+    Improvement #6, Phase 0 fix: split into two passes with correct ordering.
+    Pass 1 (here): ATR stop on longs — needs only price/ATR, runs BEFORE backtest.
+    Pass 2 (apply_dd_breaker): drawdown circuit breaker — needs equity, runs AFTER
+    backtest, then equity is recomputed so metrics reflect enforced stops.
+    """
     df = df.copy()
     atr_vals = df["atr"].values
     entry_price = None
@@ -463,35 +480,66 @@ def apply_stops(df):
             stop = entry_price - 3 * atr_vals[i]
             if close < stop:
                 df.at[df.index[i], "signal"] = 0
-        if "equity" in df.columns:
-            peak = df["equity"].iloc[:i+1].max()
-            if peak > 0:
-                dd = (df["equity"].iloc[i] - peak) / peak
-                if dd < MAX_DRAWDOWN and sig == 1:
-                    df.at[df.index[i], "signal"] = 0
     df["effective_pos"] = df["signal"] * df["position_size"]
     return df
 
 
+def apply_dd_breaker(df):
+    """Drawdown circuit breaker on realized equity; flattens longs past MAX_DRAWDOWN."""
+    df = df.copy()
+    changed = False
+    for i in range(1, len(df)):
+        sig = df["signal"].iloc[i]
+        peak = df["equity"].iloc[: i + 1].max()
+        if peak > 0:
+            dd = (df["equity"].iloc[i] - peak) / peak
+            if dd < MAX_DRAWDOWN and sig == 1:
+                df.at[df.index[i], "signal"] = 0
+                changed = True
+    if changed:
+        df["effective_pos"] = df["signal"] * df["position_size"]
+    return df, changed
+
+
 def add_signal_labels_v2(df):
-    """Human-readable signal labels (3-state)."""
-    def label(row):
-        r, rsi, cci = row["regime"], row["rsi"], row["cci"]
-        sig = row["signal"]
-        if r == 2:
-            return "SHORT" if pd.notna(cci) and cci < CCI_SHORT else "FLAT"
-        if r == 0:
-            if pd.notna(cci) and cci >= CCI_ENTRY: return "BUY"
-            if pd.notna(cci) and cci < CCI_EXIT: return "EXIT"
-            return "WATCH"
-        if r == 1:
-            if pd.notna(rsi):
-                if rsi < RSI_OVERSOLD: return "BUY"
-                if rsi > RSI_OVERBOUGHT: return "SELL"
-                if RSI_MEAN_LOW < rsi < RSI_MEAN_HIGH: return "EXIT"
-            return "HOLD" if sig == 1 else "WATCH"
-        return "WATCH"
-    df["signal_label"] = df.apply(label, axis=1)
+    """
+    Human-readable signal labels (3-state).
+    Phase 0 fix: labels are derived from the ACTUAL signal array (post-persistence,
+    post-stops), so pill = chart = backtest position. Indicator values only refine
+    the wording, never contradict the traded position.
+    """
+    labels = []
+    prev_sig = 0
+    for i in range(len(df)):
+        r = df["regime"].iloc[i]
+        sig = int(df["signal"].iloc[i])
+        rsi = df["rsi"].iloc[i]
+        cci = df["cci"].iloc[i]
+
+        if r == 2:  # CRISIS
+            lab = "SHORT" if sig == -1 else "FLAT"
+        elif sig == 1:
+            # New long entry vs. continuing hold
+            lab = "BUY" if prev_sig != 1 else "HOLD LONG"
+        elif sig == -1:
+            # In MEAN_REV a -1 is a fade-short; in TRENDING it's an exit-down signal
+            lab = "SELL" if r == 1 else "EXIT"
+        else:  # sig == 0
+            if prev_sig == 1:
+                lab = "EXIT"          # just closed a long
+            elif r == 0:
+                lab = "WATCH"         # trending regime, waiting for CCI trigger
+            elif r == 1:
+                # flat in mean-rev: neutral zone = FLAT, edges = WATCH for setup
+                if pd.notna(rsi) and (rsi < 40 or rsi > 60):
+                    lab = "WATCH"
+                else:
+                    lab = "FLAT"
+            else:
+                lab = "FLAT"
+        labels.append(lab)
+        prev_sig = sig
+    df["signal_label"] = labels
     return df
 
 
@@ -526,26 +574,28 @@ def performance_summary(df, ticker):
     drawdown = (df["equity"] - roll_max) / roll_max.replace(0, np.nan)
     max_dd = float(drawdown.min()) if len(drawdown) > 0 else 0
 
-    trades = df[df["signal"].diff().fillna(0) != 0]
-    n_trades = len(trades)
-
-    # Win rate
+    # Trades & win rate — Phase 0 fix: count both long AND short round trips,
+    # using position-aware entry/exit against the underlying close (not equity,
+    # which is contaminated by sizing differences across regimes).
     trade_returns = []
-    pos_started = False
-    entry_val = 0
+    pos = 0          # current side: 0 flat, +1 long, -1 short
+    entry_px = 0.0
     for i in range(len(df)):
-        sig = int(df["signal"].iloc[i])
-        equity = float(df["equity"].iloc[i])
-        if sig == 1 and not pos_started:
-            pos_started = True
-            entry_val = equity
-        elif sig != 1 and pos_started:
-            trade_returns.append((equity - entry_val) / entry_val if entry_val > 0 else 0)
-            pos_started = False
-    if pos_started:
-        trade_returns.append((float(df["equity"].iloc[-1]) - entry_val) / entry_val if entry_val > 0 else 0)
+        sig = int(np.sign(df["signal"].iloc[i]))
+        px = float(df["close"].iloc[i])
+        if sig != pos:
+            if pos != 0 and entry_px > 0:
+                r = (px - entry_px) / entry_px * pos   # short profits when px falls
+                trade_returns.append(r)
+            if sig != 0:
+                entry_px = px
+            pos = sig
+    if pos != 0 and entry_px > 0:
+        px = float(df["close"].iloc[-1])
+        trade_returns.append((px - entry_px) / entry_px * pos)
 
-    win_rate = sum(1 for r in trade_returns if r > 0) / max(len(trade_returns), 1)
+    n_trades = len(trade_returns)  # completed round trips, not signal flips
+    win_rate = sum(1 for r in trade_returns if r > 0) / max(n_trades, 1)
 
     # Regime distribution
     regime_counts = pd.Series(df["regime"]).value_counts(normalize=True).to_dict()
@@ -589,9 +639,17 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
 
     macro = get_macro_filter()
     df = generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro)
-    df = add_signal_labels_v2(df)
-    df = backtest(df)
+    # Phase 0 fix — correct ordering:
+    # 1) ATR stops mutate signals (price-based, no equity needed)
+    # 2) backtest computes equity from FINAL price-based signals
+    # 3) dd breaker reads real equity; if it fired, recompute equity once
+    # 4) labels derive from the final signal array
     df = apply_stops(df)
+    df = backtest(df)
+    df, dd_fired = apply_dd_breaker(df)
+    if dd_fired:
+        df = backtest(df)
+    df = add_signal_labels_v2(df)
 
     perf = performance_summary(df, ticker)
     perf["macro_filter"] = macro
@@ -614,9 +672,8 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
     # RSI bar colors: green <30, red >70, else grey
     rsi_colors = ["#76e4c4" if v < 30 else "#ff6b6b" if v > 70 else "#444" for v in rsi_vals]
 
-    # Signal bar chart data (6 types)
-    signal_colors_map = {"BUY":"#76e4c4","SELL":"#ff6b6b","SHORT":"#ff6b6b","EXIT":"#ffd166","HOLD":"#7ec8e3","WATCH":"#c9a6ff","FLAT":"#444"}
-    signal_bars = [{"date": dates[i], "label": signal_labels[i], "color": signal_colors_map.get(signal_labels[i], "#444")}
+    # Signal bar chart data — uses module-level SIGNAL_COLORS (single source of truth)
+    signal_bars = [{"date": dates[i], "label": signal_labels[i], "color": SIGNAL_COLORS.get(signal_labels[i], "#444")}
                    for i in range(n)]
 
     # Regime timeline
@@ -675,11 +732,9 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
         "strategy_rules": strategy_rules,
     }
 
-    # Cache the signal from the full pipeline
-    signal_colors = {"BUY":"#22c55e","SHORT":"#ff6b6b","EXIT":"#ffd166",
-                     "HOLD LONG":"#7ec8e3","FLAT":"#444","WATCH":"#c9a6ff"}
+    # Cache the signal from the full pipeline — SIGNAL_COLORS is the single source of truth
     cache = _load_signal_cache()
-    cache[ticker] = {"signal": current_signal, "color": signal_colors.get(current_signal, "#888")}
+    cache[ticker] = {"signal": current_signal, "color": SIGNAL_COLORS.get(current_signal, "#888")}
     _save_signal_cache(cache)
 
     return chart_data, perf
