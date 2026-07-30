@@ -61,12 +61,13 @@ SIGNAL_COLORS = {
 }
 
 # Strategy parameters
-LOOKBACK_DAYS      = 180
+LOOKBACK_DAYS      = 750        # Phase 2: ~3y fetch so HMM trains on ~500 bars (was 180)
 RSI_PERIOD         = 14
 CCI_PERIOD         = 20
 ATR_PERIOD         = 14
 HMM_STATES         = 3          # Improvement #1: 3 stable states (more reliable with ~125 bars)
 HMM_ITERATIONS     = 2000
+HMM_COVARIANCE     = "diag"     # Phase 2: full cov = ~140 params on small data; diag halves it
 HMM_ENSEMBLE_N     = 5          # Improvement #7: ensemble size
 PERSISTENCE_DEFAULT = 3
 CCI_ENTRY          = 100
@@ -83,6 +84,32 @@ VOL_TREND          = 0.012      # Relaxed: daily vol < 1.2% for trend
 TREND_THRESHOLD    = 0.03       # Lowered: 3% 20d move for trend
 VIX_HIGH           = 25
 VIX_LOW            = 15
+
+# ── Phase 2: asset-class parameter profiles ─────────────────────────────────
+# The equity thresholds above are meaningless for bonds (TLT daily vol ~0.9%
+# never trips VOL_CRISIS=3%) — each class gets vol/trend/persistence bands
+# scaled to its own volatility regime. Scale-free indicators (RSI/CCI) shared.
+ASSET_PROFILES = {
+    "equity":    {"vol_crisis": 0.030, "vol_trend": 0.012, "trend_threshold": 0.030,
+                  "atr_hi": 0.030, "atr_lo": 0.010, "cci_short": -250},
+    "bond":      {"vol_crisis": 0.012, "vol_trend": 0.006, "trend_threshold": 0.015,
+                  "atr_hi": 0.012, "atr_lo": 0.005, "cci_short": -200},
+    "commodity": {"vol_crisis": 0.022, "vol_trend": 0.009, "trend_threshold": 0.022,
+                  "atr_hi": 0.022, "atr_lo": 0.008, "cci_short": -225},
+}
+BOND_TICKERS      = {"TLT", "IEF", "SHY", "AGG", "BND", "LQD", "HYG", "TIP", "MUB", "GOVT"}
+COMMODITY_TICKERS = {"GLD", "SLV", "USO", "UNG", "DBC", "PDBC", "CPER", "WEAT", "CORN"}
+
+def classify_asset(ticker):
+    t = ticker.upper()
+    if t in BOND_TICKERS:
+        return "bond"
+    if t in COMMODITY_TICKERS:
+        return "commodity"
+    return "equity"
+
+def get_profile(ticker):
+    return ASSET_PROFILES[classify_asset(ticker)]
 
 _cache = {}
 
@@ -212,10 +239,10 @@ FEATURE_COLS = [
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _fit_single_hmm(features_scaled, random_state):
-    """Fit one HMM with 4 states."""
+    """Fit one HMM (Phase 2: diag covariance — full was ~140 params on ~125 bars)."""
     model = hmm.GaussianHMM(
         n_components=HMM_STATES,
-        covariance_type="full",
+        covariance_type=HMM_COVARIANCE,
         n_iter=HMM_ITERATIONS,
         random_state=random_state,
         tol=1e-4,
@@ -302,14 +329,16 @@ def fit_hmm_ensemble(df):
     return full_regimes, full_agreement, ref_model, (scaler, X_scaled)
 
 
-def apply_adaptive_persistence(regimes, df):
-    """Improvement #5: shorter lookback in crisis/high vol, longer in trend."""
+def apply_adaptive_persistence(regimes, df, profile=None):
+    """Improvement #5: shorter lookback in crisis/high vol, longer in trend.
+    Phase 2: ATR bands come from the asset-class profile (equity default)."""
+    p = profile or ASSET_PROFILES["equity"]
     atr_ratio = df.get("atr_ratio", pd.Series(0.015, index=df.index)).values
     out = regimes.copy()
     for i in range(10, len(regimes)):
-        if atr_ratio[i] > 0.03:
+        if atr_ratio[i] > p["atr_hi"]:
             n = 2
-        elif atr_ratio[i] < 0.01:
+        elif atr_ratio[i] < p["atr_lo"]:
             n = 5
         else:
             n = PERSISTENCE_DEFAULT
@@ -319,8 +348,10 @@ def apply_adaptive_persistence(regimes, df):
     return out
 
 
-def assign_regimes_rule_based(df):
-    """Fallback rule-based regime assignment (3-state: 0=TRENDING, 1=MEAN_REV, 2=CRISIS)."""
+def assign_regimes_rule_based(df, profile=None):
+    """Fallback rule-based regime assignment (3-state: 0=TRENDING, 1=MEAN_REV, 2=CRISIS).
+    Phase 2: vol/trend thresholds come from the asset-class profile."""
+    p = profile or ASSET_PROFILES["equity"]
     closes = df["close"].values
     regimes = np.ones(len(closes), dtype=int)  # default: MEAN_REV
     for i in range(20, len(closes)):
@@ -328,26 +359,26 @@ def assign_regimes_rule_based(df):
         rets = np.diff(w) / w[:-1]
         vol = np.std(rets)
         trend = (w[-1] - w[0]) / w[0]
-        if vol > VOL_CRISIS:
+        if vol > p["vol_crisis"]:
             regimes[i] = 2  # CRISIS
-        elif abs(trend) > TREND_THRESHOLD and vol < VOL_TREND:
+        elif abs(trend) > p["trend_threshold"] and vol < p["vol_trend"]:
             regimes[i] = 0  # TRENDING
-    return apply_adaptive_persistence(regimes, df)
+    return apply_adaptive_persistence(regimes, df, profile=p)
 
 
-def get_regimes(df, use_hmm=True):
+def get_regimes(df, use_hmm=True, profile=None):
     """Fit HMM ensemble or fall back to rule-based."""
     if not use_hmm:
-        return assign_regimes_rule_based(df), np.ones(len(df)), None, None
+        return assign_regimes_rule_based(df, profile=profile), np.ones(len(df)), None, None
 
     try:
         regimes, agreement, ref_model, model_data = fit_hmm_ensemble(df)
         if regimes is None:
             raise ValueError("HMM ensemble failed")
-        regimes = apply_adaptive_persistence(regimes, df)
+        regimes = apply_adaptive_persistence(regimes, df, profile=profile)
         return regimes, agreement, ref_model, model_data
     except Exception:
-        fallback = assign_regimes_rule_based(df)
+        fallback = assign_regimes_rule_based(df, profile=profile)
         return fallback, np.ones(len(df)), None, None
 
 
@@ -392,11 +423,14 @@ def get_macro_filter():
 # SIGNAL GENERATION (Improvement #3: multi-factor confirmation)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro_filter=0):
+def generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro_filter=0, profile=None):
     """
     Improvement #3: Multi-factor signal confirmation.
     States: 0=TRENDING, 1=MEAN_REV, 2=CRISIS
+    Phase 2: crisis-short threshold from asset-class profile.
     """
+    p = profile or ASSET_PROFILES["equity"]
+    cci_short = p["cci_short"]
     df = df.copy()
     signals = np.zeros(len(df), dtype=int)
     pos_sizes = np.ones(len(df))
@@ -439,7 +473,7 @@ def generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro_fil
 
         # ── State 2: CRISIS — Capital Preservation ──
         elif regime == 2:
-            if pd.notna(cci) and cci < CCI_SHORT:
+            if pd.notna(cci) and cci < cci_short:
                 signals[i] = -1
             else:
                 signals[i] = 0
@@ -623,6 +657,7 @@ def performance_summary(df, ticker):
 def run_ticker(ticker, use_hmm=True, display_days=90):
     """Full v2 pipeline for one ticker."""
     meta = MAG7.get(ticker, {"name": ticker, "color": "#888"})
+    profile = get_profile(ticker)  # Phase 2: asset-class thresholds
 
     try:
         df = fetch_ohlcv(ticker)
@@ -633,12 +668,12 @@ def run_ticker(ticker, use_hmm=True, display_days=90):
         return None, {"error": f"Only {len(df)} bars — need ≥30"}
 
     df = add_rich_features(df)
-    regimes, agreement, ref_model, model_data = get_regimes(df, use_hmm=use_hmm)
+    regimes, agreement, ref_model, model_data = get_regimes(df, use_hmm=use_hmm, profile=profile)
     df["regime"] = regimes
     df["regime_confidence"] = agreement
 
     macro = get_macro_filter()
-    df = generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro)
+    df = generate_signals_v2(df, regimes, agreement, ref_model, model_data, macro, profile=profile)
     # Phase 0 fix — correct ordering:
     # 1) ATR stops mutate signals (price-based, no equity needed)
     # 2) backtest computes equity from FINAL price-based signals

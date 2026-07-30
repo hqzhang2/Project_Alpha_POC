@@ -98,6 +98,7 @@ def walk_forward(ticker, years=4, train_len=378, test_len=21, cost_bps=10.0,
     feats = df[ns2.FEATURE_COLS].dropna()
     feat_index = feats.index
     df = df.loc[feat_index]  # align
+    profile = ns2.get_profile(ticker)  # Phase 2: asset-class thresholds
 
     n = len(df)
     oos_regime = pd.Series(index=df.index, dtype="float64")
@@ -125,7 +126,7 @@ def walk_forward(ticker, years=4, train_len=378, test_len=21, cost_bps=10.0,
             else:
                 # rule-based fallback is already causal (trailing 20d window)
                 sub = df.iloc[: t + 1]
-                oos_regime.iloc[t] = ns2.assign_regimes_rule_based(sub)[-1]
+                oos_regime.iloc[t] = ns2.assign_regimes_rule_based(sub, profile=profile)[-1]
         start += test_len
 
     oos_mask = oos_regime.notna()
@@ -134,12 +135,12 @@ def walk_forward(ticker, years=4, train_len=378, test_len=21, cost_bps=10.0,
     if len(oos) < 60:
         return {"ticker": ticker, "error": f"only {len(oos)} OOS bars"}
 
-    regimes = ns2.apply_adaptive_persistence(regimes, oos)
+    regimes = ns2.apply_adaptive_persistence(regimes, oos, profile=profile)
     oos["regime"] = regimes
     oos["regime_confidence"] = 1.0
 
     # Signals + stops via the SAME production code path (macro=0: no look-ahead macro)
-    oos = ns2.generate_signals_v2(oos, regimes, np.ones(len(oos)), None, None, 0)
+    oos = ns2.generate_signals_v2(oos, regimes, np.ones(len(oos)), None, None, 0, profile=profile)
     oos = ns2.apply_stops(oos)
 
     # Returns with costs
@@ -159,8 +160,8 @@ def walk_forward(ticker, years=4, train_len=378, test_len=21, cost_bps=10.0,
 
     # In-sample comparison (the dashboard's flawed method) to expose inflation
     try:
-        ins_regimes, agree, _, _ = ns2.get_regimes(df, use_hmm=use_hmm)
-        ins = ns2.generate_signals_v2(df.copy(), ins_regimes, agree, None, None, 0)
+        ins_regimes, agree, _, _ = ns2.get_regimes(df, use_hmm=use_hmm, profile=profile)
+        ins = ns2.generate_signals_v2(df.copy(), ins_regimes, agree, None, None, 0, profile=profile)
         ins = ns2.apply_stops(ins)
         ins["daily_return"] = ins["close"].pct_change()
         ins["strategy_return"] = ins["effective_pos"].shift(1) * ins["daily_return"]
