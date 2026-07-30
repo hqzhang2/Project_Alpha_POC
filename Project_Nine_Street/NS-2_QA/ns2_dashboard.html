@@ -420,6 +420,8 @@ async function selectTicker(ticker, days) {
     renderActiveCard();
     updateMacro();
     syncHover(-1);
+    // Refresh pill from cached signal
+    loadWatchlist();
     // Align timeline & signal bars with RSI chart data area
     setTimeout(() => {
       const rsi = chartInstances.rsi;
