@@ -651,12 +651,18 @@ function renderActiveCard() {
   const today = c.dates[c.dates.length-1];
   const rc = REGIME_COLORS[c.regime[c.regime.length-1]]||'#7ec8e3';
   const pb = REGIME_PLAYBOOK[c.active_regime] || {title:'Strategy Active', action:''};
-  document.getElementById('activeCard').style.borderLeftColor = rc;
+  const gate = c.gate || {};
+  const gated = gate.gated;
+  const sigColor = gated ? '#666' : rc;
+  const sigTag = gated
+    ? `<span style="font-size:9px;color:#888;margin-left:4px">NO OOS EDGE · PF ${(gate.profit_factor||0).toFixed(2)}</span>`
+    : '';
+  document.getElementById('activeCard').style.borderLeftColor = gated ? '#555' : rc;
   document.getElementById('activeCard').innerHTML = `
-    <div class="ac-date">${today} · <span style="color:${rc};font-weight:700">${c.active_regime}</span></div>
+    <div class="ac-date">${today} · <span style="color:${rc};font-weight:700">${c.active_regime}</span>${sigTag}</div>
     <div class="ac-header">
-      <div class="ac-title">${pb.title}</div>
-      <div class="ac-btn" style="background:rgba(118,228,196,.08);color:${rc};border-color:${rc}">${c.active_signal}</div>
+      <div class="ac-title">${gated ? 'Signal Withheld' : pb.title}</div>
+      <div class="ac-btn" style="background:rgba(118,228,196,.08);color:${sigColor};border-color:${sigColor}">${c.active_signal}</div>
     </div>
     <div class="ac-metrics">
       <div class="ac-metric"><div class="ac-val">$${c.last_close}</div><div class="ac-lbl">CLOSE</div></div>
@@ -664,7 +670,7 @@ function renderActiveCard() {
       <div class="ac-metric"><div class="ac-val" style="color:${rc}">${c.active_cci}</div><div class="ac-lbl">CCI 20</div></div>
       <div class="ac-metric"><div class="ac-val" style="color:${rc}">↗ ${c.active_regime}</div><div class="ac-lbl">REGIME</div></div>
     </div>
-    <div class="ac-rule">${pb.action}</div>`;
+    <div class="ac-rule">${gated ? 'Walk-forward shows no OOS edge — trade signal suppressed.' : pb.action}</div>`;
 
   }
 

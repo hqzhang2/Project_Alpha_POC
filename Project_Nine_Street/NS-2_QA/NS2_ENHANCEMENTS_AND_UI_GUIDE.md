@@ -209,3 +209,32 @@ PORT=9228 python3 qa_server.py
 | `ns2_signal_cache.json` | Signal cache |
 | `NS2_ENHANCEMENTS_AND_UI_GUIDE.md` | This document |
 
+---
+
+## Part 8: Phase 4 — Acceptance Gates
+
+### Gate Semantics
+
+Walk-forward results (`ns2_walkforward_results.json`) feed the acceptance gate:
+
+| Verdict | Gate Behavior |
+|---|---|
+| **PASS** | Live signal shown normally |
+| **MARGINAL** | Live signal shown normally (PF ≥ 1.0, defensible) |
+| **NO-EDGE** | Signal withheld → pill/cache/active card show `NO-EDGE` (#666 gray). Charts remain fully visible |
+| **UNTESTED** | No results file → fail-open: no gating applied |
+
+### Gated Tickers (July 30, 2026): AAPL, AMZN, TSLA
+
+These three show `NO-EDGE` signals until their walk-forward PF crosses 1.0.
+
+### Weekly Refresh
+
+```
+launchd job: com.ninestreet.ns2.walkforward
+Schedule:   Saturdays 08:00 (auto-apply verdicts)
+Logs:       logs/walkforward.{out,err}.log (gitignored)
+Manual:     launchctl kickstart gui/$(id -u)/com.ninestreet.ns2.walkforward
+Script:     run_weekly_walkforward.sh
+```
+

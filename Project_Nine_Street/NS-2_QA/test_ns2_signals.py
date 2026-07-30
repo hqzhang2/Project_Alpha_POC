@@ -273,3 +273,61 @@ class TestConfidenceSizing:
         out = ns2.generate_signals_v2(df, np.full(5, 2), np.ones(5), None, None, 0)
         assert out["signal"].iloc[2] == -1
         assert np.isclose(out["position_size"].iloc[2], ns2.POSITION_CRISIS)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Acceptance gates (Phase 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import tempfile, json as _json
+
+def _make_wf_json(verdicts_dict, path):
+    """Write a synthetic walk-forward JSON for testing gates."""
+    results = [{"ticker": t, "verdict": v, "profit_factor": 1.0, "sharpe": 0.5}
+               for t, v in verdicts_dict.items()]
+    data = {"generated": "synthetic", "config": {}, "results": results}
+    path.write_text(_json.dumps(data))
+
+class TestAcceptanceGate:
+    def test_no_edge_ticker_gated(self, monkeypatch, tmp_path):
+        wf = tmp_path / "synthetic_wf.json"
+        _make_wf_json({"TSLA": "NO-EDGE", "GOOGL": "PASS"}, wf)
+        monkeypatch.setattr(ns2, "WF_RESULTS_PATH", str(wf))
+        lab, gi = ns2.apply_acceptance_gate("TSLA", "BUY")
+        assert lab == "NO-EDGE"
+        assert gi["gated"] is True
+        assert gi["verdict"] == "NO-EDGE"
+
+    def test_pass_ticker_ungated(self, monkeypatch, tmp_path):
+        wf = tmp_path / "synthetic_wf.json"
+        _make_wf_json({"GOOGL": "PASS"}, wf)
+        monkeypatch.setattr(ns2, "WF_RESULTS_PATH", str(wf))
+        lab, gi = ns2.apply_acceptance_gate("GOOGL", "SELL")
+        assert lab == "SELL"
+        assert gi["gated"] is False
+        assert gi["verdict"] == "PASS"
+
+    def test_marginal_ticker_ungated(self, monkeypatch, tmp_path):
+        wf = tmp_path / "synthetic_wf.json"
+        _make_wf_json({"TLT": "MARGINAL"}, wf)
+        monkeypatch.setattr(ns2, "WF_RESULTS_PATH", str(wf))
+        lab, gi = ns2.apply_acceptance_gate("TLT", "SHORT")
+        assert lab == "SHORT"
+        assert gi["gated"] is False
+        assert gi["verdict"] == "MARGINAL"
+
+    def test_untested_ticker_ungated(self, monkeypatch, tmp_path):
+        wf = tmp_path / "synthetic_wf.json"
+        _make_wf_json({"AAPL": "PASS"}, wf)
+        monkeypatch.setattr(ns2, "WF_RESULTS_PATH", str(wf))
+        lab, gi = ns2.apply_acceptance_gate("ZZZ_MISSING", "WATCH")
+        assert lab == "WATCH"
+        assert gi["gated"] is False
+        assert gi["verdict"] == "UNTESTED"
+
+    def test_missing_file_passes_all(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ns2, "WF_RESULTS_PATH", str(tmp_path / "nope.json"))
+        lab, gi = ns2.apply_acceptance_gate("TSLA", "BUY")
+        assert lab == "BUY"
+        assert gi["gated"] is False
+        assert gi["verdict"] == "UNTESTED"
