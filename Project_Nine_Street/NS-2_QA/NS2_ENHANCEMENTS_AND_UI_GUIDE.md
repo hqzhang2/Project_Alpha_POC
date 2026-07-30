@@ -1,390 +1,211 @@
-# NS-2 MAG7 HMM Regime Strategy — 7 Enhancements & UI Guide
+# NS-2 MAG7 HMM Regime Strategy — Enhancements & UI Guide
 
 > **Project**: Project Alpha POC / Nine Street  
 > **Service**: NS-2 QA (port 9229) | NS-2 PROD (port 9228)  
-> **Branch**: `feature/v1.8`  
-> **Last Updated**: July 2026
+> **Branch**: `feature/v2.1`  
+> **Last Updated**: July 30, 2026 — Phase 3 complete
 
 ---
 
-## Part 1: The 7 Enhancements to the Original MAG7 Model
+## Part 1: Enhancement Summary (Post-Phase 3 — Current State)
 
-The original MAG7 model was a basic HMM-based regime detector with simple signal logic. The current `qa_server.py` implements **7 specific improvements** (documented in the file's module docstring and throughout the code as `Improvement #N` comments).
+The v2 pipeline implements a **3-state HMM regime detector** with ensemble voting,
+asset-class parameter profiles, momentum-aware signal logic, confidence-weighted
+sizing, trailing stops, and a walk-forward backtest harness for honest OOS evaluation.
 
----
+### Architecture (qa_server.py)
 
-### **Improvement #1: 3-State HMM + 8-Feature Expanded Observation Vector**
-
-**What changed**: Reduced from 4 HMM states → **3 stable states**; expanded from ~4 features → **8 features**.
-
-| State | Label | Description | Color |
-|-------|-------|-------------|-------|
-| 0 | **TRENDING** | Strong directional move with ADX confirmation | `#76e4c4` (green) |
-| 1 | **MEAN_REV** | Range-bound, oversold/overbought bounces | `#7ec8e3` (blue) |
-| 2 | **CRISIS** | High volatility, capital preservation mode | `#ff6b6b` (red) |
-
-**Why 3 states?** 4-state HMM labels were **unstable across random seeds** (see session `20260722_112341_3d1ac7` — state mapping flipped wildly with seeds 42/123/456). 3 states are more robust with ~125 bars of data.
-
-**8 Features (FEATURE_COLS)**:
-```python
-FEATURE_COLS = [
-    "log_return",       # Daily log return
-    "rolling_vol",      # 10-day rolling volatility of returns
-    "vol_ratio",        # Current vol / 20-day median vol
-    "bb_position",      # Position within Bollinger Bands (-1 to +1)
-    "adx",              # Average Directional Index (trend strength)
-    "ma_distance",      # Distance from 50-day SMA (normalized)
-    "atr_ratio",        # ATR / Close (normalized volatility)
-    "volume_z",         # Volume z-score (20-day)
-]
+```
+fetch_ohlcv(ticker, 750d) → add_rich_features(8 cols)
+  → get_regimes(profile=asset_class)    [HMM ensemble or rule-based fallback]
+  → generate_signals_v2(profile=...)    [regime-specific + momentum short-ban]
+  → apply_stops                        [trailing ATR stop]
+  → backtest → apply_dd_breaker        [drawdown circuit breaker]
+  → add_signal_labels_v2               [signal-derived labels, hooked to backtest array]
+  → performance_summary                [long+short trade counting]
 ```
 
-**Original**: Only `log_return`, `rolling_vol`, `atr_ratio` (3 features).
+### Key Parameters (Module-Level Constants)
 
----
+| Constant | Value | Phase |
+|---|---|---|
+| `LOOKBACK_DAYS` | 750 (was 180) | Phase 2 |
+| `HMM_COVARIANCE` | `"diag"` (was `"full"`) | Phase 2 |
+| `HMM_STATES` | 3 | Phase 1 |
+| `HMM_ENSEMBLE_N` | 5 | Phase 1 |
+| `PERSISTENCE_DEFAULT` | 3 | Phase 1 |
+| `CCI_ENTRY / CCI_EXIT` | 100 / 0 | — |
+| `RSI_OVERSOLD / RSI_OVERBOUGHT` | 30 / 70 | — |
+| `POSITION_CRISIS` | 0.10 | — |
+| `MAX_DRAWDOWN` | −0.15 | — |
 
-### **Improvement #2: Confidence-Weighted Position Sizing**
+### Asset-Class Profiles (Phase 2)
 
-**File**: `size_by_confidence()` (lines 383–404) + integrated into `generate_signals_v2()`
+| Class | Example Tickers | vol_crisis | vol_trend | trend_threshold | cci_short |
+|---|---|---|---:|---:|---:|---:|
+| equity | AAPL, NVDA, MU | 0.030 | 0.012 | 0.030 | −250 |
+| bond | TLT, IEF, AGG | 0.012 | 0.006 | 0.015 | −200 |
+| commodity | GLD, USO | 0.022 | 0.009 | 0.022 | −225 |
 
-**Logic**:
-```python
-base_sizes = {
-    0: 1.0,      # TRENDING  → 100% position
-    1: 0.60,     # MEAN_REV  → 60% position
-    2: 0.10,     # CRISIS    → 10% position (capital preservation)
-}
+### Phase 3 Signal Enhancements
 
-# Macro overlay
-if macro_filter == -1 (RISK_OFF):  base *= 0.5
-elif macro_filter == 1 (RISK_ON):  base = min(1.0, base * 1.2)
+- **Momentum short-ban**: MEAN_REV short (RSI>70) blocked when price > 50MA unless macro=RISK_OFF; shorts below 50MA still allowed. Fixes MU/TSLA fade-the-uptrend bleed.
+- **Confidence-weighted sizing**: ensemble agreement scales exposure 0.5×–1.0× per regime base size.
+- **Trailing ATR stops**: stop ratchets up with high-water close, never down (was anchored to entry price).
+- **Labels from signal array**: `add_signal_labels_v2` derives labels from the actual signal column (post-stops, post-persistence), not independently from RSI/CCI thresholds. Pill = chart = backtest position.
+
+### HMM State Mapping
+
+| State | Label | Color | Description |
+|---|---:|---:|---|
+| 0 | TRENDING | `#22c55e` (green) | CCI breakout + ADX confirmation |
+| 1 | MEAN_REV | `#7ec8e3` (blue) | RSI fade + Bollinger confirmation |
+| 2 | CRISIS | `#ff6b6b` (red) | Capital preservation |
+
+### 8 Features
+
+```
+log_return, rolling_vol, vol_ratio, bb_position, adx, ma_distance, atr_ratio, volume_z
 ```
 
-**Result**: Position size adapts to both regime confidence AND macro environment. CRISIS regime only takes tiny shorts (CCI < -250).
+### Signal Color Map (pill = dashboard = legend = bars = prompt)
+
+| Label | Color |
+|---|---|
+| BUY | `#22c55e` |
+| SELL | `#ff6b6b` |
+| SHORT | `#ff6b6b` |
+| EXIT | `#ffd166` |
+| HOLD LONG | `#7ec8e3` |
+| FLAT | `#444` |
+| WATCH | `#c9a6ff` |
 
 ---
 
-### **Improvement #3: Multi-Factor Signal Confirmation**
+---
 
-**File**: `generate_signals_v2()` (lines 392–446)
+## Part 2: Walk-Forward Results (Phase 3 — July 30, 2026)
 
-Each regime has **distinct entry/exit logic** — no more one-size-fits-all:
+Honest OOS evaluation via `ns2_backtest.py` (3y, 10bps costs, causal HMM):
 
-| Regime | Entry Condition | Exit Condition | Position Size |
-|--------|-----------------|----------------|---------------|
-| **TRENDING (0)** | CCI crosses **above +100** | CCI drops **below 0** | 100% |
-| **MEAN_REV (1)** | RSI < **30** (oversold) | RSI > **70** (overbought) or RSI 45–55 (mean) | 60% |
-| **CRISIS (2)** | CCI < **-250** (extreme panic only) | Regime change | 10% (short only) |
+| Ticker | OOS Ret% | Sharpe | Win% | PF | Verdict |
+|---|---:|---:|---:|---:|---|
+| GOOGL | +52.8 | 2.68 | 88.9 | 15.01 | **PASS** |
+| MSFT | +19.8 | 2.34 | 100.0 | ∞ | **PASS** |
+| MU | +43.4 | 0.76 | 55.6 | 2.66 | MARGINAL |
+| META | +11.4 | 0.57 | 47.1 | 1.69 | MARGINAL |
+| NVDA | +8.2 | 0.47 | 30.0 | 1.45 | MARGINAL |
+| TLT | −2.9 | −0.39 | 46.2 | 1.17 | MARGINAL |
+| AAPL | −10.0 | −0.46 | 43.8 | 0.75 | NO-EDGE |
+| AMZN | −9.1 | −0.43 | 28.6 | 0.83 | NO-EDGE |
+| TSLA | −26.9 | −1.41 | 25.0 | 0.06 | NO-EDGE |
 
-**Circuit Breakers** (applied to all regimes):
-- **Vol expansion**: `vol_ratio > 3.0` → force FLAT (signal = 0)
-- **Crisis regime entry**: If regime=2 AND previous signal=1 → force EXIT (signal = 0)
+**Aggregate**: avg OOS ret +9.7%, avg Sharpe +0.46, win rate 51.7%, 2/9 PASS.
+
+Acceptance gates: PF ≥ 1.5 AND Sharpe ≥ 1.0 → PASS; PF ≥ 1.0 → MARGINAL; else NO-EDGE.
+
+Re-run: `python3 ns2_backtest.py --years 3 --out ns2_walkforward_results.json`
 
 ---
 
-### **Improvement #4: VIX Macro Overlay (Risk-On / Risk-Off Filter)**
-
-**File**: `get_macro_filter()` (lines 355–385)
-
-| VIX Level | SPY > SMA50 | Macro Filter | Effect |
-|-----------|-------------|--------------|--------|
-| VIX < 15 | Yes | **RISK_ON (1)** | Boost sizes +20% |
-| VIX > 25 | Any | **RISK_OFF (-1)** | Halve all sizes |
-| Else | Any | **NEUTRAL (0)** | Base sizes |
-
-**Cached** for 5 minutes (`CACHE_TTL = 300`). Used by `generate_signals_v2()` and `run_all()`.
-
----
-
-### **Improvement #5: Adaptive Persistence Filter**
-
-**File**: `apply_adaptive_persistence()` (lines 292–312)
-
-**Problem**: HMM can flip-flop between states on noisy bars.
-
-**Solution**: Require **N consecutive bars** of new regime before accepting transition:
-
-| ATR Ratio | Market Condition | Persistence Required |
-|-----------|------------------|---------------------|
-| > 0.03 | High volatility / Crisis | **2 bars** (fast) |
-| < 0.01 | Low volatility / Trend | **5 bars** (slow) |
-| Else | Normal | **3 bars** (default) |
-
----
-
-### **Improvement #6: ATR Trailing Stops + Drawdown Circuit Breaker**
-
-**File**: `apply_stops()` (lines 449–471)
-
-| Mechanism | Parameters | Trigger |
-|-----------|------------|---------|
-| **ATR Trailing Stop** | 3 × ATR from entry price | Close < entry - 3×ATR → force EXIT |
-| **Drawdown Circuit Breaker** | `MAX_DRAWDOWN = -15%` | Equity drawdown > 15% → force EXIT all longs |
-
-Applied **after** backtest equity curve is computed (post-signal).
-
----
-
-### **Improvement #7: HMM Ensemble (5 Models, Majority Vote + Agreement Score)**
-
-**File**: `fit_hmm_ensemble()` (lines 247–295)
-
-| Parameter | Value |
-|-----------|-------|
-| **Ensemble size** | 5 models (`HMM_ENSEMBLE_N = 5`) |
-| **Seeds** | 42, 43, 44, 45, 46 |
-| **Aggregation** | Majority vote per bar (`scipy.stats.mode`) |
-| **Agreement score** | Fraction of models agreeing with majority (0.0–1.0) |
-| **Reference model** | Seed 42 (used for `predict_proba` if needed) |
-
-**Why**: Single HMM fit is seed-dependent. Ensemble smooths label instability.
-
----
-
-## Summary: Original vs Enhanced
-
-| Aspect | Original MAG7 Model | Enhanced NS-2 (7 Improvements) |
-|--------|---------------------|--------------------------------|
-| HMM States | 4 (unstable labels) | **3 (TRENDING, MEAN_REV, CRISIS)** |
-| Features | 3 basic | **8 expanded** |
-| Position Sizing | Fixed / binary | **Confidence + macro weighted** |
-| Signal Logic | One rule for all | **Regime-specific multi-factor** |
-| Macro Filter | None | **VIX + SPY trend overlay** |
-| Regime Persistence | None | **Adaptive (2–5 bars by vol)** |
-| Risk Management | None | **ATR stops + DD circuit breaker** |
-| HMM Stability | Single fit | **5-model ensemble + agreement** |
-| Python 3.9 Compat | Broken (`kurtosis()`) | **Fixed (scipy.stats)** |
-
----
-
-## Part 2: NS-2 Dashboard UI Guide
+## Part 3: Dashboard UI Guide
 
 > **URL**: `http://localhost:9229/` (QA)  
 > **Dashboard File**: `Project_Nine_Street/NS-2_QA/ns2_dashboard.html`
 
----
+### Config Strip (Top)
+
+Shows live config from `/api/config`: asset classes (`equity/bond/commodity`), HMM covariance type (`diag`), lookback window (`750d`). Values in Monaco/monospace, 10px, `var(--sub)`.
 
 ### 1. Header & Macro Badge
 
-| Element | Description |
-|---------|-------------|
-| **Title** | `mag7 hmm` |
-| **Macro Badge** | Shows current VIX regime: 🟢 RISK_ON · 🟡 NEUTRAL · 🔴 RISK_OFF (with VIX thresholds) |
-| **QA Badge** | `QA :9229` (green badge = QA environment) |
+- **Title**: `HMM Regime Strategy`
+- **Macro Badge**: VIX regime: RISK_ON / NEUTRAL / RISK_OFF (with thresholds)
+- **QA Badge**: `QA :9229`
+
+### 2. Ticker Pills
+
+MAG7 + any watchlist additions. Active pill gets a colored border. Signal-colored pills from cached signals.
+
+### 3. Charts
+
+| Chart | Content |
+|---|---|
+| **Price** | Close line `#4ade80`, regime-colored timeline bar below |
+| **RSI (14)** | Histogram: green <30, red >70, grey 30–70 |
+| **CCI (20)** | Line with signal-colored dots |
+| **Signal History** | Horizontal bar, colors from `SIGNAL_COLORS` map |
+| **Regime Timeline** | Segments, clickable; hover cross-references inspectPrompt |
+
+### 4. Strategy Rules & Active Card
+
+Auto-populated from `/api/ticker`. Active card shows current close, RSI, CCI, regime, signal.
 
 ---
 
-### 2. Ticker Pills (Horizontal Scroll)
+## Part 4: API Endpoints
 
-| Ticker | Color | Action |
-|--------|-------|--------|
-| **AAPL** | `#a8d8a8` | Click to load |
-| **MSFT** | `#7ec8e3` | Click to load |
-| **NVDA** | `#76e4c4` | Click to load |
-| **GOOGL** | `#f7c59f` | Click to load |
-| **AMZN** | `#ffb347` | Click to load |
-| **META** | `#c9a6ff` | Click to load |
-| **TSLA** | `#ff6b6b` | Click to load |
-
-**Active pill** = colored border. Scroll horizontally on mobile.
-
----
-
-### 3. Stock Header (Updates on Ticker Select)
-
-| Field | Example |
-|-------|---------|
-| **Name** | `NVDA (Nvidia)` |
-| **Meta** | `XLK · QA` |
-| **Price** | `$452.31` |
-| **Price Label** | `LAST` |
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/` | GET | Dashboard HTML |
+| `/health` | GET | `{status, port, hmm_ensemble, features}` |
+| `/api/macro` | GET | VIX/SPY macro filter |
+| `/api/config` | GET | `{lookback_days, hmm_covariance, asset_profiles, ...}` |
+| `/api/backtest` | GET | Latest walk-forward results (404 if not run) |
+| `/api/ticker?ticker=SYM` | GET | `{chart, performance}` |
+| `/api/run_all` | GET | Batch all watchlist tickers |
+| `/api/watchlist` | GET/POST | Manage watchlist |
 
 ---
 
-### 4. Regime Cards (3 Cards — One Per Regime)
+## Part 5: Walk-Forward Harness
 
-Each card shows:
-- **Label** (TRENDING / MEAN_REV / CRISIS)
-- **Description** (from `REGIME_META.desc`)
-- **Days in Window** (last 90 days count)
-
-Color-coded left border matches regime color.
-
----
-
-### 5. Charts Grid (2-Column on Desktop ≥768px, 1-Column Mobile)
-
-| Chart | Type | Key Visuals |
-|-------|------|-------------|
-| **Price & Regime** (full width) | Line + colored regime segments | Regime-colored line, clickable timeline bar below |
-| **RSI (14)** | Histogram | 🟢 Green <30 (oversold) · 🔴 Red >70 (overbought) · Grey 30–70 |
-| **CCI (20) + Signal Dots** | Line + scatter | Signal dots: 🟢 BUY · 🔴 SHORT/SELL · 🟡 EXIT · 🔵 HOLD · ⚪ FLAT · 🟣 WATCH |
-| **Signal History** (full width) | Horizontal bar chart | Click any bar to inspect |
-
-**Price Chart Timeline Bar** (below price chart):
-- Colored segments = regime timeline
-- **Click any segment** → tooltip with date, regime, price, RSI, CCI, signal
-
----
-
-### 6. Signal Legend (Below Signal History)
-
-| Dot Color | Label | Meaning |
-|-----------|-------|---------|
-| `#76e4c4` | BUY | Long entry |
-| `#ff6b6b` | SHORT / SELL | Short entry / Long exit |
-| `#ffd166` | EXIT | Close position |
-| `#7ec8e3` | HOLD LONG | Stay long |
-| `#444` | FLAT | No position |
-| `#c9a6ff` | WATCH | Monitoring, no action |
-
----
-
-### 7. Strategy Rules Table
-
-Auto-populated from backend (`/api/ticker` → `strategy_rules`):
-
-| Regime | Entry | Exit | Size | Direction |
-|--------|-------|------|------|-----------|
-| **TRENDING** | CCI crosses above +100 | CCI drops below 0 | 100% | LONG |
-| **MEAN_REV** | RSI < 30 / RSI > 70 | RSI returns to 45–55 | 60% | BOTH |
-| **CRISIS** | CCI < -250 (extreme only) | Regime change | 10% | SHORT/FLAT |
-
----
-
-### 8. Active Strategy Card (Bottom)
-
-Shows **real-time snapshot** for selected ticker:
-
-| Field | Source |
-|-------|--------|
-| **Date** | Most recent bar |
-| **Regime** | Current regime label + color |
-| **RSI 14** | Value + color (green/red/grey) |
-| **CCI 20** | Value |
-| **Active Signal** | BUY / SELL / EXIT / HOLD / FLAT / WATCH |
-| **Rule Text** | Human-readable rule that fired |
-
-**Button**: `⚡ AI REGIME ANALYSIS` — placeholder (triggers alert, backend not yet implemented).
-
----
-
-### 9. Keyboard / Interaction Shortcuts
-
-| Action | How |
-|--------|-----|
-| Switch ticker | Click pill or press number key 1–7 (if implemented) |
-| Inspect regime | Click any segment on **Price Chart** timeline bar |
-| Inspect signal | Click any dot on **CCI chart** or **Signal History bar** |
-| Refresh macro | Auto-refreshes every 5 min; manual: refresh page |
-| View all MAG7 | Click `Run All` via `/api/run_all` (not directly in UI) |
-
----
-
-### 10. API Endpoints (For Programmatic Use)
-
-| Endpoint | Method | Params | Returns |
-|----------|--------|--------|---------|
-| `/` | GET | — | Dashboard HTML |
-| `/health` | GET | — | Service status, HMM config |
-| `/api/macro` | GET | — | `{macro_filter, label, vix_high, vix_low}` |
-| `/api/ticker` | GET | `ticker=SYM`, `hmm=0\|1` | `{chart: {...}, performance: {...}}` |
-| `/api/run_all` | GET | `hmm=0\|1` | `{results[], summary_table[], aggregate{}, macro_filter, config{}}` |
-
-**Example**:
 ```bash
-# Single ticker with HMM (default)
-curl "http://localhost:9229/api/ticker?ticker=NVDA"
-
-# Disable HMM (rule-based fallback)
-curl "http://localhost:9229/api/ticker?ticker=NVDA&hmm=0"
-
-# Batch all 7
-curl "http://localhost:9229/api/run_all"
+cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-2_QA
+python3 ns2_backtest.py --years 3 --out ns2_walkforward_results.json
+python3 ns2_backtest.py --tickers TLT MU --years 4 --cost-bps 15 --rule-based
 ```
 
----
-
-### 11. Configuration Knobs (Top of `qa_server.py`)
-
-| Constant | Default | Purpose |
-|----------|---------|---------|
-| `HMM_STATES` | 3 | Number of HMM regimes |
-| `HMM_ENSEMBLE_N` | 5 | Ensemble size |
-| `HMM_ITERATIONS` | 2000 | Max EM iterations |
-| `PERSISTENCE_DEFAULT` | 3 | Base persistence bars |
-| `CCI_ENTRY` | 100 | CCI breakout threshold |
-| `CCI_EXIT` | 0 | CCI exit threshold |
-| `CCI_SHORT` | -250 | CRISIS short threshold |
-| `RSI_OVERSOLD` | 30 | MEAN_REV buy |
-| `RSI_OVERBOUGHT` | 70 | MEAN_REV sell |
-| `POSITION_CRISIS` | 0.10 | CRISIS position size |
-| `MAX_DRAWDOWN` | -0.15 | Circuit breaker |
-| `VIX_HIGH` | 25 | RISK_OFF threshold |
-| `VIX_LOW` | 15 | RISK_ON threshold |
-| `LOOKBACK_DAYS` | 180 | Data window |
+Then `/api/backtest` serves the JSON. Results feed into `/api/config` to display next to ticker pills.
 
 ---
 
-### 12. Running the Service
+## Part 6: Tests
 
 ```bash
-# QA (port 9229)
+python3 -m pytest test_ns2_signals.py -v   # 33 tests, <2s, no network
+```
+
+Covers: `classify_asset`, `add_signal_labels_v2`, `apply_stops` (trail fire/no-fire), `performance_summary` (long+short), `bt.verdict` (all branches), momentum short-ban (3 branches), confidence sizing.
+
+---
+
+## Part 7: Running the Service
+
+```bash
+# development (manual)
 cd /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-2_QA
 python3 qa_server.py
 
-# PROD (port 9228) — same code, different PORT env
+# QA (launchd-managed)
+launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns2.qa
+
+# PROD
 PORT=9228 python3 qa_server.py
-
-# Via launchd (auto-restart)
-launchctl load ~/Library/LaunchAgents/com.ninestreet.ns2.qa.plist
 ```
 
 ---
 
-### 13. Known Issues / TODOs
-
-| Issue | Status |
-|-------|--------|
-| **AI Regime Analysis button** | Placeholder only — no backend yet |
-| **No auth** | Open on LAN; add reverse proxy + auth for prod |
-| **Single-threaded HTTP server** | `http.server` — not for high concurrency |
-| **yfinance rate limits** | Batch calls may hit limits; consider caching layer |
-| **No unit tests** | Coverage = 0% (see `TEST_COVERAGE_REVIEW.md`) |
-
----
-
-## Quick Reference: Regime → Signal Mapping
-
-```
-┌──────────────┬─────────────────────────────────────────────────────────────┐
-│ REGIME       │ SIGNAL LOGIC                                                │
-├──────────────┼─────────────────────────────────────────────────────────────┤
-│ TRENDING (0) │ CCI > +100 → BUY (100%)                                     │
-│              │ CCI < 0 → EXIT                                             │
-│              │ Vol ratio > 3 → FLAT                                       │
-├──────────────┼─────────────────────────────────────────────────────────────┤
-│ MEAN_REV (1) │ RSI < 30 → BUY (60%)                                       │
-│              │ RSI > 70 → SELL                                            │
-│              │ RSI 45–55 → EXIT                                           │
-│              │ Vol ratio > 3 → FLAT                                       │
-├──────────────┼─────────────────────────────────────────────────────────────┤
-│ CRISIS (2)   │ CCI < -250 → SHORT (10%)                                   │
-│              │ Else → FLAT                                                │
-│              │ Entering CRISIS while LONG → FORCE EXIT                    │
-└──────────────┴─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Files in This Package
+## Files
 
 | File | Purpose |
-|------|---------|
-| `qa_server.py` | Full backend (HMM, signals, backtest, HTTP server) |
-| `ns2_dashboard.html` | Single-file dashboard (Chart.js, no build step) |
+|---|---|
+| `qa_server.py` | Full pipeline (HMM, signals, backtest, HTTP server) |
+| `ns2_dashboard.html` | Single-file dashboard (Chart.js v4.4) |
+| `ns2_backtest.py` | Walk-forward harness (standalone, no server dependency) |
+| `test_ns2_signals.py` | Unit tests (33 tests, pure functions) |
+| `ns2_walkforward_results.json` | Latest walk-forward output |
+| `ns2_watchlist.json` | Watchlist state |
+| `ns2_signal_cache.json` | Signal cache |
 | `NS2_ENHANCEMENTS_AND_UI_GUIDE.md` | This document |
 
----
-
-*End of document*

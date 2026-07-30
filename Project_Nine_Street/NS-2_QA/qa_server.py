@@ -904,6 +904,27 @@ class NS2Handler(SimpleHTTPRequestHandler):
             })
             return
 
+        # Active config snapshot
+        if path == "/api/config":
+            self._json(200, {
+                "lookback_days": LOOKBACK_DAYS,
+                "hmm_covariance": HMM_COVARIANCE,
+                "hmm_states": HMM_STATES,
+                "hmm_ensemble": HMM_ENSEMBLE_N,
+                "asset_profiles": sorted(ASSET_PROFILES.keys()),
+            })
+            return
+
+        # Walk-forward results (latest run)
+        if path == "/api/backtest":
+            wf_path = os.path.join(os.path.dirname(__file__), "ns2_walkforward_results.json")
+            if os.path.exists(wf_path):
+                with open(wf_path) as f:
+                    self._json(200, json.load(f))
+            else:
+                self._json(404, {"error": "No walk-forward results yet; run ns2_backtest.py first"})
+            return
+
         # Run single ticker
         if path == "/api/ticker":
             ticker = qs.get("ticker", [None])[0]
