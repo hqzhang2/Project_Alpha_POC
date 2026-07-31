@@ -209,6 +209,18 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({}, error=e)
                 return
 
+        # Health check endpoint
+        if path == '/health':
+            port = int(os.environ.get('PORT', getattr(config, 'DEFAULT_PORT', 9098)))
+            self.send_json({
+                "status": "ok",
+                "service": "alpha-terminal",
+                "port": port,
+                "version": "1.3.3",
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+            return
+
         filename = path[1:] if path != '/' else 'dashboard.html'
         if os.path.exists(filename):
             if filename.endswith('.html'):

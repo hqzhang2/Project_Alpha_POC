@@ -32,7 +32,8 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
 .pills{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none;align-items:flex-start}
 .pills::-webkit-scrollbar{display:none}
 .pill{padding:6px 14px;border-radius:14px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent;background:var(--panel);color:var(--sub);transition:all .15s}
-.pill.active{border-color:currentColor;background:transparent}
+.pill.active{border-color:currentColor;background:transparent;position:relative}
+.pill.active::after{content:"";position:absolute;bottom:-8px;left:6px;right:6px;height:2px;background:#ffb347;border-radius:1px}
 
 /* Stock header */
 .stock-hdr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
