@@ -141,7 +141,7 @@ h2{font-size:14px;font-weight:600;margin:16px 0 8px}
   <h3>Price · RSI · CCI</h3>
   <div class="chart-stack">
     <canvas id="chartPrice" style="height:220px"></canvas>
-    <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
+    <canvas id="chartRegimeTimeline" style="height:55px;width:100%;margin-bottom:6px"></canvas>
     <div style="display:flex;gap:12px;padding:4px 0 4px 0;font-size:11px;color:var(--sub)">
       <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>TRENDING</span>
       <span class="legend-item"><span class="legend-dot" style="background:#7ec8e3"></span>MEAN_REV</span>
@@ -430,17 +430,6 @@ async function selectTicker(ticker, days) {
     syncHover(-1);
     // Refresh pill from cached signal
     loadWatchlist();
-    // Align timeline & signal bars with RSI chart data area
-    setTimeout(() => {
-      const rsi = chartInstances.rsi;
-      if (rsi && rsi.chartArea) {
-        const tl = document.getElementById('regimeTimeline');
-        if (tl) {
-          tl.style.marginLeft = Math.max(rsi.chartArea.left - 12, 0) + 'px';
-          tl.style.marginRight = Math.max(rsi.width - rsi.chartArea.right - 12, 0) + 'px';
-        }
-      }
-    }, 150);
   } catch(e) {
     document.getElementById('stockHeader').innerHTML = '<div class="loader" style="color:var(--red)">⚠ '+e.message+'</div>';
   } finally {
@@ -518,24 +507,34 @@ function renderPriceChart() {
   });
 }
 
-// ── Regime timeline bar ──
+// ── Regime timeline bar (mirrors signal bar implementation) ──
 const REGIME_NAMES = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'};
 function renderRegimeTimeline() {
-  const el = document.getElementById('regimeTimeline');
-  el.innerHTML = chartData.regime_timeline.map((r,i) =>
-    `<span class="seg" style="background:${REGIME_COLORS[r.regime]||r.color}" data-idx="${i}"></span>`
-  ).join('');
-  el.querySelectorAll('.seg').forEach(seg => {
-    seg.addEventListener('mousemove', e => {
-      const i = +seg.dataset.idx;
-      syncHover(i);
-      inspectBar(i);
-    });
-    seg.addEventListener('mouseleave', () => {
-      document.getElementById('inspectPrompt').innerHTML = '↑ Hover any chart or timeline bar to cross-reference';
-      document.getElementById('inspectPrompt').style.border = '1px dashed var(--border)';
-      syncHover(-1);
-    });
+  const ctx = makeCanvas('chartRegimeTimeline', 55);
+  chartInstances.regimeTimeline = new Chart(ctx, {
+    type:'bar', data:{labels:chartData.dates, datasets:[{
+      data:chartData.regime_timeline.map(r=>1),backgroundColor:chartData.regime_timeline.map(r=>REGIME_COLORS[r.regime]||r.color),borderRadius:0,borderWidth:0
+    }]},
+    options:{
+      ...dc(),
+      plugins:{tooltip:{enabled:false},legend:{display:false}},
+      onHover(e){
+        const els=this.getElementsAtEventForMode(e,'index',{intersect:false});
+        const idx=els.length?els[0].index:-1;
+        syncHover(idx);
+        if(idx>=0) inspectBar(idx);
+        else{
+          document.getElementById('inspectPrompt').innerHTML='↑ Hover any chart or timeline bar to cross-reference';
+          document.getElementById('inspectPrompt').style.border='1px dashed var(--border)';
+        }
+      },
+      scales:{
+        ...dc().scales,
+        x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:8},maxTicksLimit:8}},
+        y:{display:false,min:0,max:1.2}
+      }
+    },
+    onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }
   });
 }
 
