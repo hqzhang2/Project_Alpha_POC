@@ -37,22 +37,32 @@ All services (Alpha Terminal + NS-1/2/3/4) share a single monorepo and single re
 
 ---
 
-## Branch Strategy
-| Environment | Branch Pattern | Purpose |
+## Branch Strategy (trunk-based, Model A)
+| Environment | Source | Purpose |
 |---|---|---|
-| QA | `feature/vX.Y` | Development, testing, commits allowed |
-| PROD | `release/vX.Y` | Stable, no commits, deployment source |
+| **Trunk** | `main` (protected) | Single integration line, always deployable. Merged via PR only. |
+| QA | `main` | QA services (9237 etc.) run trunk content; validated before each release |
+| PROD | **tag** `vX.Y.Z` | Immutable release snapshot. PROD runs ONE release older than QA. |
 
-**Critical rule:** Single release branch = single version for ALL services. No per-service release branches.
+**Critical rules:**
+- Single monorepo, single trunk (`main`). No per-service branches.
+- Feature work: short-lived `feature/*` branches → PR → merge to `main`. No direct pushes to `main`.
+- Releases: `git tag vX.Y.Z` on `main` → `deploy_prod.sh vX.Y.Z` checks out the tag into `_PROD` dirs.
+- `master` kept in sync with `main` (legacy default branch; both point at the same tip).
+- PROD is ONLY updated via the formal deploy (tag checkout + launchd reload). No mid-cycle PROD upgrades.
+
+**Branch protection (manual, once):** enable on GitHub → Settings → Branches → `main`:
+require pull request review (1), dismiss stale reviews, no force pushes, no deletions.
+(The GitHub App token lacks Administration scope; do this once with your own account.)
 
 ---
 
 ## Deployment Procedure
 
 ### Pre-Deployment Checklist
-- [ ] All QA testing passed on `feature/vX.Y`
-- [ ] Release branch `release/vX.Y` created from `feature/vX.Y`
-- [ ] Release branch pushed to origin
+- [ ] All QA testing passed on `main` (or the validated `feature/*` merged into it)
+- [ ] Release tag `vX.Y.Z` created on `main` (`git tag -a vX.Y.Z`)
+- [ ] Tag pushed to origin
 - [ ] Walk-forward backtest run for NS-2 (if applicable)
 - [ ] Changelog updated
 
@@ -61,36 +71,26 @@ All services (Alpha Terminal + NS-1/2/3/4) share a single monorepo and single re
 ```bash
 # 1. Verify current state
 git status                          # must be clean
-git fetch origin
+git fetch origin --tags
 
-# 2. Checkout release branch locally
-git checkout release/vX.Y           # e.g., release/v2.0
+# 2. Tag the release on main (if not already done)
+git tag -a vX.Y.Z -m "release vX.Y.Z"   # e.g., v2.2.0
 
-# 3. Deploy to ALL PROD directories
-git checkout release/vX.Y -- Project_Sequoia/terminal
-# NS-1 PROD (if directory exists)
-# git checkout release/vX.Y -- Project_Nine_Street/NS_1_PROD
-git checkout release/vX.Y -- Project_Nine_Street/NS-2_PROD
-git checkout release/vX.Y -- Project_Nine_Street/NS-3_PROD
-git checkout release/vX.Y -- Project_Nine_Street/NS-4_PROD
+# 3. Deploy the TAG to ALL PROD directories (immutable snapshot)
+./deploy_prod.sh vX.Y.Z
 
-# 4. Restart ALL PROD launchd services
-launchctl kickstart -k gui/$(id -u)/com.alpha.terminal.prod
-launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns1.prod
-launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns2.prod
-launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns3.prod
-launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns4.prod
-
-# 5. Verify ALL PROD health endpoints
+# 4. Verify ALL PROD health endpoints
 curl -s http://localhost:9098/health   # Alpha Terminal PROD
 curl -s http://localhost:9218/health   # NS-1 PROD
 curl -s http://localhost:9228/health   # NS-2 PROD
 curl -s http://localhost:9236/health   # NS-3 PROD
 curl -s http://localhost:9240/health   # NS-4 PROD
 
-# 6. Return to feature branch for continued development
-git checkout feature/vX.Y
+# 5. Return to main for continued development
+git checkout main
 ```
+
+Rollback: `./deploy_prod.sh vX.Y.Z-1` (previous tag).
 
 ### Automated Deploy Script
 ```bash
