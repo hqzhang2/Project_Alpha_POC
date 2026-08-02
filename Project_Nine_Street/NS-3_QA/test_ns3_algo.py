@@ -89,8 +89,8 @@ class TestTier2(unittest.TestCase):
 class TestTier3(unittest.TestCase):
     def test_deterministic_no_random(self):
         """Same data -> identical output; no np.random anywhere."""
-        symbols = [s["symbol"] for s in q.SECTORS] + ["SPY"]
-        with mock.patch.object(q, "get_weekly_ohlcv", side_effect=synth_ohlcv):
+        with mock.patch.object(q, "get_weekly_ohlcv", side_effect=synth_ohlcv), \
+             mock.patch.object(q, "get_piotroski", return_value=(8, {"ROA_positive": True})):
             a = q.run_tier3()
             b = q.run_tier3()
         self.assertEqual(a["sectors"], b["sectors"])  # payload deterministic (ignore timestamp)
@@ -99,21 +99,31 @@ class TestTier3(unittest.TestCase):
             for st in sec["stocks"]:
                 self.assertIn(st["decision"], ("BUY", "WATCH", "AVOID"))
                 self.assertIsInstance(st["rs26w"], float)
-                self.assertIsNone(st["fscore"])  # Piotroski deferred
-                self.assertIsNone(st["taScore"])
+                self.assertIsInstance(st["fscore"], int)
+                self.assertIsInstance(st["taScore"], int)
+                self.assertIn("fscoreBreakdown", st)
+                self.assertIn("taBreakdown", st)
 
-    def test_rs_percentile_drives_decision(self):
-        """Top-quartile RS -> BUY; positive RS -> WATCH; negative -> AVOID."""
-        symbols = [s["symbol"] for s in q.SECTORS] + ["SPY"]
-        with mock.patch.object(q, "get_weekly_ohlcv", side_effect=synth_ohlcv):
-            t1 = q.run_tier1()
-            t3 = q.run_tier3()
-        for sec in t3["sectors"]:
-            for st in sec["stocks"]:
-                if st["decision"] == "BUY":
-                    self.assertGreater(st["rs26w"], 0)
-                if st["rs26w"] <= 0:
-                    self.assertEqual(st["decision"], "AVOID")
+    def test_piotroski_screen_filters_rs_leaders(self):
+        """F-Score screen: high scores -> only RS leaders pass; low scores ->
+        fallback engages (top-3 by F-Score, PROD behavior)."""
+        with mock.patch.object(q, "get_weekly_ohlcv", side_effect=synth_ohlcv), \
+             mock.patch.object(q, "get_piotroski", return_value=(9, {})):
+            t3_high = q.run_tier3()
+        with mock.patch.object(q, "get_weekly_ohlcv", side_effect=synth_ohlcv), \
+             mock.patch.object(q, "get_piotroski", return_value=(4, {})):
+            t3_low = q.run_tier3()
+
+        for sec_high, sec_low in zip(t3_high["sectors"], t3_low["sectors"]):
+            # high F-Score: only the RS leaders (top ~25%) appear, all >= 7
+            self.assertGreaterEqual(len(sec_high["stocks"]), 1)
+            self.assertLessEqual(len(sec_high["stocks"]), 3)
+            for st in sec_high["stocks"]:
+                self.assertGreaterEqual(st["fscore"], q.PIOTROSKI_MIN)
+            # low F-Score: fallback to top-3 by F-Score still yields stocks
+            self.assertLessEqual(len(sec_low["stocks"]), 3)
+            for st in sec_low["stocks"]:
+                self.assertEqual(st["fscore"], 4)
 
 
 class TestHMM(unittest.TestCase):

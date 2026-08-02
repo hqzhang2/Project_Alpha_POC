@@ -57,6 +57,9 @@ RS_WEEKS = 26
 RS_PERCENTILE = 0.75          # top 25% of holdings by 26w RS
 HMM_BULL_THRESHOLD = 0.65
 TOP_N = 3                     # sectors passing Tier 1
+PIOTROSKI_MIN = 7             # minimum Piotroski F-Score to pass Tier 3 screen
+TA_SCORE_MIN = 3              # minimum TA score for BUY in Tier 3
+TIER3_TOP = 5                 # stocks returned per sector
 
 _cache = {}
 CACHE_TTL = 300
@@ -289,7 +292,138 @@ def run_tier2() -> dict:
     return {"generatedAt": datetime.utcnow().isoformat() + "Z", "etfs": etfs}
 
 
-# ── Tier 3: deterministic RS-26w percentile stock picks ──────────────────────
+# ── Tier 3: RS percentile → Piotroski F-Score → TA score (ported from PROD) ──
+
+def piotroski_fscore(ticker_obj) -> tuple:
+    """9-point Piotroski F-Score from yfinance fundamentals.
+    Ported verbatim from NS-3_PROD/backend/main.py. Returns (score, breakdown)."""
+    try:
+        info = ticker_obj.info
+        bs = ticker_obj.balance_sheet
+        inc = ticker_obj.income_stmt
+        cf = ticker_obj.cashflow
+
+        def get(df, *keys):
+            for k in keys:
+                if df is not None and k in df.index:
+                    vals = df.loc[k].dropna()
+                    return vals.iloc[0] if len(vals) > 0 else None
+            return None
+
+        def get2(df, *keys):
+            for k in keys:
+                if df is not None and k in df.index:
+                    vals = df.loc[k].dropna()
+                    cur = vals.iloc[0] if len(vals) > 0 else None
+                    pri = vals.iloc[1] if len(vals) > 1 else None
+                    return cur, pri
+            return None, None
+
+        net_income, ni_prior = get2(inc, "Net Income")
+        total_assets, ta_prior = get2(bs, "Total Assets")
+        op_cf = get(cf, "Operating Cash Flow", "Cash Flow From Operations")
+
+        roa_cur = (net_income / total_assets) if net_income and total_assets else None
+        roa_pri = (ni_prior / ta_prior) if ni_prior and ta_prior else None
+
+        f1 = int(roa_cur > 0) if roa_cur is not None else 0
+        f2 = int(op_cf > 0) if op_cf is not None else 0
+        f3 = int(roa_cur > roa_pri) if roa_cur is not None and roa_pri is not None else 0
+        f4 = int(op_cf > net_income) if op_cf and net_income else 0
+
+        ltd_cur, ltd_pri = get2(bs, "Long Term Debt", "Long-Term Debt")
+        ca_cur, ca_pri = get2(bs, "Current Assets")
+        cl_cur, cl_pri = get2(bs, "Current Liabilities")
+
+        lev_cur = (ltd_cur / total_assets) if ltd_cur and total_assets else None
+        lev_pri = (ltd_pri / ta_prior) if ltd_pri and ta_prior else None
+        liq_cur = (ca_cur / cl_cur) if ca_cur and cl_cur else None
+        liq_pri = (ca_pri / cl_pri) if ca_pri and cl_pri else None
+
+        f5 = int(lev_cur < lev_pri) if lev_cur is not None and lev_pri is not None else 0
+        f6 = int(liq_cur > liq_pri) if liq_cur is not None and liq_pri is not None else 0
+
+        so_cur, so_pri = get2(bs, "Ordinary Shares Number", "Share Issued")
+        f7 = int(so_cur <= so_pri) if so_cur is not None and so_pri is not None else 0
+
+        rev_cur, rev_pri = get2(inc, "Total Revenue")
+        cogs_cur, cogs_pri = get2(inc, "Cost Of Revenue", "Cost of Goods Sold")
+
+        gm_cur = ((rev_cur - cogs_cur) / rev_cur) if rev_cur and cogs_cur else None
+        gm_pri = ((rev_pri - cogs_pri) / rev_pri) if rev_pri and cogs_pri else None
+        at_cur = (rev_cur / total_assets) if rev_cur and total_assets else None
+        at_pri = (rev_pri / ta_prior) if rev_pri and ta_prior else None
+
+        f8 = int(gm_cur > gm_pri) if gm_cur is not None and gm_pri is not None else 0
+        f9 = int(at_cur > at_pri) if at_cur is not None and at_pri is not None else 0
+
+        score = f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9
+        return score, {
+            "ROA_positive": bool(f1), "CFO_positive": bool(f2),
+            "ROA_improving": bool(f3), "accruals_low": bool(f4),
+            "leverage_down": bool(f5), "liquidity_up": bool(f6),
+            "no_dilution": bool(f7), "gross_margin_up": bool(f8),
+            "asset_turnover_up": bool(f9),
+        }
+    except Exception as e:
+        return 0, {"error": str(e)}
+
+
+def relative_strength_26w(stock_close: pd.Series, etf_close: pd.Series) -> float:
+    """26-week relative strength of stock vs its sector ETF (%).
+    True 26-week window (PROD's version measures the full fetched window -
+    fixed here to match the label and RS percentile semantics)."""
+    aligned = stock_close.reindex(etf_close.index).ffill()
+    ratio = (aligned / etf_close).dropna()
+    if len(ratio) < RS_WEEKS + 1:
+        return 0.0
+    return ((ratio.iloc[-1] / ratio.iloc[-1 - RS_WEEKS]) - 1) * 100
+
+
+def ta_score_stock(df: pd.DataFrame) -> tuple:
+    """0-5 TA score for a stock: HMM (proper gate: bull_prob >= threshold),
+    MACD, ADX, RSI, OBV. Ported from PROD; fixed hmm_ok to use probability."""
+    c, h, l, v = df["close"], df["high"], df["low"], df["volume"]
+    macd_val = calc_macd(c)
+    rsi_val = calc_rsi(c)
+    adx_val = calc_adx(df)
+    obv = calc_obv(df)
+
+    bull_prob = fit_hmm_bull_prob(c)
+    hmm_ok = bull_prob is not None and bull_prob >= HMM_BULL_THRESHOLD
+    macd_ok = macd_val > 0
+    adx_ok = adx_val > 25
+    rsi_ok = 45 <= rsi_val <= 75
+    obv_ok = obv["isRising"]
+
+    score = int(sum([hmm_ok, macd_ok, adx_ok, rsi_ok, obv_ok]))
+    return score, {
+        "hmmOk": hmm_ok,
+        "hmmProb": round(bull_prob, 4) if bull_prob is not None else None,
+        "macdOk": macd_ok,
+        "adxOk": adx_ok,
+        "rsiOk": rsi_ok,
+        "obvOk": obv_ok,
+    }
+
+
+# per-ticker Piotroski cache (fundamentals fetch is slow; 5-min TTL)
+_piotroski_cache = {}
+
+
+def get_piotroski(sym: str) -> tuple:
+    now = datetime.now()
+    if sym in _piotroski_cache:
+        val, ts = _piotroski_cache[sym]
+        if (now - ts).total_seconds() < CACHE_TTL:
+            return val
+    try:
+        val = piotroski_fscore(yf.Ticker(sym))
+    except Exception as e:
+        val = (0, {"error": str(e)})
+    _piotroski_cache[sym] = (val, now)
+    return val
+
 
 def run_tier3() -> dict:
     tier1 = run_tier1()
@@ -307,19 +441,14 @@ def run_tier3() -> dict:
             sectors.append({"etf": etf_sym, "name": etf_sym, "stocks": []})
             continue
 
-        # 26-week relative strength of each holding vs its sector ETF
+        # 1) rank holdings by 26-week relative strength vs the sector ETF
         rs_scores = {}
         for sym in holdings:
             df = ohlcv.get(sym)
             if df is None or df.empty:
                 continue
             sc = df["close"].reindex(etf_close.index).ffill()
-            ratio = (sc / etf_close).dropna()
-            if len(ratio) >= RS_WEEKS + 1:
-                rs = ((ratio.iloc[-1] / ratio.iloc[-1 - RS_WEEKS]) - 1) * 100
-            else:
-                rs = 0.0
-            rs_scores[sym] = round(rs, 2)
+            rs_scores[sym] = round(relative_strength_26w(sc, etf_close), 2)
 
         if not rs_scores:
             sectors.append({"etf": etf_sym, "name": etf_sym, "stocks": []})
@@ -327,28 +456,46 @@ def run_tier3() -> dict:
 
         rs_series = pd.Series(rs_scores).sort_values(ascending=False)
         cutoff = max(1, int(len(rs_series) * (1 - RS_PERCENTILE)))
-        top_rs = set(rs_series.index[:cutoff])
+        top_rs = rs_series.index[:cutoff]
 
+        # 2) Piotroski F-Score screen on the RS leaders
+        f_scores = {sym: get_piotroski(sym) for sym in top_rs}
+        passed_f = [s for s in top_rs if f_scores[s][0] >= PIOTROSKI_MIN]
+        if len(passed_f) < 2:  # fallback: top-3 by F-Score (PROD behavior)
+            passed_f = sorted(top_rs, key=lambda s: f_scores[s][0], reverse=True)[:3]
+
+        # 3) TA score + HMM gate -> decision, confidence
         stocks = []
-        for rank_i, (sym, rs) in enumerate(rs_series.items()):
-            if sym in top_rs:
+        for sym in passed_f:
+            df = ohlcv.get(sym)
+            if df is None or df.empty:
+                continue
+            score, ta = ta_score_stock(df)
+            hmm_gated = ta["hmmOk"]
+            if not hmm_gated:
+                decision = "AVOID"
+            elif score >= TA_SCORE_MIN:
                 decision = "BUY"
-            elif rs > 0:
+            elif score == 2:
                 decision = "WATCH"
             else:
                 decision = "AVOID"
-            # deterministic 0..1 confidence: normalized RS within the sector
-            lo, hi = rs_series.min(), rs_series.max()
-            confidence = round((rs - lo) / (hi - lo), 2) if hi > lo else 0.0
+            hmm_prob = ta["hmmProb"] if ta["hmmProb"] is not None else 0.5
+            confidence = round(hmm_prob * (score / 5), 4)
             stocks.append({
                 "symbol": sym,
                 "name": sym,
                 "decision": decision,
                 "confidence": confidence,
-                "rs26w": rs,
-                "fscore": None,      # Piotroski deferred
-                "taScore": None,     # deferred
+                "rs26w": rs_scores[sym],
+                "fscore": f_scores[sym][0],
+                "fscoreBreakdown": f_scores[sym][1],
+                "taScore": score,
+                "taBreakdown": ta,
             })
+
+        stocks.sort(key=lambda x: x["confidence"], reverse=True)
+        stocks = stocks[:TIER3_TOP]
 
         sectors.append({
             "etf": etf_sym,

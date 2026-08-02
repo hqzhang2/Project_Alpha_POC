@@ -57,7 +57,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   <div class="data-table-container"><table class="data-table"><thead><tr><th>ETF</th><th class="num">Price</th><th class="num">Score</th><th>Decision</th><th class="num">HMM</th><th class="num">MACD</th><th class="num">ADX</th><th class="num">RSI</th><th class="num">OBV</th></tr></thead><tbody id="t2-body"></tbody></table></div>
 </div>
 <div class="main" id="panel-3" style="display:none">
-  <div class="desc"><strong>Tier 3: Stock Selection</strong><br>For each of the <strong>top-3 ranked sectors</strong>, ranks holdings by <strong>26-week relative strength vs the sector ETF</strong> (deterministic). Top quartile by RS = BUY, positive RS = WATCH. <em>Piotroski F-Score + TA score: pending (deferred)</em>.</div>
+  <div class="desc"><strong>Tier 3: Stock Selection</strong><br>For each of the <strong>top-3 ranked sectors</strong>: (1) rank holdings by <strong>26-week relative strength vs the sector ETF</strong>, (2) screen RS leaders with <strong>Piotroski F-Score ≥ 7</strong> (9-point fundamental quality), (3) score with <strong>TA + HMM regime gate</strong> → BUY / WATCH / AVOID by confidence. Deterministic (no randomness).</div>
   <div class="data-table-container"><table class="data-table"><thead><tr><th>Symbol</th><th>Sector ETF</th><th>Decision</th><th class="num">Confidence</th><th class="num">RS (26w)</th><th class="num">F-Score</th><th class="num">TA Score</th></tr></thead><tbody id="t3-body"></tbody></table></div>
 </div>
 <div class="main" id="panel-all" style="display:none">
