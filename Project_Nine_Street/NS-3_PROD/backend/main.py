@@ -1,54 +1,25 @@
 #!/usr/bin/env python3
 """
-NS-3: 3-Tier Sector Rotation Algo (PROD)
-==========================================
-Port 9236 - FastAPI backend using common library.
+NS-3 PROD Server - 3-Tier Sector Rotation (validated algorithm, stdlib)
+========================================================================
+P7-A remediation: ported from the FastAPI backend to the stdlib http.server
+pattern (FastAPI/pydantic_core is broken on every interpreter on this
+machine). Algorithm = the validated NS-3_QA implementation (52w momentum
+rank, display-only conviction, deterministic tier-3 with soft HMM), which
+rides into PROD via the v2.2 release cut (deploy_prod.sh).
+API surface preserved from the FastAPI version: /api/v1/tier1, /api/v1/tier2,
+/api/v1/tier3, /api/v1/all, /api/v1/health (+ /health for parity).
 """
-import warnings
-warnings.filterwarnings("ignore", category=RuntimeWarning)
-
-import datetime
 import os
-import sys
-import logging
-from pathlib import Path
-
-# Add common to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
-
-# ── Logging ──────────────────────────────────────────────────────────────────
-
-logger = logging.getLogger("ns3")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-
-import numpy as np
-import pandas as pd
+import json
 import yfinance as yf
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+import numpy as np
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from datetime import datetime, timedelta
 
-# Import from common library
-from common import (
-    get_ns_config,
-    get_yahoo_client,
-    get_etf_holdings,
-    sma, ema, rsi, macd, bollinger_bands, bb_position,
-    adx, atr, obv, obv_slope,
-    fit_hmm,
-    compute_all,
-)
-
-# ── Configuration ────────────────────────────────────────────────────────────
-
-ns_cfg = get_ns_config()
-PORT = int(os.environ.get("PORT", ns_cfg.ns3_port))
-LOOKBACK_WKS = ns_cfg.ns3_lookback_weeks
-HMM_STATES = ns_cfg.ns3_hmm_states
-HMM_ITER = ns_cfg.ns3_hmm_iter
-HMM_BULL_PROB_THRESHOLD = ns_cfg.ns3_hmm_bull_threshold
-RS_PERCENTILE = ns_cfg.ns3_rs_percentile
-PIOTROSKI_MIN = ns_cfg.ns3_piotroski_min
-TA_SCORE_MIN = ns_cfg.ns3_ta_score_min
+dashboard_path = os.path.join(os.path.dirname(__file__), "ns3_dashboard.html")
+PORT = int(os.environ.get('PORT', 9236))
 
 SECTORS = [
     {"symbol": "XLK", "name": "Technology"},
@@ -64,8 +35,6 @@ SECTORS = [
     {"symbol": "XLC", "name": "Comm. Services"},
 ]
 
-SPY_SYMBOL = "SPY"
-
 ETF_HOLDINGS = {
     "XLE": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "HAL"],
     "XLP": ["PG", "KO", "PEP", "COST", "WMT", "PM", "MO", "MDLZ", "CL", "STZ"],
@@ -80,233 +49,253 @@ ETF_HOLDINGS = {
     "XLU": ["NEE", "SO", "DUK", "AEP", "SRE", "D", "EXC", "XEL", "WEC", "ES"],
 }
 
-app = FastAPI(title="NS-3 API", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+# 52w momentum needs >= 53 weekly bars; fetch 60 + 2 buffer.
+LOOKBACK_WEEKS = 62
+MOMENTUM_WEEKS = 52
+RS_WEEKS = 26
+RS_PERCENTILE = 0.75          # top 25% of holdings by 26w RS
+HMM_BULL_THRESHOLD = 0.65
+TOP_N = 3                     # sectors passing Tier 1
+PIOTROSKI_MIN = 7             # minimum Piotroski F-Score to pass Tier 3 screen
+TA_SCORE_MIN = 3              # minimum TA score for BUY in Tier 3
+TIER3_TOP = 5                 # stocks returned per sector
 
-yahoo = get_yahoo_client()
+_cache = {}
+CACHE_TTL = 300
 
-
-# ── Helpers: Data Fetching ───────────────────────────────────────────────────
-
-import time as _time
-from functools import lru_cache as _lru_cache
-
-# 5-minute TTL cache for tier computations to prevent redundant yfinance calls
-_tier_cache = {}
-_TIER_CACHE_TTL = 300  # seconds
-
-
-def _cache_get(key):
-    if key in _tier_cache:
-        val, ts = _tier_cache[key]
-        if _time.time() - ts < _TIER_CACHE_TTL:
-            return val
-        del _tier_cache[key]
-    return None
+# ── HMM (guarded import: absent -> explicit "unavailable", never silent fake) ──
+try:
+    from hmmlearn.hmm import GaussianHMM
+    HMM_AVAILABLE = True
+except ImportError:
+    GaussianHMM = None
+    HMM_AVAILABLE = False
 
 
-def _cache_set(key, val):
-    _tier_cache[key] = (val, _time.time())
+def fit_hmm_bull_prob(close: pd.Series):
+    """2-state GaussianHMM on log returns -> P(currently in bull state) or None."""
+    if not HMM_AVAILABLE:
+        return None
+    returns = np.log(close / close.shift(1)).dropna().values.reshape(-1, 1)
+    if len(returns) < 20:
+        return None
+    import contextlib, io
+    model = GaussianHMM(n_components=2, covariance_type="full",
+                        n_iter=500, random_state=42)
+    with contextlib.redirect_stderr(io.StringIO()):
+        model.fit(returns)
+    bull_state = int(np.argmax(model.means_.ravel()))
+    posteriors = model.predict_proba(returns)
+    return float(posteriors[-1, bull_state])
 
 
-def fetch_weekly_closes(symbols: list, weeks: int = 14) -> pd.DataFrame:
-    end = datetime.date.today()
-    start = end - datetime.timedelta(weeks=weeks + 2)
-    raw = yf.download(
-        tickers=symbols, start=str(start), end=str(end),
-        interval="1wk", auto_adjust=True, progress=False
-    )
-    if isinstance(raw.columns, pd.MultiIndex):
-        closes = raw["Close"]
-    else:
-        closes = raw[["Close"]].rename(columns={"Close": symbols[0]})
-    closes = closes.dropna().tail(weeks)
-    return closes
+# ── Data: weekly OHLCV, 5-min TTL cache ──────────────────────────────────────
 
+def get_weekly_ohlcv(symbols: list, weeks: int = LOOKBACK_WEEKS) -> dict:
+    """Fetch weekly OHLCV for symbols. Returns {sym: DataFrame(o,h,l,c,v)}."""
+    now = datetime.now()
+    key = ("weekly", tuple(sorted(symbols)), weeks)
+    if key in _cache:
+        data, ts = _cache[key]
+        if (now - ts).total_seconds() < CACHE_TTL:
+            return data
 
-def fetch_weekly_ohlcv(symbols: list, weeks: int = LOOKBACK_WKS) -> dict:
-    end = datetime.date.today()
-    start = end - datetime.timedelta(weeks=weeks + 4)
-    raw = yf.download(
-        symbols, start=str(start), end=str(end),
-        interval="1wk", auto_adjust=True, progress=False
-    )
+    end = now.date()
+    start = end - timedelta(weeks=weeks + 2)
+    try:
+        raw = yf.download(symbols, start=str(start), end=str(end), interval="1wk",
+                          progress=False, auto_adjust=True, group_by="ticker")
+    except Exception:
+        return {}
+
     out = {}
-    for sym in symbols:
-        try:
-            if isinstance(raw.columns, pd.MultiIndex):
-                df = pd.DataFrame({
-                    "open": raw["Open"][sym],
-                    "high": raw["High"][sym],
-                    "low": raw["Low"][sym],
-                    "close": raw["Close"][sym],
-                    "volume": raw["Volume"][sym],
-                }).dropna().tail(weeks)
-            else:
-                df = pd.DataFrame({
-                    "open": raw["Open"],
-                    "high": raw["High"],
-                    "low": raw["Low"],
-                    "close": raw["Close"],
-                    "volume": raw["Volume"],
-                }).dropna().tail(weeks)
-            out[sym] = df
-        except Exception as e:
-            logger.warning(f"  OHLCV fetch error for {sym}: {e}")
+    if raw is None or raw.empty:
+        return {}
+    if isinstance(raw.columns, pd.MultiIndex):
+        for sym in symbols:
+            if sym in raw.columns.get_level_values(0):
+                df = raw[sym].dropna(subset=["Close"]).tail(weeks)
+                out[sym] = pd.DataFrame({
+                    "open": df["Open"], "high": df["High"],
+                    "low": df["Low"], "close": df["Close"],
+                    "volume": df["Volume"],
+                }).dropna()
+    else:  # single symbol download
+        df = raw.dropna(subset=["Close"]).tail(weeks)
+        out[symbols[0]] = pd.DataFrame({
+            "open": df["Open"], "high": df["High"],
+            "low": df["Low"], "close": df["Close"],
+            "volume": df["Volume"],
+        }).dropna()
+
+    _cache[key] = (out, now)
     return out
 
 
-# ── Tier 1: Sector Rotation ──────────────────────────────────────────────────
+def get_weekly_closes(symbols: list, weeks: int = LOOKBACK_WEEKS) -> pd.DataFrame:
+    """Weekly close panel for symbols, oldest -> newest."""
+    ohlcv = get_weekly_ohlcv(symbols, weeks)
+    closes = pd.DataFrame({sym: df["close"] for sym, df in ohlcv.items()})
+    return closes
 
-def compute_ratio_momentum(sector_prices: pd.Series, spy_prices: pd.Series) -> float:
-    ratios = sector_prices / spy_prices
-    ratios = ratios.dropna()
-    if len(ratios) < 2:
+
+# ── Indicators (weekly bars; Wilder RSI, real ADX/OBV) ──────────────────────
+
+def calc_rsi(prices: pd.Series, period: int = 14) -> float:
+    """Wilder's RSI."""
+    if len(prices) < period + 1:
+        return 50.0
+    delta = prices.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
+    rs = gain / loss.replace(0, np.nan)
+    val = 100 - (100 / (1 + rs.iloc[-1]))
+    return round(val, 1) if not pd.isna(val) else 50.0
+
+
+def calc_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> float:
+    """MACD histogram value (last bar)."""
+    if len(prices) < slow + signal:
         return 0.0
-    oldest = ratios.iloc[0]
-    newest = ratios.iloc[-1]
-    return round(((newest - oldest) / oldest) * 100, 4)
+    ema_fast = prices.ewm(span=fast).mean()
+    ema_slow = prices.ewm(span=slow).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal).mean()
+    return round(macd_line.iloc[-1] - signal_line.iloc[-1], 4)
 
 
-def ytd_return(prices: pd.Series) -> float:
-    """Year-to-date return. Works with timezone-aware and naive indices."""
-    current_year = datetime.date.today().year
-    try:
-        this_year = prices[prices.index.year == current_year]
-    except AttributeError:
-        # Index may have no .year attribute (e.g., non-datetime index)
-        return 0.0
-    if len(this_year) < 2:
-        return 0.0
-    return round(((this_year.iloc[-1] - this_year.iloc[0]) / this_year.iloc[0]) * 100, 2)
+def calc_adx(df: pd.DataFrame, period: int = 14) -> float:
+    """Wilder's ADX on weekly OHLC."""
+    h, l, c = df["high"], df["low"], df["close"]
+    if len(df) < period * 2:
+        return 25.0
+    tr = pd.concat([h - l, (h - c).abs(), (l - c).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
+    up = c.diff().clip(lower=0)
+    down = (-c.diff()).clip(lower=0)
+    di_plus = 100 * up.ewm(alpha=1 / period, adjust=False).mean() / atr.replace(0, np.nan)
+    di_minus = 100 * down.ewm(alpha=1 / period, adjust=False).mean() / atr.replace(0, np.nan)
+    dx = 100 * (di_plus - di_minus).abs() / (di_plus + di_minus).replace(0, np.nan)
+    adx = dx.ewm(alpha=1 / period, adjust=False).mean()
+    val = adx.iloc[-1]
+    return round(val, 1) if not pd.isna(val) else 25.0
 
+
+def calc_obv(df: pd.DataFrame, window: int = 5) -> dict:
+    """On-Balance Volume (true volume), slope over last N weeks."""
+    c, v = df["close"], df["volume"]
+    if len(c) < 2:
+        return {'isRising': False, 'slope': 0}
+    direction = np.sign(c.diff().fillna(0))
+    obv = pd.Series(direction * v, index=c.index).cumsum()
+    slope = float(obv.iloc[-1] - obv.iloc[-1 - window]) if len(obv) > window else 0.0
+    return {'isRising': slope > 0, 'slope': round(slope, 1)}
+
+
+# ── Tier 1: 52-week ratio momentum ranking ───────────────────────────────────
 
 def run_tier1() -> dict:
-    cached = _cache_get("tier1")
-    if cached is not None:
-        return cached
+    symbols = [s['symbol'] for s in SECTORS] + ['SPY']
+    closes = get_weekly_closes(symbols)
+    if closes.empty or 'SPY' not in closes.columns:
+        return {"generatedAt": datetime.utcnow().isoformat() + "Z", "sectors": []}
 
-    all_symbols = [s["symbol"] for s in SECTORS] + [SPY_SYMBOL]
-    closes = fetch_weekly_closes(all_symbols, weeks=14)
-    spy_prices = closes[SPY_SYMBOL]
-
+    spy = closes['SPY']
     results = []
     for sector in SECTORS:
-        sym = sector["symbol"]
+        sym = sector['symbol']
         if sym not in closes.columns:
             continue
-        sec_prices = closes[sym]
-        aligned_spy = spy_prices.reindex(sec_prices.index).ffill()
-        momentum = compute_ratio_momentum(sec_prices, aligned_spy)
-        ytd = ytd_return(sec_prices)
+        prices = closes[sym].dropna()
+        aligned_spy = spy.reindex(prices.index).ffill()
+
+        # 52-week ratio momentum vs SPY
+        if len(prices) >= MOMENTUM_WEEKS + 1 and len(aligned_spy) >= MOMENTUM_WEEKS + 1:
+            ratio = prices / aligned_spy
+            momentum = round(((ratio.iloc[-1] / ratio.iloc[-1 - MOMENTUM_WEEKS]) - 1) * 100, 2)
+        else:
+            momentum = 0.0
+
+        # YTD on weekly closes
+        ytd_prices = prices[prices.index.year == datetime.now().year]
+        ytd = round(((ytd_prices.iloc[-1] - ytd_prices.iloc[0]) / ytd_prices.iloc[0]) * 100, 2) \
+            if len(ytd_prices) > 1 else 0.0
 
         results.append({
             "symbol": sym,
-            "name": sector["name"],
+            "name": sector['name'],
             "momentum": momentum,
             "ytd": ytd,
-            "currentPrice": round(sec_prices.iloc[-1], 2),
+            "currentPrice": round(float(prices.iloc[-1]), 2),
         })
 
-    results.sort(key=lambda x: x["momentum"], reverse=True)
+    results.sort(key=lambda x: x['momentum'], reverse=True)
     for i, r in enumerate(results):
-        r["rank"] = i + 1
-        r["passToTier2"] = i < 3
+        r['rank'] = i + 1
+        r['passToTier2'] = i < TOP_N  # rank-based pass; Tier 2 does NOT gate
 
-    result = {
-        "generatedAt": datetime.datetime.utcnow().isoformat() + "Z",
-        "sectors": results,
-    }
-    _cache_set("tier1", result)
-    return result
+    return {"generatedAt": datetime.utcnow().isoformat() + "Z", "sectors": results}
 
 
-# ── Tier 2: ETF Signal Engine ────────────────────────────────────────────────
+# ── Tier 2: conviction meters for top-3 (display only) ───────────────────────
 
-def score_etf(df: pd.DataFrame) -> dict:
-    close = df["close"]
-    high = df["high"]
-    low = df["low"]
-    volume = df["volume"]
+def run_tier2() -> dict:
+    tier1 = run_tier1()
+    top3 = [s['symbol'] for s in tier1['sectors'] if s.get('passToTier2')]
 
-    macd_line, macd_sig, macd_hist = macd(close)
-    rsi_val = rsi(close)
-    adx_val = adx(high, low, close)
-    obv_val = obv(close, volume)
-    slope = obv_slope(obv_val)
-
-    bull_state, bull_prob, _ = fit_hmm(close)
-
-    cur_macd = float(macd_line.iloc[-1])
-    cur_sig = float(macd_sig.iloc[-1])
-    cur_rsi = float(rsi_val.iloc[-1])
-    cur_adx = float(adx_val.iloc[-1])
-    cur_price = float(close.iloc[-1])
-
-    hmm_bull = bull_prob >= HMM_BULL_PROB_THRESHOLD
-    macd_bull = cur_macd > cur_sig
-    adx_strong = cur_adx > 25
-    rsi_ok = 45 <= cur_rsi <= 75
-    obv_rising = slope > 0
-
-    score = sum([hmm_bull, macd_bull, adx_strong, rsi_ok, obv_rising])
-
-    if not hmm_bull:
-        decision = "HOLD / AVOID"
-    elif score >= 3:
-        decision = "ENTER LONG"
-    elif score == 2:
-        decision = "WATCH"
-    else:
-        decision = "AVOID"
-
-    return {
-        "currentPrice": round(cur_price, 2),
-        "score": score,
-        "maxScore": 5,
-        "decision": decision,
-        "hmm": {
-            "bullProb": round(bull_prob, 4),
-            "isGated": hmm_bull,
-            "threshold": HMM_BULL_PROB_THRESHOLD,
-        },
-        "macd": {"value": round(cur_macd, 4), "isBull": macd_bull},
-        "adx": {"value": round(cur_adx, 2), "isStrong": adx_strong},
-        "rsi": {"value": round(cur_rsi, 2), "isOk": rsi_ok},
-        "obv": {"slope": round(slope, 2), "isRising": obv_rising},
-    }
-
-
-def run_tier2(tier1_data: dict) -> dict:
-    cached = _cache_get("tier2")
-    if cached is not None:
-        return cached
-
-    top3 = [s["symbol"] for s in tier1_data["sectors"] if s.get("passToTier2")]
-    if not top3:
-        top3 = ["XLE", "XLP", "XLI"]
-
-    ohlcv = fetch_weekly_ohlcv(top3, weeks=LOOKBACK_WKS)
-
-    results = []
-    for sym in top3:
-        if sym not in ohlcv:
+    ohlcv = get_weekly_ohlcv(top3)
+    etfs = []
+    for i, sym in enumerate(top3):
+        name = next((s['name'] for s in SECTORS if s['symbol'] == sym), sym)
+        df = ohlcv.get(sym)
+        if df is None or df.empty:
             continue
-        signals = score_etf(ohlcv[sym])
-        results.append({"symbol": sym, **signals})
+        prices = df["close"]
 
-    result = {
-        "generatedAt": datetime.datetime.utcnow().isoformat() + "Z",
-        "tier1Source": "tier1_data.json",
-        "etfs": results,
-    }
-    _cache_set("tier2", result)
-    return result
+        macd_val = calc_macd(prices)
+        rsi_val = calc_rsi(prices)
+        adx_val = calc_adx(df)
+        obv = calc_obv(df)
+        bull_prob = fit_hmm_bull_prob(prices)
+        hmm_bull = bull_prob is not None and bull_prob >= HMM_BULL_THRESHOLD
+
+        # Conviction score (0-5) - displayed only; does not gate anything
+        score = sum([hmm_bull, macd_val > 0, adx_val > 25, 40 <= rsi_val <= 70, obv['isRising']])
+        if score >= 4:
+            decision = f"STRONG {sym}"
+        elif score >= 2:
+            decision = "MODERATE"
+        else:
+            decision = f"WEAK {sym}"
+
+        etfs.append({
+            "symbol": sym,
+            "name": name,
+            "rank": i + 1,
+            "currentPrice": round(float(prices.iloc[-1]), 2),
+            "score": score,
+            "maxScore": 5,
+            "decision": decision,
+            "hmm": {
+                "bullProb": round(bull_prob, 4) if bull_prob is not None else None,
+                "isGated": hmm_bull,
+                "available": HMM_AVAILABLE and bull_prob is not None,
+            },
+            "macd": {"value": macd_val},
+            "adx": {"value": adx_val},
+            "rsi": {"value": rsi_val},
+            "obv": obv,
+            "holdings": [{"symbol": h, "name": h} for h in ETF_HOLDINGS.get(sym, [])],
+        })
+
+    return {"generatedAt": datetime.utcnow().isoformat() + "Z", "etfs": etfs}
 
 
-# ── Tier 3: Stock Selection ──────────────────────────────────────────────────
+# ── Tier 3: RS percentile → Piotroski F-Score → TA score (ported from PROD) ──
 
 def piotroski_fscore(ticker_obj) -> tuple:
+    """9-point Piotroski F-Score from yfinance fundamentals.
+    Ported verbatim from NS-3_PROD/backend/main.py. Returns (score, breakdown)."""
     try:
         info = ticker_obj.info
         bs = ticker_obj.balance_sheet
@@ -380,31 +369,36 @@ def piotroski_fscore(ticker_obj) -> tuple:
 
 
 def relative_strength_26w(stock_close: pd.Series, etf_close: pd.Series) -> float:
+    """26-week relative strength of stock vs its sector ETF (%).
+    True 26-week window (PROD's version measures the full fetched window -
+    fixed here to match the label and RS percentile semantics)."""
     aligned = stock_close.reindex(etf_close.index).ffill()
-    ratio = aligned / etf_close
-    ratio = ratio.dropna()
-    if len(ratio) < 2:
+    ratio = (aligned / etf_close).dropna()
+    if len(ratio) < RS_WEEKS + 1:
         return 0.0
-    return ((ratio.iloc[-1] - ratio.iloc[0]) / ratio.iloc[0]) * 100
+    return ((ratio.iloc[-1] / ratio.iloc[-1 - RS_WEEKS]) - 1) * 100
 
 
 def ta_score_stock(df: pd.DataFrame) -> tuple:
+    """0-5 TA score for a stock: HMM (proper gate: bull_prob >= threshold),
+    MACD, ADX, RSI, OBV. Ported from PROD; fixed hmm_ok to use probability."""
     c, h, l, v = df["close"], df["high"], df["low"], df["volume"]
-    macd_line, macd_sig, _ = macd(c)
-    rsi_val = rsi(c)
-    adx_val = adx(h, l, c)
-    obv_val = obv(c, v)
+    macd_val = calc_macd(c)
+    rsi_val = calc_rsi(c)
+    adx_val = calc_adx(df)
+    obv = calc_obv(df)
 
-    hmm_ok, hmm_prob, _ = fit_hmm(c)
-    macd_ok = bool(macd_line.iloc[-1] > macd_sig.iloc[-1])
-    adx_ok = bool(adx_val.iloc[-1] > 25)
-    rsi_ok = bool(45 <= rsi_val.iloc[-1] <= 75)
-    obv_ok = obv_slope(obv_val) > 0
+    bull_prob = fit_hmm_bull_prob(c)
+    hmm_ok = bull_prob is not None and bull_prob >= HMM_BULL_THRESHOLD
+    macd_ok = macd_val > 0
+    adx_ok = adx_val > 25
+    rsi_ok = 45 <= rsi_val <= 75
+    obv_ok = obv["isRising"]
 
-    score = sum([hmm_ok, macd_ok, adx_ok, rsi_ok, obv_ok])
+    score = int(sum([hmm_ok, macd_ok, adx_ok, rsi_ok, obv_ok]))
     return score, {
         "hmmOk": hmm_ok,
-        "hmmProb": round(hmm_prob, 4),
+        "hmmProb": round(bull_prob, 4) if bull_prob is not None else None,
         "macdOk": macd_ok,
         "adxOk": adx_ok,
         "rsiOk": rsi_ok,
@@ -412,174 +406,156 @@ def ta_score_stock(df: pd.DataFrame) -> tuple:
     }
 
 
-def run_tier3(tier2_data: dict) -> dict:
-    qualifying_etfs = [
-        e["symbol"] for e in tier2_data["etfs"]
-        if e["decision"] in ("ENTER LONG", "WATCH")
-    ]
-    if not qualifying_etfs:
-        qualifying_etfs = [e["symbol"] for e in tier2_data["etfs"]]
+# per-ticker Piotroski cache (fundamentals fetch is slow; 5-min TTL)
+_piotroski_cache = {}
 
-    end = datetime.date.today()
-    start = end - datetime.timedelta(weeks=LOOKBACK_WKS + 4)
 
-    all_sectors = []
+def get_piotroski(sym: str) -> tuple:
+    now = datetime.now()
+    if sym in _piotroski_cache:
+        val, ts = _piotroski_cache[sym]
+        if (now - ts).total_seconds() < CACHE_TTL:
+            return val
+    try:
+        val = piotroski_fscore(yf.Ticker(sym))
+    except Exception as e:
+        val = (0, {"error": str(e)})
+    _piotroski_cache[sym] = (val, now)
+    return val
 
-    for etf_sym in qualifying_etfs:
-        holdings = yahoo.get_etf_holdings(etf_sym)
-        if not holdings:
-            holdings = ETF_HOLDINGS.get(etf_sym, [])
 
+def run_tier3() -> dict:
+    tier1 = run_tier1()
+    top3 = [s['symbol'] for s in tier1['sectors'] if s.get('passToTier2')]
+
+    sectors = []
+    for etf_sym in top3:
+        holdings = ETF_HOLDINGS.get(etf_sym, [])
         if not holdings:
             continue
+        tickers = [etf_sym] + holdings
+        ohlcv = get_weekly_ohlcv(tickers)
+        etf_close = ohlcv.get(etf_sym, pd.DataFrame())["close"] if etf_sym in ohlcv else pd.Series()
+        if etf_close.empty:
+            sectors.append({"etf": etf_sym, "name": etf_sym, "stocks": []})
+            continue
 
-        all_tickers = [etf_sym] + list(holdings.keys())
-        raw = yf.download(
-            all_tickers, start=str(start), end=str(end),
-            interval="1wk", auto_adjust=True, progress=False
-        )
-
-        if isinstance(raw.columns, pd.MultiIndex):
-            etf_close = raw["Close"][etf_sym].dropna()
-        else:
-            etf_close = raw["Close"].dropna()
-
+        # 1) rank holdings by 26-week relative strength vs the sector ETF
         rs_scores = {}
-        for sym in holdings.keys():
-            try:
-                if isinstance(raw.columns, pd.MultiIndex):
-                    sc = raw["Close"][sym].dropna()
-                else:
-                    sc = raw["Close"].dropna()
-                rs_scores[sym] = relative_strength_26w(sc, etf_close)
-            except Exception as e:
-                logger.warning(f"  RS calc error for {sym} vs {etf_sym}: {e}")
-                rs_scores[sym] = -999.0
+        for sym in holdings:
+            df = ohlcv.get(sym)
+            if df is None or df.empty:
+                continue
+            sc = df["close"].reindex(etf_close.index).ffill()
+            rs_scores[sym] = round(relative_strength_26w(sc, etf_close), 2)
+
+        if not rs_scores:
+            sectors.append({"etf": etf_sym, "name": etf_sym, "stocks": []})
+            continue
 
         rs_series = pd.Series(rs_scores).sort_values(ascending=False)
-        cutoff_idx = max(1, int(len(rs_series) * (1 - RS_PERCENTILE)))
-        top_rs = rs_series.index[:cutoff_idx].tolist()
+        cutoff = max(1, int(len(rs_series) * (1 - RS_PERCENTILE)))
+        top_rs = rs_series.index[:cutoff]
 
-        f_scores = {}
-        for sym in top_rs:
-            try:
-                tk = yf.Ticker(sym)
-                fs, breakdown = piotroski_fscore(tk)
-                f_scores[sym] = (fs, breakdown)
-            except Exception as e:
-                logger.warning(f"  F-Score error for {sym}: {e}")
-                f_scores[sym] = (0, {})
-
+        # 2) Piotroski F-Score screen on the RS leaders
+        f_scores = {sym: get_piotroski(sym) for sym in top_rs}
         passed_f = [s for s in top_rs if f_scores[s][0] >= PIOTROSKI_MIN]
-        if len(passed_f) < 2:
+        if len(passed_f) < 2:  # fallback: top-3 by F-Score (PROD behavior)
             passed_f = sorted(top_rs, key=lambda s: f_scores[s][0], reverse=True)[:3]
 
-        stock_results = []
+        # 3) TA score + HMM conviction -> decision, confidence
+        # HMM is SOFT only: hmmOk contributes to the score and hmmProb scales
+        # confidence, but never hard-AVOIDs. (Validated: HMM hard gate destroys
+        # value - see research doc Appendix B.4.)
+        stocks = []
         for sym in passed_f:
-            try:
-                if isinstance(raw.columns, pd.MultiIndex):
-                    df = pd.DataFrame({
-                        "close": raw["Close"][sym],
-                        "high": raw["High"][sym],
-                        "low": raw["Low"][sym],
-                        "volume": raw["Volume"][sym],
-                    }).dropna()
-                else:
-                    df = pd.DataFrame({
-                        "close": raw["Close"],
-                        "high": raw["High"],
-                        "low": raw["Low"],
-                        "volume": raw["Volume"],
-                    }).dropna()
+            df = ohlcv.get(sym)
+            if df is None or df.empty:
+                continue
+            score, ta = ta_score_stock(df)
+            if score >= TA_SCORE_MIN:
+                decision = "BUY"
+            elif score == 2:
+                decision = "WATCH"
+            else:
+                decision = "AVOID"
+            hmm_prob = ta["hmmProb"] if ta["hmmProb"] is not None else 0.5
+            confidence = round(hmm_prob * (score / 5), 4)
+            stocks.append({
+                "symbol": sym,
+                "name": sym,
+                "decision": decision,
+                "confidence": confidence,
+                "rs26w": rs_scores[sym],
+                "fscore": f_scores[sym][0],
+                "fscoreBreakdown": f_scores[sym][1],
+                "taScore": score,
+                "taBreakdown": ta,
+            })
 
-                score, ta = ta_score_stock(df)
-                fs, breakdown = f_scores.get(sym, (0, {}))
-                rs = rs_scores.get(sym, 0.0)
+        stocks.sort(key=lambda x: x["confidence"], reverse=True)
+        stocks = stocks[:TIER3_TOP]
 
-                hmm_gated = ta["hmmOk"]
-                if not hmm_gated:
-                    decision = "AVOID"
-                elif score >= TA_SCORE_MIN:
-                    decision = "BUY"
-                elif score == 2:
-                    decision = "WATCH"
-                else:
-                    decision = "AVOID"
-
-                confidence = round(ta["hmmProb"] * (score / 5), 4)
-
-                stock_results.append({
-                    "symbol": sym,
-                    "sectorEtf": etf_sym,
-                    "decision": decision,
-                    "confidence": confidence,
-                    "rs26w": round(rs, 2),
-                    "fscore": fs,
-                    "taScore": score,
-                    "fscoreBreakdown": breakdown,
-                })
-            except Exception as e:
-                logger.warning(f"  TA score error for {sym}: {e}")
-
-        stock_results.sort(key=lambda x: x["confidence"], reverse=True)
-        stock_results = stock_results[:5]
-
-        all_sectors.append({
+        sectors.append({
             "etf": etf_sym,
-            "stocks": stock_results,
+            "name": next((s['name'] for s in SECTORS if s['symbol'] == etf_sym), etf_sym),
+            "stocks": stocks,
         })
 
-    return {
-        "generatedAt": datetime.datetime.utcnow().isoformat() + "Z",
-        "sectors": all_sectors,
-    }
+    return {"generatedAt": datetime.utcnow().isoformat() + "Z", "sectors": sectors}
 
 
-# ── API Endpoints ────────────────────────────────────────────────────────────
+# ── HTTP layer ───────────────────────────────────────────────────────────────
 
-@app.get("/api/v1/health")
-def health_check():
-    return {"status": "ok", "service": "NS-3", "port": PORT}
+class NS3Handler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', 'no-cache')
+        super().end_headers()
+
+    def _json(self, code, data):
+        self.send_response(code)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        # Convert numpy types to native Python for JSON serialization
+        self.wfile.write(json.dumps(data, default=lambda o: int(o) if isinstance(o, (np.bool_, np.integer)) else float(o) if isinstance(o, np.floating) else str(o)).encode())
+
+    def do_GET(self):
+        if self.path in ('/', '/ns3_dashboard.html'):
+            if os.path.exists(dashboard_path):
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                with open(dashboard_path, 'rb') as f:
+                    self.wfile.write(f.read())
+                return
+            return self._json(200, {"service": "NS-3", "note": "dashboard not deployed"})
+
+        if self.path in ('/health', '/api/v1/health'):
+            return self._json(200, {"status": "ok", "service": "NS-3"})
+
+        if self.path == '/api/v1/tier1':
+            return self._json(200, run_tier1())
+
+        if self.path == '/api/v1/tier2':
+            return self._json(200, run_tier2())
+
+        if self.path == '/api/v1/tier3':
+            return self._json(200, run_tier3())
+
+        if self.path == '/api/v1/all':
+            return self._json(200, {"tier1": run_tier1(), "tier2": run_tier2(), "tier3": run_tier3()})
+
+        self.send_response(404)
+        self.end_headers()
 
 
-@app.get("/api/v1/tier1")
-def get_tier1():
+if __name__ == '__main__':
+    os.chdir(os.path.dirname(__file__))
+    server = HTTPServer(('0.0.0.0', PORT), NS3Handler)
+    print(f"NS-3 PROD running on port {PORT}")
     try:
-        return run_tier1()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/v1/tier2")
-def get_tier2():
-    try:
-        tier1 = run_tier1()
-        return run_tier2(tier1)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/v1/tier3")
-def get_tier3():
-    try:
-        tier1 = run_tier1()
-        tier2 = run_tier2(tier1)
-        return run_tier3(tier2)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/v1/all")
-def get_all_tiers():
-    try:
-        tier1 = run_tier1()
-        tier2 = run_tier2(tier1)
-        tier3 = run_tier3(tier2)
-        return {"tier1": tier1, "tier2": tier2, "tier3": tier3}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    server.server_close()

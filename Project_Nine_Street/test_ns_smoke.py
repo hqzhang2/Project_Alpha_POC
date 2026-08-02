@@ -108,14 +108,13 @@ SERVERS = [
 ]
 
 # PROD servers. Each must exist and expose a do_GET handler (stdlib pattern).
-# NS-3_PROD / NS-4_PROD are FastAPI backends pending Phase-2 port to stdlib
-# (P7 in the remediation plan) - they are skipped for now so the suite stays
-# green; flip skip=True -> False once they run stdlib.
+# P7-A completed: NS-3_PROD / NS-4_PROD ported from FastAPI to stdlib (see
+# remediation plan) - no longer skipped.
 PROD_SERVERS = [
     ("NS-1_PROD/server_qa.py", "/health"),
     ("NS-2_PROD/qa_server.py", "/health"),
-    ("NS-3_PROD/backend/main.py", "/api/v1/health", True),   # FastAPI, Phase 2
-    ("NS-4_PROD/backend/main.py", "/api/v1/health", True),   # FastAPI, Phase 2
+    ("NS-3_PROD/backend/main.py", "/api/v1/health"),
+    ("NS-4_PROD/backend/main.py", "/api/v1/health"),
 ]
 
 # Alpha Terminal PROD (stdlib server.py pattern)
@@ -138,17 +137,16 @@ def test_alpha_prod_server_imports_and_health():
 def test_all_prod_servers_import_and_expose_handler():
     for entry in PROD_SERVERS:
         rel, route = entry[0], entry[1]
-        skip = entry[2] if len(entry) > 2 else False
         f = os.path.join(PROJECT, rel)
         if not os.path.exists(f):
             continue  # PROD dir not checked out on this branch yet
-        if skip:
-            continue  # pending Phase-2 stdlib port (P7) - documented above
         mod, handler = _load_handler(f)
         assert hasattr(handler, "do_GET")
         req, err = _drive(handler, route)
         assert err is None, f"{rel} {route} raised: {err}"
-        assert req.status in (200, 404, 503), f"{rel} {route} status={req.status}"
+        # health routes MUST return 200 - a 404 here means the route is
+        # missing (caught exactly this bug on NS-4_PROD in P7-A)
+        assert req.status == 200, f"{rel} {route} status={req.status}"
 
 
 def test_all_ns_servers_import_and_expose_handler():
