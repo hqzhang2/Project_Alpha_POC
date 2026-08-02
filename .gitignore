@@ -49,3 +49,6 @@ Project_Sequoia/QA_terminal/data/
 .DS_Store
 .idea/
 .vscode/
+
+# --- Research / analysis drafts (review-only, never commit) ---
+research_*.md
