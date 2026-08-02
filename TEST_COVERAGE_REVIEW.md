@@ -18,7 +18,7 @@
 | Alpha Terminal (`terminal/`) | 24 `.py` | 7 `test_*.py` | not run — **TBD: is this the canonical tree or a stale mirror of `QA_terminal/`? Owner decision needed** | unmeasured |
 | **Nine Street (NS_1/NS-2/NS-3/NS-4 QA servers)** | 4 servers, ~1,560 LOC | **0** | — | **0%** |
 | **`common/` shared library** | 7 `.py` (indicators, risk, data) | **0** | — | **0%** |
-| Portal (`portal_qa.py`) | 1 | `test_portal_qa.py` | 13 passed | 93% |
+| Portal (`portal.py`) | 1 | `test_portal_qa.py` | 13 passed | 93% |
 
 ---
 

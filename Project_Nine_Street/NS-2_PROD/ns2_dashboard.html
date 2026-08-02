@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NS-2 · HMM Regime Strategy</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#07090d; --panel:#0c0e14; --border:#1a1a2a; --text:#e8e8ec; --sub:#9aa0aa; --muted:#666;
+  --green:#76e4c4; --blue:#7ec8e3; --purple:#c9a6ff; --red:#ff6b6b; --orange:#ffb347; --yellow:#ffd166;
+  --app-bg:#080b10;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--app-bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;width:100%;min-height:100vh;padding:12px 14px 40px;overflow-x:hidden}
+
+/* Desktop: widen layout, 2-col charts */
+@media (min-width:768px){
+  body{padding:20px 28px 60px}
+  .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  .charts-grid .chart-box.full{grid-column:1 / -1}
+  .stock-hdr .name,.stock-hdr .price{font-size:26px}
+  .pill{font-size:13px;padding:7px 18px}
+}
+h2{font-size:14px;font-weight:600;margin:16px 0 8px}
+.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.header h1{font-size:13px;font-weight:600;color:var(--sub);letter-spacing:.5px}
+.header .badge{font-size:10px;padding:2px 6px;border-radius:3px;font-weight:600}
+.badge-qa{background:#1a3a2a;color:var(--green)}
+
+/* Ticker pills */
+.pills{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none;align-items:flex-start}
+.pills::-webkit-scrollbar{display:none}
+.pill{padding:6px 14px;border-radius:14px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent;background:var(--panel);color:var(--sub);transition:all .15s}
+.pill.active{border-color:currentColor;background:transparent}
+
+/* Stock header */
+.stock-hdr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+.stock-hdr .name{font-size:20px;font-weight:700}
+.stock-hdr .meta{font-size:11px;color:var(--sub);margin-top:2px}
+.stock-hdr .price{font-size:20px;font-weight:700}
+.stock-hdr .price-label{font-size:10px;color:var(--sub);text-align:right}
+
+/* Regime cards */
+.regime-cards{display:flex;gap:8px;margin-bottom:14px}
+.regime-card{flex:1;background:var(--panel);border-radius:10px;padding:10px 12px;border-left:3px solid;font-size:11px}
+.regime-card .rc-label{font-size:13px;font-weight:700;margin-bottom:3px}
+.regime-card .rc-desc{color:var(--sub);font-size:10px;margin-bottom:2px}
+.regime-card .rc-days{font-size:18px;font-weight:700}
+
+/* Chart wrappers — flush stacked panels */
+.chart-box{background:var(--panel);border-radius:10px;padding:12px;margin-bottom:10px;position:relative}
+.chart-box h3{font-size:10px;color:var(--sub);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.chart-box canvas{display:block;width:100%!important}
+.chart-stack{display:flex;flex-direction:column;gap:0;width:100%;min-width:0;margin-bottom:6px}
+.chart-stack canvas{display:block;width:100%!important}
+
+/* Signal bar chart */
+
+/* Legend items */
+.legend-item{display:flex;align-items:center;gap:4px}
+.legend-dot{width:10px;height:10px;border-radius:2px}
+
+/* Rules table */
+.rules-table{width:100%;font-size:11px;border-collapse:collapse;margin:8px 0}
+.rules-table th{color:var(--sub);text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}
+.rules-table td{padding:5px 6px;border-bottom:1px solid rgba(26,26,42,.4);vertical-align:top}
+.rules-table .regime-tag{font-weight:700}
+
+/* Active strategy card */
+.active-card{background:var(--panel);border-radius:10px;padding:12px 14px;margin-top:10px;border-left:3px solid var(--green)}
+.active-card .ac-date{font-size:11px;color:var(--sub)}
+.active-card .ac-header{display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px}
+.active-card .ac-title{font-size:16px;font-weight:700}
+.active-card .ac-btn{padding:7px 18px;border-radius:6px;font-size:13px;font-weight:700;background:#1a3a2a;color:var(--green);border:1px solid var(--green);cursor:pointer}
+.active-card .ac-metrics{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+.active-card .ac-metric .ac-val{font-size:15px;font-weight:700}
+.active-card .ac-metric .ac-lbl{font-size:10px;color:var(--sub)}
+.active-card .ac-rule{font-size:11px;color:var(--sub);font-style:italic}
+
+/* Macro indicator */
+.macro-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+
+/* Loading */
+.loader{text-align:center;padding:60px 0;color:var(--sub)}
+.spinner{display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Timeline */
+.period-btn{background:#161b22;border:1px solid #30363d;color:#8b949e;padding:4px 10px;cursor:pointer;border-radius:4px;font-size:10px;font-weight:600}
+.period-btn:hover{background:#21262d}
+.period-btn.active{background:#238636;color:#fff;border-color:#2ea043}
+.timeline-bar{display:flex;height:28px;cursor:pointer;border:1px solid rgba(255,255,255,.06);border-radius:3px}
+.timeline-bar .seg{flex:1;border-radius:1px;transition:opacity .1s;margin:0 1px}
+.timeline-bar .seg:hover{opacity:.7}
+
+/* Watchlist modal */
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:1000;justify-content:center;align-items:center}
+.modal-overlay.show{display:flex}
+.modal-box{background:var(--panel);border-radius:12px;border:1px solid var(--border);padding:20px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto}
+.modal-box h2{font-size:16px;margin:0 0 12px}
+.modal-row{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid rgba(26,26,42,.4);font-size:11px}
+.modal-row .ticker-name{font-weight:700;width:60px}
+.modal-row .signal-badge{font-size:9px;padding:1px 6px;border-radius:3px;font-weight:600;width:60px;text-align:center}
+.modal-row .actions{display:flex;gap:6px}
+.btn-sm{padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--sub)}
+.btn-sm.danger{color:var(--red);border-color:var(--red)}
+.btn-sm.primary{background:var(--green);color:#000;border-color:var(--green)}
+.modal-input{flex:1;padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:#161b22;color:var(--text);font-size:11px;margin-right:8px}
+.modal-footer{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:10px;color:var(--sub)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div><h1>HMM Regime Strategy</h1><span style="font-size:10px;color:var(--muted)" id="macroBadge">—</span></div>
+  <span class="badge badge-qa">QA :9229</span>
+</div>
+
+<!-- Config strip -->
+<div style="display:flex;gap:14px;font-size:10px;color:var(--sub);padding:0 0 6px 0;flex-wrap:wrap">
+  <span id="cfgClass">—</span>
+  <span id="cfgHMM">—</span>
+  <span id="cfgLookback">—</span>
+</div>
+
+<!-- Ticker pills -->
+<div class="pills" id="tickerPills"></div>
+
+<!-- Stock header -->
+<div class="stock-hdr" id="stockHeader"></div>
+
+<!-- Regime cards -->
+<div class="regime-cards" id="regimeCards"></div>
+
+<!-- Charts grid (2-col on desktop) -->
+<div class="charts-grid">
+<!-- Composite chart: Price + RSI + CCI stacked -->
+<div class="chart-box full">
+  <h3>Price · RSI · CCI</h3>
+  <div class="chart-stack">
+    <canvas id="chartPrice" style="height:220px"></canvas>
+    <div class="timeline-bar" id="regimeTimeline" title="▲ Click any segment to inspect"></div>
+    <div style="display:flex;gap:12px;padding:4px 0 4px 0;font-size:11px;color:var(--sub)">
+      <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>TRENDING</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#7ec8e3"></span>MEAN_REV</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span>CRISIS</span>
+    </div>
+    <canvas id="chartRSI" style="height:110px"></canvas>
+    <canvas id="chartCCI" style="height:110px"></canvas>
+    <canvas id="chartSignals" style="height:55px;width:100%;margin-bottom:6px"></canvas>
+    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin-bottom:2px;flex-shrink:0">
+      <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>BUY</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span>SHORT</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ffd166"></span>EXIT</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#7ec8e3"></span>HOLD LONG</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#444"></span>FLAT</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#c9a6ff"></span>WATCH</span>
+    </div>
+    <div id="inspectPrompt" style="flex:1;font-size:11px;color:var(--sub);border:1px dashed var(--border);padding:3px 8px;border-radius:4px;text-align:center">
+      ↑ Hover any chart or timeline bar to cross-reference
+    </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:4px;margin:4px 0 0" id="periodBar">
+    <button class="tab period-btn active" data-period="1M" onclick="setPeriod('1M')">1M</button>
+    <button class="tab period-btn" data-period="3M" onclick="setPeriod('3M')">3M</button>
+    <button class="tab period-btn" data-period="6M" onclick="setPeriod('6M')">6M</button>
+    <button class="tab period-btn" data-period="YTD" onclick="setPeriod('YTD')">YTD</button>
+    <button class="tab period-btn" data-period="1Y" onclick="setPeriod('1Y')">1Y</button>
+    <button class="tab period-btn" data-period="2Y" onclick="setPeriod('2Y')">2Y</button>
+  </div>
+</div>
+</div><!-- /charts-grid -->
+
+<!-- Strategy Rules Table -->
+<h2>Strategy Rules</h2>
+<table class="rules-table">
+  <thead><tr><th>Regime</th><th>Entry Condition</th><th>Exit Condition</th><th>Size</th><th>Direction</th></tr></thead>
+  <tbody id="rulesBody"></tbody>
+</table>
+
+<!-- Active Strategy Card -->
+<div class="active-card" id="activeCard"></div>
+
+<!-- AI Regime Analysis -->
+
+<!-- Watchlist Modal -->
+<div class="modal-overlay" id="watchlistModal">
+  <div class="modal-box">
+    <h2>Manage Watchlist</h2>
+    <div style="display:flex;margin-bottom:12px">
+      <input class="modal-input" id="newTicker" placeholder="Add ticker (e.g. SPY)" onkeypress="if(event.key==='Enter')addTicker()">
+      <button class="btn-sm primary" onclick="addTicker()">+ Add</button>
+    </div>
+    <div id="modalList"></div>
+    <div class="modal-footer">
+      <span>Focus: <b id="focusCount">0</b>/20</span>
+      <div>
+        <button class="btn-sm" onclick="closeWatchlistModal()">Cancel</button>
+        <button class="btn-sm primary" onclick="saveFocus()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+const REGIME_COLORS = {0:'#22c55e',1:'#7ec8e3',2:'#ff6b6b'};
+const SIGNAL_COLORS = {BUY:'#22c55e',SELL:'#ff6b6b',SHORT:'#ff6b6b',EXIT:'#ffd166','HOLD LONG':'#7ec8e3',FLAT:'#444',WATCH:'#c9a6ff','NO-EDGE':'#666'};
+const MACRO_LABELS = {'-1':'RISK OFF','0':'NEUTRAL','1':'RISK ON'};
+const MACRO_COLORS = {'-1':'#ff6b6b','0':'#ffb347','1':'#76e4c4'};
+let watchlistData = {watchlist:[], focus:[], signals:{}};
+let activeTicker = 'NVDA';
+let chartData = null;
+let chartInstances = {};
+
+// ── Cross-chart hover sync ──
+let crosshairIdx = -1;
+let currentPeriod = '1M';
+Chart.register({
+  id: 'crosshairSync',
+  afterDraw(chart) {
+    // Crosshair
+    if (crosshairIdx < 0) return;
+    const meta = chart.getDatasetMeta(0);
+    if (!meta || !meta.data || !meta.data[crosshairIdx]) return;
+    const {ctx, chartArea, scales} = chart;
+    const ds = chart.data.datasets[0];
+    const pt = meta.data[crosshairIdx];
+    if (!pt || pt.x == null) return;
+    const x = pt.x;
+    ctx.save();
+    // Vertical line
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.stroke();
+    // Horizontal line on price chart only
+    if (ds && ds.label === 'Close' && scales && scales.y) {
+      const y = pt.y;
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.stroke();
+      // Price label on left y-axis at price level
+      const val = chartData.close[crosshairIdx];
+      const txt = '$' + val.toFixed(2);
+      ctx.font = 'bold 12px Monaco,monospace';
+      const tw = ctx.measureText(txt).width;
+      const lx = Math.max(chartArea.left - tw - 12, 2);
+      ctx.fillStyle = 'rgba(12,14,20,.85)';
+      ctx.fillRect(lx, y - 9, tw + 10, 18);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#e6edf3';
+      ctx.fillText(txt, lx + tw + 8, y);
+      // Date label at top of vertical line
+      const dateTxt = chartData.dates[crosshairIdx];
+      ctx.font = 'bold 12px Monaco,monospace';
+      const dw = ctx.measureText(dateTxt).width;
+      const dx = Math.max(Math.min(x - dw/2 - 4, chartArea.right - dw - 4), chartArea.left);
+      ctx.fillStyle = 'rgba(12,14,20,.85)';
+      ctx.fillRect(dx, chartArea.top + 2, dw + 8, 18);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#e6edf3';
+      ctx.fillText(dateTxt, dx + dw/2 + 4, chartArea.top + 11);
+    }
+    ctx.restore();
+  }
+});
+function syncHover(idx) {
+  crosshairIdx = idx;
+  if (idx >= 0 && chartData) {
+    const c = chartData, s = c.signal_bars[idx], r = c.regime_timeline[idx];
+    const regimeLabel = REGIME_NAMES[r.regime]||'?';
+    document.getElementById('inspectPrompt').innerHTML =
+          `Close: <span style="color:#888">Close:</span> <span style="color:${c.color}">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#888">RSI:</span> <span style="color:#7ec8e3">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#888">CCI:</span> <span style="color:#c9a6ff">${c.cci[idx].toFixed(0)}</span> · ` +
+          `<span style="color:${REGIME_COLORS[r.regime]||r.color}">${regimeLabel}</span>`;
+    document.getElementById('inspectPrompt').style.border = '1px solid rgba(255,255,255,.15)';
+  } else {
+    document.getElementById('inspectPrompt').innerHTML =
+      '↑ Hover any chart or timeline bar to cross-reference';
+    document.getElementById('inspectPrompt').style.border = '1px dashed var(--border)';
+  }
+  Object.values(chartInstances).forEach(c => { try{c.render()}catch(e){} });
+}
+function sync(e, chart) {
+  const el = chart.getElementsAtEventForMode(e, 'index', {intersect:false});
+  const idx = el.length ? el[0].index : -1;
+  syncHover(idx);
+  if (idx >= 0) inspectBar(idx);
+}
+function setPeriod(p) {
+  currentPeriod = p;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === p));
+  const m = {"1M":30, "3M":90, "6M":180, "YTD":200, "1Y":365, "2Y":730};
+  selectTicker(activeTicker, m[p] || 90);
+}
+
+// ── Build ticker pills ──
+async function loadWatchlist() {
+  try {
+    const r = await fetch('/api/watchlist');
+    watchlistData = await r.json();
+    localStorage.setItem('ns2_watchlist', JSON.stringify(watchlistData));
+  } catch(e) {
+    const cached = localStorage.getItem('ns2_watchlist');
+    if (cached) watchlistData = JSON.parse(cached);
+  }
+  buildPills();
+}
+
+function buildPills() {
+  const focus = watchlistData.focus || [];
+  const signals = watchlistData.signals || {};
+  document.getElementById('tickerPills').innerHTML =
+    focus.map(t => {
+      const s = signals[t];
+      const color = s ? s.color : 'var(--sub)';
+      const activeClass = t === activeTicker ? ' active' : '';
+      return '<span class="pill' + activeClass + '" style="color:' + color + ';border-color:' + color + '" onclick="selectTicker(\'' + t + '\',0)">' + t + '</span>';
+    }).join('') +
+    '<span class="pill" style="font-size:24px;color:var(--text);cursor:pointer;padding:6px 6px;line-height:1;align-self:flex-start" onclick="openWatchlistModal()">⚙</span>';
+}
+
+// ── Watchlist modal ──
+function openWatchlistModal() {
+  document.getElementById('watchlistModal').classList.add('show');
+  renderModalList();
+}
+function closeWatchlistModal() {
+  document.getElementById('watchlistModal').classList.remove('show');
+}
+function renderModalList() {
+  const all = watchlistData.watchlist || [];
+  const focus = watchlistData.focus || [];
+  const signals = watchlistData.signals || {};
+  document.getElementById('modalList').innerHTML = all.map(t => {
+    const inFocus = focus.includes(t);
+    const s = signals[t];
+    return `<div class="modal-row">
+      <span style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" ${inFocus?'checked':''} onchange="toggleFocus('${t}',this.checked)" ${!inFocus && focus.length>=20?'disabled':''}>
+        <span class="ticker-name">${t}</span>
+        ${s ? `<span class="signal-badge" style="color:${s.color};border:1px solid ${s.color}">${s.signal}</span>` : ''}
+      </span>
+      <span class="actions">
+        <button class="btn-sm danger" onclick="removeTicker('${t}')">✕</button>
+      </span>
+    </div>`;
+  }).join('');
+  document.getElementById('focusCount').textContent = focus.length;
+}
+function toggleFocus(ticker, add) {
+  const focus = watchlistData.focus || [];
+  if (add) {
+    if (focus.length >= 20) return;
+    if (!focus.includes(ticker)) focus.push(ticker);
+  } else {
+    watchlistData.focus = focus.filter(t => t !== ticker);
+  }
+  renderModalList();
+}
+async function addTicker() {
+  const inp = document.getElementById('newTicker');
+  const ticker = inp.value.trim().toUpperCase();
+  if (!ticker) return;
+  try {
+    const r = await fetch('/api/watchlist', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'add',ticker})});
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    watchlistData.watchlist = d.watchlist;
+    inp.value = '';
+    renderModalList();
+  } catch(e) { alert('Failed to add: '+e.message); }
+}
+async function removeTicker(ticker) {
+  try {
+    const r = await fetch('/api/watchlist', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'remove',ticker})});
+    const d = await r.json();
+    watchlistData.watchlist = d.watchlist;
+    watchlistData.focus = watchlistData.focus.filter(t => t !== ticker);
+    renderModalList();
+  } catch(e) { alert('Failed to remove: '+e.message); }
+}
+async function saveFocus() {
+  try {
+    const r = await fetch('/api/watchlist', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'focus',focus:watchlistData.focus})});
+    watchlistData = await r.json();
+    localStorage.setItem('ns2_watchlist', JSON.stringify(watchlistData));
+    buildPills();
+    closeWatchlistModal();
+  } catch(e) { alert('Failed to save: '+e.message); }
+}
+
+// ── Fetch & render ──
+async function selectTicker(ticker, days) {
+  if (!days || days <= 0) { const m = {"1M":30, "3M":90, "6M":180, "YTD":200, "1Y":365, "2Y":730}; days = m[currentPeriod] || 90; }
+  activeTicker = ticker;
+  document.getElementById('stockHeader').innerHTML = '<div class="loader"><div class="spinner"></div> Loading '+ticker+'…</div>';
+  document.querySelectorAll('.pill').forEach(p => p.style.pointerEvents = 'none');
+
+  try {
+    const resp = await fetch(`/api/ticker?ticker=${ticker}&hmm=0&display=${days}`);
+    const data = await resp.json();
+    if (data.error) { document.getElementById('stockHeader').innerHTML = '<div class="loader" style="color:var(--red)">⚠ '+data.error+'</div>'; return; }
+    chartData = data.chart;
+    destroyCharts();
+    renderHeader();
+    renderRegimeCards();
+    renderPriceChart();
+    renderRegimeTimeline();
+    renderRSIChart();
+    renderCCIChart();
+    renderSignalBars();
+    renderRulesTable();
+    renderActiveCard();
+    updateMacro();
+    syncHover(-1);
+    // Refresh pill from cached signal
+    loadWatchlist();
+    // Align timeline & signal bars with RSI chart data area
+    setTimeout(() => {
+      const rsi = chartInstances.rsi;
+      if (rsi && rsi.chartArea) {
+        const tl = document.getElementById('regimeTimeline');
+        if (tl) {
+          tl.style.marginLeft = Math.max(rsi.chartArea.left - 12, 0) + 'px';
+          tl.style.marginRight = Math.max(rsi.width - rsi.chartArea.right - 12, 0) + 'px';
+        }
+      }
+    }, 150);
+  } catch(e) {
+    document.getElementById('stockHeader').innerHTML = '<div class="loader" style="color:var(--red)">⚠ '+e.message+'</div>';
+  } finally {
+    document.querySelectorAll('.pill').forEach(p => p.style.pointerEvents = 'auto');
+  }
+}
+
+// ── Header ──
+function renderHeader() {
+  const c = chartData;
+  document.getElementById('stockHeader').innerHTML = `
+    <div><div class="name">${c.name}</div></div>
+    <div><div class="price" style="color:${c.color}">$${c.last_close}</div><div class="price-label">LAST CLOSE</div></div>`;
+  }
+
+// ── Regime cards ──
+function renderRegimeCards() {
+  const s = chartData.regime_summary;
+  document.getElementById('regimeCards').innerHTML = Object.entries(s).map(([label, info]) => `
+    <div class="regime-card" style="border-color:${info.color}">
+      <div class="rc-label" style="color:${info.color}">${label}</div>
+      <div class="rc-desc">${info.desc}</div>
+      <div class="rc-days" style="color:${info.color}">${info.days}<span style="font-size:10px;color:var(--sub)"> days</span></div>
+    </div>`).join('');
+}
+
+// ── Dark chart config ──
+function dc() { return {
+  responsive:false, maintainAspectRatio:false, animation:false,
+  plugins:{legend:{display:false},tooltip:{enabled:false}},
+  scales:{x:{offset:false,ticks:{color:'#555',font:{size:8},maxTicksLimit:8},grid:{display:false}},
+          y:{offset:false,ticks:{color:'#555',font:{size:8}},grid:{color:'rgba(26,26,42,.3)'},
+             afterFit:s=>{s.width=Math.max(s.width,40)}}},
+  interaction:{intersect:false,mode:'index'}
+};}
+
+function makeCanvas(id, h) {
+  const el = document.getElementById(id);
+  const box = el.closest('.chart-box');
+  const w = Math.max((box ? box.clientWidth - 24 : el.parentElement.clientWidth) || window.innerWidth - 40, 200);
+  const height = h || parseInt(el.style.height) || 110;
+  el.style.width = w + 'px';
+  el.style.height = height + 'px';
+  el.width = w;
+  el.height = height;
+  return el.getContext('2d');
+}
+
+// Resize handler — re-render charts on window resize
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!activeTicker) return;
+    destroyCharts();
+    renderPriceChart();
+    renderRegimeTimeline();
+    renderRSIChart();
+    renderCCIChart();
+    renderSignalBars();
+    syncHover(crosshairIdx);
+  }, 250);
+});
+
+function destroyCharts() { Object.values(chartInstances).forEach(c => { try{c.destroy()}catch(e){} }); chartInstances={}; }
+
+// ── Price chart with regime background bands ──
+function renderPriceChart() {
+  const ctx = makeCanvas('chartPrice', 220);
+  chartInstances.price = new Chart(ctx, {
+    type:'line', data:{labels:chartData.dates, datasets:[{
+      label:'Close',data:chartData.close,borderColor:'#4ade80',borderWidth:1.5,pointRadius:0,fill:false,tension:.1
+    }]},
+    options:{...dc(), onHover(e){sync(e,this)}, scales:{...dc().scales, x:{...dc().scales.x, display:false}}}
+  });
+}
+
+// ── Regime timeline bar ──
+const REGIME_NAMES = {0:'TRENDING',1:'MEAN_REV',2:'CRISIS'};
+function renderRegimeTimeline() {
+  const el = document.getElementById('regimeTimeline');
+  el.innerHTML = chartData.regime_timeline.map((r,i) =>
+    `<span class="seg" style="background:${REGIME_COLORS[r.regime]||r.color}" data-idx="${i}"></span>`
+  ).join('');
+  el.querySelectorAll('.seg').forEach(seg => {
+    seg.addEventListener('mousemove', e => {
+      const i = +seg.dataset.idx;
+      syncHover(i);
+      inspectBar(i);
+    });
+    seg.addEventListener('mouseleave', () => {
+      document.getElementById('inspectPrompt').innerHTML = '↑ Hover any chart or timeline bar to cross-reference';
+      document.getElementById('inspectPrompt').style.border = '1px dashed var(--border)';
+      syncHover(-1);
+    });
+  });
+}
+
+// ── RSI histogram ──
+function renderRSIChart() {
+  const ctx = makeCanvas('chartRSI', 110);
+  chartInstances.rsi = new Chart(ctx, {
+    type:'bar', data:{labels:chartData.dates, datasets:[{
+      label:'RSI',data:chartData.rsi,backgroundColor:chartData.rsi_colors,borderRadius:1,borderWidth:0
+    }]},
+    options:{...dc(), onHover(e){sync(e,this)}, scales:{...dc().scales, x:{...dc().scales.x, display:false}, y:{...dc().scales.y, min:0, max:100, ticks:{...dc().scales.y.ticks, maxTicksLimit:4}}}},
+    plugins:[{beforeDraw(chart){
+      const {ctx,chartArea,scales}=chart;
+      ctx.save();ctx.strokeStyle='#ff6b6b33';ctx.setLineDash([4,4]);
+      const y70=scales.y.getPixelForValue(70),y30=scales.y.getPixelForValue(30);
+      ctx.beginPath();ctx.moveTo(chartArea.left,y70);ctx.lineTo(chartArea.right,y70);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(chartArea.left,y30);ctx.lineTo(chartArea.right,y30);ctx.stroke();
+      ctx.restore();
+    }}]
+  });
+}
+
+// ── CCI chart ──
+function renderCCIChart() {
+  const ctx = makeCanvas('chartCCI', 110);
+  const sigColors = chartData.signal_bars.map(s => s.color);
+  chartInstances.cci = new Chart(ctx, {
+    type:'line', data:{labels:chartData.dates, datasets:[{
+      label:'CCI',data:chartData.cci,borderColor:'#c9a6ff',borderWidth:1,pointRadius:3,
+      pointBackgroundColor:sigColors,pointBorderWidth:0,fill:false
+    }]},
+    options:{...dc(), onHover(e){sync(e,this)}, onClick:(e,els) => { if(els.length) inspectBar(els[0].index); },
+      scales:{...dc().scales,
+        x:{...dc().scales.x, display:false},
+        y:{...dc().scales.y, ticks:{...dc().scales.y.ticks, maxTicksLimit:4}}
+      }},
+    plugins:[{beforeDraw(chart){
+      const {ctx,chartArea,scales}=chart;
+      ctx.save();ctx.setLineDash([4,4]);
+      ['#76e4c455','#ff6b6b55','#33333333'].forEach((color,i)=>{
+        ctx.strokeStyle=color;ctx.beginPath();
+        const y=scales.y.getPixelForValue(i===2?0:(i===0?100:-100));
+        ctx.moveTo(chartArea.left,y);ctx.lineTo(chartArea.right,y);ctx.stroke();
+      });ctx.restore();
+    }}]
+  });
+}
+
+// ── Signal bar chart ──
+function renderSignalBars() {
+  const ctx = makeCanvas('chartSignals', 55);
+  chartInstances.signals = new Chart(ctx, {
+    type:'bar', data:{labels:chartData.dates, datasets:[{
+      data:chartData.signal_bars.map(s=>1),backgroundColor:chartData.signal_bars.map(s=>SIGNAL_COLORS[s.label]||s.color),borderRadius:0,borderWidth:0
+    }]},
+    options:{
+      ...dc(),
+      plugins:{tooltip:{enabled:false},legend:{display:false}},
+      onHover(e){
+        const els=this.getElementsAtEventForMode(e,'index',{intersect:false});
+        const idx=els.length?els[0].index:-1;
+        syncHover(idx);
+        if(idx>=0) inspectBar(idx);
+        else{
+          document.getElementById('inspectPrompt').innerHTML='↑ Hover any chart or timeline bar to cross-reference';
+          document.getElementById('inspectPrompt').style.border='1px dashed var(--border)';
+        }
+      },
+      scales:{
+        ...dc().scales,
+        x:{...dc().scales.x, display:true, ticks:{color:'#9aa0aa',font:{size:11,weight:'bold'},maxTicksLimit:8}},
+        y:{display:false,min:0,max:1.2}
+      }
+    },
+    onClick:(e,els) => { if(els.length) inspectBar(els[0].index); }
+  });
+}
+
+// ── Inspect bar ──
+function inspectBar(idx) {
+  const c = chartData;
+  const s = c.signal_bars[idx];
+  const r = c.regime_timeline[idx];
+  const regimeLabel = REGIME_NAMES[r.regime]||'?';
+  document.getElementById('inspectPrompt').innerHTML = 
+    `<b>${c.dates[idx]}</b> — Close: <span style="color:${c.color};font-family:Monaco,monospace">$${c.close[idx].toFixed(2)}</span> · RSI: <span style="color:#7ec8e3;font-family:Monaco,monospace">${c.rsi[idx].toFixed(1)}</span> · CCI: <span style="color:#c9a6ff;font-family:Monaco,monospace">${c.cci[idx].toFixed(1)}</span> · Regime: <span style="color:${REGIME_COLORS[r.regime]||r.color}">${regimeLabel}</span> · Signal: <span style="color:${SIGNAL_COLORS[s.label]||s.color}">${s.label}</span>`;
+}
+
+// ── Rules table ──
+function renderRulesTable() {
+  document.getElementById('rulesBody').innerHTML = chartData.strategy_rules.map(r => `
+    <tr><td class="regime-tag" style="color:${r.color}">${r.regime}</td>
+    <td>${r.entry}</td><td>${r.exit}</td><td>${r.size}</td><td>${r.direction}</td></tr>`).join('');
+}
+
+// ── Active strategy card ──
+const REGIME_PLAYBOOK = {
+  TRENDING: {
+    title: 'CCI Breakout Strategy Active',
+    action: 'Momentum is confirmed — ride the trend at full size (100%). Enter LONG when CCI crosses above +100; exit when CCI drops below 0.',
+  },
+  MEAN_REV: {
+    title: 'RSI Fade Strategy Active',
+    action: 'Range-bound market — fade extremes at reduced size (60%). Buy when RSI < 30 (oversold), sell when RSI > 70 (overbought); exit as RSI returns to 45–55.',
+  },
+  CRISIS: {
+    title: 'Capital Preservation Active',
+    action: 'Elevated risk — cut exposure to 10%. Exit longs; only short on CCI < -250 (extreme panic). Hold flat until regime shifts.',
+  },
+};
+
+function renderActiveCard() {
+  const c = chartData;
+  const today = c.dates[c.dates.length-1];
+  const rc = REGIME_COLORS[c.regime[c.regime.length-1]]||'#7ec8e3';
+  const pb = REGIME_PLAYBOOK[c.active_regime] || {title:'Strategy Active', action:''};
+  const gate = c.gate || {};
+  const gated = gate.gated;
+  const sigColor = gated ? '#666' : rc;
+  const sigTag = gated
+    ? `<span style="font-size:9px;color:#888;margin-left:4px">NO OOS EDGE · PF ${(gate.profit_factor||0).toFixed(2)}</span>`
+    : '';
+  document.getElementById('activeCard').style.borderLeftColor = gated ? '#555' : rc;
+  document.getElementById('activeCard').innerHTML = `
+    <div class="ac-date">${today} · <span style="color:${rc};font-weight:700">${c.active_regime}</span>${sigTag}</div>
+    <div class="ac-header">
+      <div class="ac-title">${gated ? 'Signal Withheld' : pb.title}</div>
+      <div class="ac-btn" style="background:rgba(118,228,196,.08);color:${sigColor};border-color:${sigColor}">${c.active_signal}</div>
+    </div>
+    <div class="ac-metrics">
+      <div class="ac-metric"><div class="ac-val">$${c.last_close}</div><div class="ac-lbl">CLOSE</div></div>
+      <div class="ac-metric"><div class="ac-val" style="color:${c.active_rsi>70?'#ff6b6b':c.active_rsi<30?'#76e4c4':'#e8e8ec'}">${c.active_rsi}</div><div class="ac-lbl">RSI 14</div></div>
+      <div class="ac-metric"><div class="ac-val" style="color:${rc}">${c.active_cci}</div><div class="ac-lbl">CCI 20</div></div>
+      <div class="ac-metric"><div class="ac-val" style="color:${rc}">↗ ${c.active_regime}</div><div class="ac-lbl">REGIME</div></div>
+    </div>
+    <div class="ac-rule">${gated ? 'Walk-forward shows no OOS edge — trade signal suppressed.' : pb.action}</div>`;
+
+  }
+
+// ── Macro ──
+function updateMacro() {
+  fetch('/api/macro').then(r=>r.json()).then(d=>{
+    const label = MACRO_LABELS[d.macro_filter]||'?';
+    const thr = (d.vix_low!=null && d.vix_high!=null) ? ` <span style="color:var(--muted)">(risk-on&lt;${d.vix_low} · risk-off&gt;${d.vix_high})</span>` : '';
+    document.getElementById('macroBadge').innerHTML =
+      `<span class="macro-dot" style="background:${MACRO_COLORS[d.macro_filter]||'#555'}"></span>VIX: ${label}${thr}`;
+  }).catch(()=>{ document.getElementById('macroBadge').innerHTML = '<span class="macro-dot" style="background:#555"></span>VIX: ?'; });
+}
+
+// ── Config strip fetch ──
+function updateConfig() {
+  fetch('/api/config').then(r=>r.json()).then(d=>{
+    document.getElementById('cfgClass').innerHTML = 'class: <span style="font-family:Monaco,monospace">'+d.asset_profiles.join('/')+'</span>';
+    document.getElementById('cfgHMM').innerHTML = 'HMM: <span style="font-family:Monaco,monospace">'+d.hmm_covariance+'</span>';
+    document.getElementById('cfgLookback').innerHTML = 'lookback: <span style="font-family:Monaco,monospace">'+d.lookback_days+'d</span>';
+  }).catch(()=>{});
+}
+
+// ── Init ──
+updateConfig();
+loadWatchlist();
+updateMacro();
+selectTicker('NVDA', 0);
+</script>
+</body>
+</html>

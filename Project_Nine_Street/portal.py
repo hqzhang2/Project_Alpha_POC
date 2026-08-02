@@ -1,33 +1,34 @@
+#!/usr/bin/env python3
 """
-Trading Strategy Engine Portal
-=============================
-Main entry point for all trading strategies.
-Default: PROD environment, Alpha Terminal dashboard.
+Trading Strategy Engine Portal - QA Environment
+==============================================
+Aggregates Alpha Terminal + Nine Street projects.
+Default: QA environment.
 """
-import os, warnings
+import os
+import json
+import warnings
 warnings.filterwarnings("ignore")
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 PORT = 8000
 
-# ── Strategy Configuration ─────────────────────────────────────────────────────
+# Strategy Configuration
 STRATEGIES = {
     'alpha': {'name': 'Alpha Terminal', 'path': 'dashboard.html', 'prod': 9098, 'qa': 9099},
-    'ns1':   {'name': 'NS-1',            'path': '',                'prod': 9199, 'qa': 9199},
-    'ns2':   {'name': 'NS-2',            'path': '',                'prod': 3001, 'qa': 3001},
-    'ns3':   {'name': 'NS-3',            'path': '',                'prod': 3000, 'qa': 3000},
+    'ns1':   {'name': 'NS-1', 'path': 'index.html', 'prod': 9218, 'qa': 9219},
+    'ns2':   {'name': 'NS-2 (MAG7 HMM)', 'path': '', 'prod': 9228, 'qa': 9229},
+    'ns3':   {'name': 'NS-3 (Sector Rotation)', 'path': 'ns3_dashboard.html', 'prod': 9236, 'qa': 9237},
+    'ns4':   {'name': 'NS-4 (Ratio Trading)', 'path': 'ns4_dashboard.html', 'prod': 9240, 'qa': 9241},
 }
 
-def build_html():
-    ts = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
-    strategies_json = str(STRATEGIES).replace("'", '"')
-    
-    html = f'''<!DOCTYPE html>
+# HTML Template with all braces escaped for Python .format()
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trading Strategy Engine</title>
+<title>Trading Strategy Engine - QA</title>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html, body {{ height: 100%; }}
@@ -135,6 +136,18 @@ def build_html():
     background: #4ade80;
     margin-right: 4px;
   }}
+  .status-indicator {{
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: #6b7280; /* gray - unknown */
+    border: 1px solid #333;
+  }}
+  .status-indicator.up { background: #3fb950; border-color: #2ea043; }
+  .status-indicator.down { background: #f85149; border-color: #da3633; }
+
 </style>
 </head>
 <body>
@@ -142,33 +155,34 @@ def build_html():
     <div class="topbar-left">
       <div class="logo"><span>Trading Strategy Engine</span></div>
       <div class="nav-tabs">
-        <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')">Alpha Terminal</button>
-        <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')">NS-1</button>
-        <button class="nav-tab" data-strategy="ns2" onclick="switchStrategy('ns2')">NS-2</button>
-        <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')">NS-3</button>
-      </div>
+              <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')"><span class="status-indicator" id="status-alpha"></span>Alpha Terminal</button>
+              <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')"><span class="status-indicator" id="status-ns1"></span>NS-1</button>
+              <button class="nav-tab" data-strategy="ns2" onclick="switchStrategy('ns2')"><span class="status-indicator" id="status-ns2"></span>NS-2</button>
+              <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')"><span class="status-indicator" id="status-ns3"></span>NS-3</button>
+              <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')"><span class="status-indicator" id="status-ns4"></span>NS-4</button>
+            </div>
     </div>
     <div class="env-toggle">
       <span class="env-label">ENV:</span>
-      <button class="env-btn active" id="btn-prod" onclick="setEnv('PROD')">PROD</button>
-      <button class="env-btn" id="btn-qa" onclick="setEnv('QA')">QA</button>
+      <button class="env-btn" id="btn-prod" onclick="setEnv('PROD')">PROD</button>
+      <button class="env-btn active" id="btn-qa" onclick="setEnv('QA')">QA</button>
     </div>
   </div>
-  
+
   <div class="main-frame">
-    <div class="loading" id="loading">Loading Alpha Terminal...</div>
+    <div class="loading" id="loading">Loading Alpha Terminal (QA)...</div>
     <iframe id="frame" style="display:none" onload="onFrameLoad()"></iframe>
   </div>
-  
+
   <div class="footer">
     <div><span class="status-dot"></span><span id="status-text">Connected</span></div>
-    <div><span id="env-display">PROD</span> | Port: <span id="port-display">9098</span> | {ts}</div>
+    <div><span id="env-display">QA</span> | Port: <span id="port-display">9099</span> | {ts}</div>
   </div>
 
 <script>
 const STRATS = {strategies_json};
 
-let currentEnv = 'PROD';
+let currentEnv = 'QA';
 let currentStrategy = 'alpha';
 
 function setEnv(env) {{
@@ -183,11 +197,11 @@ function switchStrategy(strategy) {{
   currentStrategy = strategy;
   document.querySelectorAll('.nav-tab').forEach(function(b) {{ b.classList.remove('active'); }});
   document.querySelector('[data-strategy="' + strategy + '"]').classList.add('active');
-  
+
   var s = STRATS[strategy];
   var port = s[currentEnv.toLowerCase()];
-  var path = s.path || '';
-  
+  var path = s.path || s.dashboard || '';
+
   document.getElementById('port-display').textContent = port;
   document.getElementById('loading').style.display = 'flex';
   document.getElementById('frame').style.display = 'none';
@@ -199,11 +213,68 @@ function onFrameLoad() {{
   document.getElementById('frame').style.display = 'block';
 }}
 
-// Initial load - Alpha Terminal PROD dashboard
-document.getElementById('frame').src = 'http://localhost:9098/dashboard.html';
+// Initial load - Alpha Terminal QA
+document.getElementById('frame').src = 'http://localhost:9099/dashboard.html';
+
+// Health check system for status indicators
+const SERVICE_ENDPOINTS = {
+  'alpha': '/dashboard.html',
+  'ns1': '/health',
+  'ns2': '/health',
+  'ns3': '/health',
+  'ns4': '/health'
+};
+
+async function checkServiceHealth(key, port, path) {
+  try {
+    const res = await fetch(`http://localhost:${port}${path}`, { 
+      method: 'GET', 
+      cache: 'no-cache',
+      timeout: 3000 
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function updateStatusIndicators() {
+  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4'];
+  for (const key of strategies) {
+    const s = STRATS[key];
+    if (!s) continue;
+    
+    const port = s[currentEnv.toLowerCase()];
+    const path = SERVICE_ENDPOINTS[key];
+    const isUp = await checkServiceHealth(key, port, path);
+    
+    const tab = document.querySelector(`[data-strategy="${{key}}"]`);
+    const dot = tab ? tab.querySelector('.status-indicator') : null;
+    if (dot) {{
+      dot.classList.remove('up', 'down');
+      dot.classList.add(isUp ? 'up' : 'down');
+      dot.title = `${{key.toUpperCase()}}: ${{isUp ? 'UP' : 'DOWN'}}`;
+    }}
+  }
+}
+
+// Initial check
+updateStatusIndicators();
+// Poll every 30 seconds
+setInterval(updateStatusIndicators, 30000);
 </script>
 </body>
-</html>'''
+</html>"""
+
+def build_html():
+    ts = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
+    strategies_json = __import__('json').dumps(STRATEGIES)
+    # Template uses {{ }} (escaped for the old .format() era). Unescape the
+    # CSS/JS braces FIRST, then splice in the already-valid JSON token — so the
+    # JSON's own braces are never touched.
+    html = HTML_TEMPLATE.replace('{{', '{').replace('}}', '}')
+    html = html.replace('{ts}', ts)
+    html = html.replace('{strategies_json}', strategies_json)
     return html
 
 class PortalHandler(SimpleHTTPRequestHandler):
@@ -218,14 +289,26 @@ class PortalHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(self._html().encode())
             return
+
+        if self.path == '/api/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            statuses = {}
+            for key, cfg in STRATEGIES.items():
+                port = cfg.get('qa', cfg.get('prod', 0))
+                statuses[key] = 'up' if port else 'down'
+            self.wfile.write(json.dumps(statuses).encode())
+            return
+
         self.send_response(404)
         self.end_headers()
         self.wfile.write(b'Not Found')
-    
+
     def _html(self):
         return build_html()
 
 if __name__ == '__main__':
     server = HTTPServer(('0.0.0.0', PORT), PortalHandler)
-    print(f'Trading Strategy Engine: http://localhost:{PORT}')
+    print(f'Trading Strategy Engine (QA): http://localhost:{PORT}')
     server.serve_forever()

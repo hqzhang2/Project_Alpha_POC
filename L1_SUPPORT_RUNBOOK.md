@@ -35,7 +35,7 @@ There are **5 programs** in total (the Portal + the 4 dashboards behind its tabs
 
 | # | Component | Port | What it does | Where the code lives |
 |---|-----------|------|--------------|----------------------|
-| 1 | **Portal** | 8000 | The window users open; shows the 4 tabs | `Project_Nine_Street/portal_qa.py` |
+| 1 | **Portal** | 8000 | The window users open; shows the 4 tabs | `Project_Nine_Street/portal.py` |
 | 2 | **Alpha Terminal QA** | 9099 | Alpha strategy dashboard | `Project_Sequoia/QA_terminal/server.py` |
 | 3 | **NS-1 QA** | 9219 | Nine Street dashboard #1 | `Project_Nine_Street/NS_1_QA/server_qa.py` |
 | 4 | **NS-3 QA** | 9237 | Nine Street dashboard #3 | `Project_Nine_Street/NS-3_QA/qa_server.py` |
@@ -167,7 +167,7 @@ to confirm it returns `200`.
 > ```
 > (NS-1 dir `NS_1_QA` script `server_qa.py`; NS-2/3/4 dir `NS-2_QA`/`NS-3_QA`/
 > `NS-4_QA` script `qa_server.py`; Portal dir `Project_Nine_Street` script
-> `portal_qa.py`.)
+> `portal.py`.)
 
 ---
 

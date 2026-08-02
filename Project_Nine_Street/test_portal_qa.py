@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for Project_Nine_Street/portal_qa.py
+Unit tests for Project_Nine_Street/portal.py
 
 Covers the two logic units that have regressed in production:
   * build_html()  - HTML/CSS/JSON assembly (broke twice: .format() KeyError,
@@ -23,7 +23,7 @@ import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SPEC = importlib.util.spec_from_file_location(
-    "portal_qa_ut", os.path.join(_HERE, "portal_qa.py")
+    "portal_ut", os.path.join(_HERE, "portal.py")
 )
 portal = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(portal)

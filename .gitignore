@@ -50,5 +50,9 @@ Project_Sequoia/QA_terminal/data/
 .idea/
 .vscode/
 
-# --- Research / analysis drafts (review-only, never commit) ---
+# Research / analysis drafts - review-only, never commit
 research_*.md
+
+# NS service runtime state - service-generated, never commit
+Project_Nine_Street/NS-2_PROD/ns2_signal_cache.json
+Project_Nine_Street/NS-2_PROD/ns2_watchlist.json
