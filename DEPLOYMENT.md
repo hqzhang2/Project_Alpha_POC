@@ -30,7 +30,7 @@ All services (Alpha Terminal + NS-1/2/3/4) share a single monorepo and single re
 | Service | QA Dir | PROD Dir | QA Port | PROD Port | Launchd Job (QA) | Launchd Job (PROD) |
 |---|---|---|---|---|---|---|
 | Alpha Terminal | `Project_Sequoia/QA_terminal` | `Project_Sequoia/terminal` | 9099 | 9098 | `com.alpha.terminal.qa` | `com.alpha.terminal.prod` |
-| NS-1 | `NS_1_QA` / `NS-1_QA` | *(none)* | 9219 | 9218 | `com.ninestreet.ns1.qa` | `com.ninestreet.ns1.prod` |
+| NS-1 | `NS_1_QA` / `NS-1_QA` | `NS-1_PROD` | 9219 | 9218 | `com.ninestreet.ns1.qa` | `com.ninestreet.ns1.prod` |
 | NS-2 | `NS-2_QA` | `NS-2_PROD` | 9229 | 9228 | `com.ninestreet.ns2.qa` | `com.ninestreet.ns2.prod` |
 | NS-3 | `NS-3_QA` | `NS-3_PROD` | 9237 | 9236 | `com.ninestreet.ns3.qa` | `com.ninestreet.ns3.prod` |
 | NS-4 | `NS-4_QA` | `NS-4_PROD` | 9241 | 9240 | `com.ninestreet.ns4.qa` | `com.ninestreet.ns4.prod` |
