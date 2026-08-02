@@ -62,16 +62,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     color: #4ade80;
   }}
   .logo span {{ color: #e8e8f0; margin-left: 8px; }}
-  .env-badge {{
-    background: #14532d;
-    border: 1px solid #4ade80;
-    color: #4ade80;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 700;
-    margin-left: 8px;
-  }}
   .nav-tabs {{
     display: flex;
     gap: 4px;
@@ -163,7 +153,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
   <div class="topbar">
     <div class="topbar-left">
-      <div class="logo"><span>Trading Strategy Engine</span><span class="env-badge">QA</span></div>
+      <div class="logo"><span>Trading Strategy Engine</span></div>
       <div class="nav-tabs">
               <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')"><span class="status-indicator" id="status-alpha"></span>Alpha Terminal</button>
               <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')"><span class="status-indicator" id="status-ns1"></span>NS-1</button>
