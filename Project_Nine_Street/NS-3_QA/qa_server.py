@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """
-NS-3 QA Server - stdlib + yfinance/pandas
-Exact API match with dashboard: tier1, tier2, tier3
+NS-3 QA Server - 3-Tier Sector Rotation (validated algorithm, deterministic)
+=============================================================================
+Tier 1: rank 11 sector ETFs by 52-week ratio momentum vs SPY (weekly bars).
+        [Validated: 12M lookback momentum is the robust cross-sectional signal]
+Tier 2: conviction meters for top-3 ranked sectors (DISPLAY ONLY - the rank is
+        the decision driver; the TA/HMM score no longer gates Tier 3).
+        Real HMM regime model (hmmlearn), real ADX/OBV on weekly OHLC.
+Tier 3: deterministic stock picks by 26-week relative strength percentile vs
+        the sector ETF. (Piotroski F-Score + TA score deferred.)
+Exact API match with dashboard: tier1, tier2, tier3.
 """
 import os
 import json
@@ -42,37 +50,109 @@ ETF_HOLDINGS = {
     "XLU": ["NEE", "SO", "DUK", "AEP", "SRE", "D", "EXC", "XEL", "WEC", "ES"],
 }
 
+# 52w momentum needs >= 53 weekly bars; fetch 60 + 2 buffer.
+LOOKBACK_WEEKS = 62
+MOMENTUM_WEEKS = 52
+RS_WEEKS = 26
+RS_PERCENTILE = 0.75          # top 25% of holdings by 26w RS
+HMM_BULL_THRESHOLD = 0.65
+TOP_N = 3                     # sectors passing Tier 1
+
 _cache = {}
 CACHE_TTL = 300
 
-def get_data():
+# ── HMM (guarded import: absent -> explicit "unavailable", never silent fake) ──
+try:
+    from hmmlearn.hmm import GaussianHMM
+    HMM_AVAILABLE = True
+except ImportError:
+    GaussianHMM = None
+    HMM_AVAILABLE = False
+
+
+def fit_hmm_bull_prob(close: pd.Series):
+    """2-state GaussianHMM on log returns -> P(currently in bull state) or None."""
+    if not HMM_AVAILABLE:
+        return None
+    returns = np.log(close / close.shift(1)).dropna().values.reshape(-1, 1)
+    if len(returns) < 20:
+        return None
+    import contextlib, io
+    model = GaussianHMM(n_components=2, covariance_type="full",
+                        n_iter=500, random_state=42)
+    with contextlib.redirect_stderr(io.StringIO()):
+        model.fit(returns)
+    bull_state = int(np.argmax(model.means_.ravel()))
+    posteriors = model.predict_proba(returns)
+    return float(posteriors[-1, bull_state])
+
+
+# ── Data: weekly OHLCV, 5-min TTL cache ──────────────────────────────────────
+
+def get_weekly_ohlcv(symbols: list, weeks: int = LOOKBACK_WEEKS) -> dict:
+    """Fetch weekly OHLCV for symbols. Returns {sym: DataFrame(o,h,l,c,v)}."""
     now = datetime.now()
-    if 'tier_data' in _cache:
-        data, ts = _cache['tier_data']
+    key = ("weekly", tuple(sorted(symbols)), weeks)
+    if key in _cache:
+        data, ts = _cache[key]
         if (now - ts).total_seconds() < CACHE_TTL:
             return data
 
-    symbols = [s['symbol'] for s in SECTORS] + ['SPY']
+    end = now.date()
+    start = end - timedelta(weeks=weeks + 2)
     try:
-        closes = yf.download(symbols, period='6mo', progress=False, auto_adjust=True)['Close']
-        _cache['tier_data'] = (closes, now)
-        return closes
-    except:
-        return pd.DataFrame()
+        raw = yf.download(symbols, start=str(start), end=str(end), interval="1wk",
+                          progress=False, auto_adjust=True, group_by="ticker")
+    except Exception:
+        return {}
 
-def calc_rsi(prices, period=14):
-    """Standard RSI (Wilder's method)"""
+    out = {}
+    if raw is None or raw.empty:
+        return {}
+    if isinstance(raw.columns, pd.MultiIndex):
+        for sym in symbols:
+            if sym in raw.columns.get_level_values(0):
+                df = raw[sym].dropna(subset=["Close"]).tail(weeks)
+                out[sym] = pd.DataFrame({
+                    "open": df["Open"], "high": df["High"],
+                    "low": df["Low"], "close": df["Close"],
+                    "volume": df["Volume"],
+                }).dropna()
+    else:  # single symbol download
+        df = raw.dropna(subset=["Close"]).tail(weeks)
+        out[symbols[0]] = pd.DataFrame({
+            "open": df["Open"], "high": df["High"],
+            "low": df["Low"], "close": df["Close"],
+            "volume": df["Volume"],
+        }).dropna()
+
+    _cache[key] = (out, now)
+    return out
+
+
+def get_weekly_closes(symbols: list, weeks: int = LOOKBACK_WEEKS) -> pd.DataFrame:
+    """Weekly close panel for symbols, oldest -> newest."""
+    ohlcv = get_weekly_ohlcv(symbols, weeks)
+    closes = pd.DataFrame({sym: df["close"] for sym, df in ohlcv.items()})
+    return closes
+
+
+# ── Indicators (weekly bars; Wilder RSI, real ADX/OBV) ──────────────────────
+
+def calc_rsi(prices: pd.Series, period: int = 14) -> float:
+    """Wilder's RSI."""
     if len(prices) < period + 1:
         return 50.0
     delta = prices.diff()
-    gain = delta.clip(lower=0).rolling(period).mean()
-    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
     rs = gain / loss.replace(0, np.nan)
     val = 100 - (100 / (1 + rs.iloc[-1]))
     return round(val, 1) if not pd.isna(val) else 50.0
 
-def calc_macd(prices, fast=12, slow=26, signal=9):
-    """MACD histogram value"""
+
+def calc_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> float:
+    """MACD histogram value (last bar)."""
     if len(prices) < slow + signal:
         return 0.0
     ema_fast = prices.ewm(span=fast).mean()
@@ -81,58 +161,63 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
     signal_line = macd_line.ewm(span=signal).mean()
     return round(macd_line.iloc[-1] - signal_line.iloc[-1], 4)
 
-def calc_adx(prices, period=14):
-    """ADX (simplified for performance)"""
-    if len(prices) < period * 2:
-        return 25.0
-    tr = pd.DataFrame({'h': prices, 'l': prices, 'c': prices})
-    tr['tr'] = tr.apply(lambda x: max(x['h'] - x['l'], abs(x['h'] - x['c']), abs(x['l'] - x['c'])), axis=1)
-    atr = tr['tr'].rolling(period).mean()
-    up = prices.diff().clip(lower=0)
-    down = (-prices.diff()).clip(lower=0)
-    di_plus = 100 * up.rolling(period).mean() / atr.replace(0, np.nan)
-    di_minus = 100 * down.rolling(period).mean() / atr.replace(0, np.nan)
-    dx = 100 * abs(di_plus - di_minus) / (di_plus + di_minus).replace(0, np.nan)
-    adx = dx.rolling(period).mean()
-    return round(adx.iloc[-1], 1) if not pd.isna(adx.iloc[-1]) else 25.0
 
-def calc_obv(prices, volume=None):
-    """On-Balance Volume (approximate, using price only)"""
-    if len(prices) < 2:
+def calc_adx(df: pd.DataFrame, period: int = 14) -> float:
+    """Wilder's ADX on weekly OHLC."""
+    h, l, c = df["high"], df["low"], df["close"]
+    if len(df) < period * 2:
+        return 25.0
+    tr = pd.concat([h - l, (h - c).abs(), (l - c).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
+    up = c.diff().clip(lower=0)
+    down = (-c.diff()).clip(lower=0)
+    di_plus = 100 * up.ewm(alpha=1 / period, adjust=False).mean() / atr.replace(0, np.nan)
+    di_minus = 100 * down.ewm(alpha=1 / period, adjust=False).mean() / atr.replace(0, np.nan)
+    dx = 100 * (di_plus - di_minus).abs() / (di_plus + di_minus).replace(0, np.nan)
+    adx = dx.ewm(alpha=1 / period, adjust=False).mean()
+    val = adx.iloc[-1]
+    return round(val, 1) if not pd.isna(val) else 25.0
+
+
+def calc_obv(df: pd.DataFrame, window: int = 5) -> dict:
+    """On-Balance Volume (true volume), slope over last N weeks."""
+    c, v = df["close"], df["volume"]
+    if len(c) < 2:
         return {'isRising': False, 'slope': 0}
-    change = prices.diff()
-    direction = change.apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
-    obv = direction.cumsum()
-    slope = (obv.iloc[-1] - obv.iloc[-5]) / 5 if len(obv) >= 5 else 0
+    direction = np.sign(c.diff().fillna(0))
+    obv = pd.Series(direction * v, index=c.index).cumsum()
+    slope = float(obv.iloc[-1] - obv.iloc[-1 - window]) if len(obv) > window else 0.0
     return {'isRising': slope > 0, 'slope': round(slope, 1)}
 
-def run_tier1():
-    closes = get_data()
-    if closes.empty:
+
+# ── Tier 1: 52-week ratio momentum ranking ───────────────────────────────────
+
+def run_tier1() -> dict:
+    symbols = [s['symbol'] for s in SECTORS] + ['SPY']
+    closes = get_weekly_closes(symbols)
+    if closes.empty or 'SPY' not in closes.columns:
         return {"generatedAt": datetime.utcnow().isoformat() + "Z", "sectors": []}
 
-    spy = closes.get('SPY', pd.Series())
+    spy = closes['SPY']
     results = []
     for sector in SECTORS:
         sym = sector['symbol']
         if sym not in closes.columns:
             continue
         prices = closes[sym].dropna()
-        aligned_spy = spy.reindex(prices.index).ffill() if not spy.empty else pd.Series()
+        aligned_spy = spy.reindex(prices.index).ffill()
 
-        # Momentum (12-week ratio vs SPY)
-        if len(prices) >= 60 and not aligned_spy.empty:
+        # 52-week ratio momentum vs SPY
+        if len(prices) >= MOMENTUM_WEEKS + 1 and len(aligned_spy) >= MOMENTUM_WEEKS + 1:
             ratio = prices / aligned_spy
-            momentum = round(((ratio.iloc[-1] / ratio.iloc[0]) - 1) * 100, 2)
+            momentum = round(((ratio.iloc[-1] / ratio.iloc[-1 - MOMENTUM_WEEKS]) - 1) * 100, 2)
         else:
             momentum = 0.0
 
-        # YTD
-        ytd_prices = prices[prices.index >= f"{datetime.now().year}-01-01"]
-        if len(ytd_prices) > 1:
-            ytd = round(((ytd_prices.iloc[-1] - ytd_prices.iloc[0]) / ytd_prices.iloc[0]) * 100, 2)
-        else:
-            ytd = 0.0
+        # YTD on weekly closes
+        ytd_prices = prices[prices.index.year == datetime.now().year]
+        ytd = round(((ytd_prices.iloc[-1] - ytd_prices.iloc[0]) / ytd_prices.iloc[0]) * 100, 2) \
+            if len(ytd_prices) > 1 else 0.0
 
         results.append({
             "symbol": sym,
@@ -145,52 +230,55 @@ def run_tier1():
     results.sort(key=lambda x: x['momentum'], reverse=True)
     for i, r in enumerate(results):
         r['rank'] = i + 1
-        r['passToTier2'] = i < 3
+        r['passToTier2'] = i < TOP_N  # rank-based pass; Tier 2 does NOT gate
 
     return {"generatedAt": datetime.utcnow().isoformat() + "Z", "sectors": results}
 
-def run_tier2():
-    tier1 = run_tier1()
-    top3 = [s['symbol'] for s in tier1['sectors'][:3] if s.get('passToTier2')]
 
-    closes = get_data()
+# ── Tier 2: conviction meters for top-3 (display only) ───────────────────────
+
+def run_tier2() -> dict:
+    tier1 = run_tier1()
+    top3 = [s['symbol'] for s in tier1['sectors'] if s.get('passToTier2')]
+
+    ohlcv = get_weekly_ohlcv(top3)
     etfs = []
     for i, sym in enumerate(top3):
         name = next((s['name'] for s in SECTORS if s['symbol'] == sym), sym)
-        prices = closes.get(sym, pd.Series()).dropna() if sym in closes.columns else pd.Series()
+        df = ohlcv.get(sym)
+        if df is None or df.empty:
+            continue
+        prices = df["close"]
 
         macd_val = calc_macd(prices)
         rsi_val = calc_rsi(prices)
-        adx_val = calc_adx(prices)
-        obv = calc_obv(prices)
-        hmm_bull = max(0.1, min(0.9, 0.5 + (rsi_val - 50) / 100))
+        adx_val = calc_adx(df)
+        obv = calc_obv(df)
+        bull_prob = fit_hmm_bull_prob(prices)
+        hmm_bull = bull_prob is not None and bull_prob >= HMM_BULL_THRESHOLD
 
-        # Score: composite of indicators
-        score = 0
-        score += 15 if adx_val > 25 else 5
-        score += 15 if 40 <= rsi_val <= 70 else 5
-        score += 15 if macd_val > 0 else 5
-        score += 10 if obv['isRising'] else 0
-        score += 10 if i == 0 else 5  # rank bonus
-        maxScore = 65
-
-        # Decision based on score
-        if score >= 40:
-            decision = f"LONG {sym}"
-        elif score >= 25:
-            decision = "NEUTRAL"
+        # Conviction score (0-5) - displayed only; does not gate anything
+        score = sum([hmm_bull, macd_val > 0, adx_val > 25, 40 <= rsi_val <= 70, obv['isRising']])
+        if score >= 4:
+            decision = f"STRONG {sym}"
+        elif score >= 2:
+            decision = "MODERATE"
         else:
-            decision = f"AVOID {sym}"
+            decision = f"WEAK {sym}"
 
         etfs.append({
             "symbol": sym,
             "name": name,
             "rank": i + 1,
-            "currentPrice": round(float(prices.iloc[-1]), 2) if not prices.empty else 0,
+            "currentPrice": round(float(prices.iloc[-1]), 2),
             "score": score,
-            "maxScore": maxScore,
+            "maxScore": 5,
             "decision": decision,
-            "hmm": {"bullProb": round(hmm_bull, 4)},
+            "hmm": {
+                "bullProb": round(bull_prob, 4) if bull_prob is not None else None,
+                "isGated": hmm_bull,
+                "available": HMM_AVAILABLE and bull_prob is not None,
+            },
             "macd": {"value": macd_val},
             "adx": {"value": adx_val},
             "rsi": {"value": rsi_val},
@@ -200,47 +288,78 @@ def run_tier2():
 
     return {"generatedAt": datetime.utcnow().isoformat() + "Z", "etfs": etfs}
 
-def run_tier3():
-    """Return consensus top stocks from qualifying ETFs, grouped by sector"""
+
+# ── Tier 3: deterministic RS-26w percentile stock picks ──────────────────────
+
+def run_tier3() -> dict:
     tier1 = run_tier1()
-    tier2 = run_tier2()
+    top3 = [s['symbol'] for s in tier1['sectors'] if s.get('passToTier2')]
 
-    top_etfs = [e for e in tier2['etfs'][:2]]
     sectors = []
-    for etf in top_etfs:
-        holdings = ETF_HOLDINGS.get(etf['symbol'], [])
-        stocks = []
-        for symbol in holdings[:5]:
-            # Simulate stock-level scores
-            rs26w = round(50 + np.random.uniform(-20, 40), 2)
-            fscore = np.random.randint(3, 9)
-            ta_score = round(30 + np.random.uniform(-10, 30), 1)
-            confidence = round((rs26w + fscore * 10 + ta_score) / 200, 2)
+    for etf_sym in top3:
+        holdings = ETF_HOLDINGS.get(etf_sym, [])
+        if not holdings:
+            continue
+        tickers = [etf_sym] + holdings
+        ohlcv = get_weekly_ohlcv(tickers)
+        etf_close = ohlcv.get(etf_sym, pd.DataFrame())["close"] if etf_sym in ohlcv else pd.Series()
+        if etf_close.empty:
+            sectors.append({"etf": etf_sym, "name": etf_sym, "stocks": []})
+            continue
 
-            if confidence >= 0.6:
+        # 26-week relative strength of each holding vs its sector ETF
+        rs_scores = {}
+        for sym in holdings:
+            df = ohlcv.get(sym)
+            if df is None or df.empty:
+                continue
+            sc = df["close"].reindex(etf_close.index).ffill()
+            ratio = (sc / etf_close).dropna()
+            if len(ratio) >= RS_WEEKS + 1:
+                rs = ((ratio.iloc[-1] / ratio.iloc[-1 - RS_WEEKS]) - 1) * 100
+            else:
+                rs = 0.0
+            rs_scores[sym] = round(rs, 2)
+
+        if not rs_scores:
+            sectors.append({"etf": etf_sym, "name": etf_sym, "stocks": []})
+            continue
+
+        rs_series = pd.Series(rs_scores).sort_values(ascending=False)
+        cutoff = max(1, int(len(rs_series) * (1 - RS_PERCENTILE)))
+        top_rs = set(rs_series.index[:cutoff])
+
+        stocks = []
+        for rank_i, (sym, rs) in enumerate(rs_series.items()):
+            if sym in top_rs:
                 decision = "BUY"
-            elif confidence >= 0.35:
+            elif rs > 0:
                 decision = "WATCH"
             else:
                 decision = "AVOID"
-
+            # deterministic 0..1 confidence: normalized RS within the sector
+            lo, hi = rs_series.min(), rs_series.max()
+            confidence = round((rs - lo) / (hi - lo), 2) if hi > lo else 0.0
             stocks.append({
-                "symbol": symbol,
-                "name": symbol,
+                "symbol": sym,
+                "name": sym,
                 "decision": decision,
                 "confidence": confidence,
-                "rs26w": rs26w,
-                "fscore": fscore,
-                "taScore": ta_score,
+                "rs26w": rs,
+                "fscore": None,      # Piotroski deferred
+                "taScore": None,     # deferred
             })
 
         sectors.append({
-            "etf": etf['symbol'],
-            "name": etf['name'],
+            "etf": etf_sym,
+            "name": next((s['name'] for s in SECTORS if s['symbol'] == etf_sym), etf_sym),
             "stocks": stocks,
         })
 
     return {"generatedAt": datetime.utcnow().isoformat() + "Z", "sectors": sectors}
+
+
+# ── HTTP layer ───────────────────────────────────────────────────────────────
 
 class NS3Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -278,6 +397,7 @@ class NS3Handler(SimpleHTTPRequestHandler):
 
         self.send_response(404)
         self.end_headers()
+
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))

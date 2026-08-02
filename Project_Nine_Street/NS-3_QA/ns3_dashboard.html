@@ -49,15 +49,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 </div>
 
 <div class="main" id="panel-1" style="display:block">
-  <div class="desc"><strong>Tier 1: Sector Rotation Rankings</strong><br>Ranks <strong>11 sector ETFs</strong> (XLK, XLF, XLV, XLE, etc.) by momentum vs SPY over 52 weeks. Sectors with positive momentum and top rank pass to Tier 2. Data: yfinance price history.</div>
+  <div class="desc"><strong>Tier 1: Sector Rotation Rankings</strong><br>Ranks <strong>11 sector ETFs</strong> (XLK, XLF, XLV, XLE, etc.) by <strong>52-week ratio momentum vs SPY</strong> on weekly bars. Top 3 by rank pass to Tier 2. [Validated: 12M lookback momentum is the robust cross-sectional signal]</div>
   <div class="data-table-container"><table class="data-table"><thead><tr><th>Rank</th><th>Sector</th><th>ETF</th><th class="num">Momentum</th><th class="num">YTD %</th><th class="num">Price</th><th>Pass Tier 2</th></tr></thead><tbody id="t1-body"></tbody></table></div>
 </div>
 <div class="main" id="panel-2" style="display:none">
-  <div class="desc"><strong>Tier 2: ETF Signal Engine</strong><br>Top sectors from Tier 1 are scored using <strong>HMM (Hidden Markov Model)</strong>, MACD, ADX, RSI, and OBV. Each ETF gets a composite score out of 5. Decision: ENTER LONG, HOLD, or AVOID. Data: yfinance price history + HMM/TA.</div>
+  <div class="desc"><strong>Tier 2: ETF Conviction (display only)</strong><br>Top sectors from Tier 1 are scored with a <strong>real HMM regime model</strong>, MACD, ADX, RSI, and OBV (weekly OHLC). Score 0-5 is a <strong>conviction meter only — it does NOT gate Tier 3</strong>; the Tier 1 rank is the decision driver. [Validated: the absolute TA gate adds no edge at 6M/12M]</div>
   <div class="data-table-container"><table class="data-table"><thead><tr><th>ETF</th><th class="num">Price</th><th class="num">Score</th><th>Decision</th><th class="num">HMM</th><th class="num">MACD</th><th class="num">ADX</th><th class="num">RSI</th><th class="num">OBV</th></tr></thead><tbody id="t2-body"></tbody></table></div>
 </div>
 <div class="main" id="panel-3" style="display:none">
-  <div class="desc"><strong>Tier 3: Stock Selection</strong><br>For each ETF that passes Tier 2, picks individual stocks using <strong>Relative Strength (RS) percentile</strong>, <strong>Piotroski F-Score</strong> (9-point fundamental screen), and <strong>Technical Analysis score</strong> (SMA crossover, volume, volatility). Only stocks scoring high on all 3 metrics appear. Data: yfinance fundamentals + price.</div>
+  <div class="desc"><strong>Tier 3: Stock Selection</strong><br>For each of the <strong>top-3 ranked sectors</strong>, ranks holdings by <strong>26-week relative strength vs the sector ETF</strong> (deterministic). Top quartile by RS = BUY, positive RS = WATCH. <em>Piotroski F-Score + TA score: pending (deferred)</em>.</div>
   <div class="data-table-container"><table class="data-table"><thead><tr><th>Symbol</th><th>Sector ETF</th><th>Decision</th><th class="num">Confidence</th><th class="num">RS (26w)</th><th class="num">F-Score</th><th class="num">TA Score</th></tr></thead><tbody id="t3-body"></tbody></table></div>
 </div>
 <div class="main" id="panel-all" style="display:none">
@@ -112,12 +112,13 @@ function loadTier2() {
     var html = '';
     for (var i = 0; i < data.etfs.length; i++) {
       var e = data.etfs[i];
-      var decClass = e.decision.indexOf('LONG') >= 0 ? 'bullish' : (e.decision.indexOf('AVOID') >= 0 ? 'bearish' : 'neutral');
+      var decClass = e.decision.indexOf('STRONG') >= 0 ? 'bullish' : (e.decision.indexOf('WEAK') >= 0 ? 'bearish' : 'neutral');
+      var hmmTxt = (e.hmm && e.hmm.bullProb != null) ? (e.hmm.bullProb * 100).toFixed(1) + '%' : 'N/A';
       html += '<tr><td><strong>' + e.symbol + '</strong></td>'
         + '<td class="num">$' + e.currentPrice.toFixed(2) + '</td>'
         + '<td class="num">' + e.score + '/' + e.maxScore + '</td>'
         + '<td class="' + decClass + '">' + e.decision + '</td>'
-        + '<td class="num">' + (e.hmm ? (e.hmm.bullProb * 100).toFixed(1) + '%' : 'N/A') + '</td>'
+        + '<td class="num">' + hmmTxt + '</td>'
         + '<td class="num">' + (e.macd ? e.macd.value.toFixed(4) : 'N/A') + '</td>'
         + '<td class="num">' + (e.adx ? e.adx.value.toFixed(1) : 'N/A') + '</td>'
         + '<td class="num">' + (e.rsi ? e.rsi.value.toFixed(1) : 'N/A') + '</td>'
@@ -143,8 +144,8 @@ function loadTier3() {
           + '<td class="' + decClass + '">' + s.decision + '</td>'
           + '<td class="num">' + s.confidence.toFixed(2) + '</td>'
           + '<td class="num">' + s.rs26w.toFixed(2) + '</td>'
-          + '<td class="num">' + s.fscore + '</td>'
-          + '<td class="num">' + s.taScore + '</td></tr>';
+          + '<td class="num">' + (s.fscore != null ? s.fscore : '—') + '</td>'
+          + '<td class="num">' + (s.taScore != null ? s.taScore : '—') + '</td></tr>';
       }
     }
     document.getElementById('t3-body').innerHTML = html;
@@ -172,10 +173,11 @@ function loadAll() {
       + '<div class="data-table-container"><table class="data-table"><thead><tr><th>ETF</th><th class="num">Price</th><th class="num">Score</th><th>Decision</th><th class="num">HMM</th><th class="num">MACD</th></tr></thead><tbody>';
     for (var i = 0; i < d2.etfs.length; i++) {
       var e = d2.etfs[i];
+      var hmmTxt = (e.hmm && e.hmm.bullProb != null) ? (e.hmm.bullProb * 100).toFixed(1) + '%' : 'N/A';
       h += '<tr><td><strong>' + e.symbol + '</strong></td><td class="num">$' + e.currentPrice.toFixed(2) + '</td>'
         + '<td class="num">' + e.score + '/' + e.maxScore + '</td>'
         + '<td>' + e.decision + '</td>'
-        + '<td class="num">' + (e.hmm ? (e.hmm.bullProb * 100).toFixed(1) + '%' : 'N/A') + '</td>'
+        + '<td class="num">' + hmmTxt + '</td>'
         + '<td class="num">' + (e.macd ? e.macd.value.toFixed(4) : 'N/A') + '</td></tr>';
     }
     h += '</tbody></table></div>';
@@ -188,8 +190,8 @@ function loadAll() {
         h += '<tr><td><strong>' + s.symbol + '</strong></td><td>' + d3.sectors[i].etf + '</td>'
           + '<td>' + s.decision + '</td><td class="num">' + s.confidence.toFixed(2) + '</td>'
           + '<td class="num">' + s.rs26w.toFixed(2) + '</td>'
-          + '<td class="num">' + s.fscore + '</td>'
-          + '<td class="num">' + s.taScore + '</td></tr>';
+          + '<td class="num">' + (s.fscore != null ? s.fscore : '—') + '</td>'
+          + '<td class="num">' + (s.taScore != null ? s.taScore : '—') + '</td></tr>';
       }
     }
     h += '</tbody></table></div>';
