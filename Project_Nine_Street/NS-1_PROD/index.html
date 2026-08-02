@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-1 Capital Preservation</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --panel: #121218;
+    --border: #1e1e2e;
+    --text: #c8c8d0;
+    --muted: #6a6a7a;
+    --blue: #3b82f6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --purple: #a855f7;
+    --font: -apple-system, BlinkMacSystemFont, 'SF Mono', 'Fira Code', monospace;
+    --fs: 10.5px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: var(--fs); }
+body {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: auto 1fr auto;
+    gap: 2px;
+    padding: 2px;
+    height: 100vh;
+    overflow: hidden;
+}
+.topbar {
+    grid-column: 1 / 3;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    height: 36px;
+    gap: 16px;
+}
+.topbar .brand { color: var(--blue); font-weight: 700; letter-spacing: 1px; font-size: 12px; }
+.topbar .sep { color: var(--border); }
+.topbar .label { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.topbar .value { font-weight: 600; }
+.vix-badge { display: flex; align-items: center; gap: 6px; background: #1a1a28; border: 1px solid var(--border); padding: 2px 8px; border-radius: 3px; }
+.vix-badge .vix-num { font-size: 13px; font-weight: 700; }
+.vix-low { color: var(--green); }
+.vix-mid { color: var(--amber); }
+.vix-high { color: var(--red); }
+.crisis-indicator { padding: 2px 8px; border-radius: 3px; font-weight: 700; font-size: 10px; text-transform: uppercase; }
+.crisis-on { background: #3b0000; color: var(--red); border: 1px solid #600; }
+.crisis-off { background: #001a00; color: var(--green); border: 1px solid #060; }
+.chart-panel {
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    min-height: 0;
+}
+.chart-panel .header {
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 9px;
+    text-transform: uppercase;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+}
+.chart-panel .content { flex: 1; padding: 0; min-height: 0; }
+.chart-panel .content .js-plotly-plot, .chart-panel .content .plot-container { height: 100% !important; width: 100% !important; }
+
+.metrics-bar {
+    grid-column: 1 / 2;
+    grid-row: 3 / 4;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0;
+    height: 110px;
+}
+.metric-cell { padding: 6px 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; justify-content: center; }
+.metric-cell:last-child { border-right: none; }
+.metric-cell .ml { color: var(--muted); font-size: 8px; text-transform: uppercase; }
+.metric-cell .mv { font-size: 14px; font-weight: 700; margin-top: 2px; }
+.metric-cell .ms { font-size: 9px; color: var(--muted); margin-top: 1px; }
+
+.right-panel {
+    grid-column: 2 / 3;
+    grid-row: 2 / 4;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.right-panel .section { flex: 1; display: flex; flex-direction: column; border-bottom: 1px solid var(--border); min-height: 0; }
+.right-panel .section:last-child { border-bottom: none; }
+.right-panel .header { padding: 3px 8px; background: #1a1a28; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 9px; text-transform: uppercase; display: flex; justify-content: space-between; flex-shrink: 0; }
+.right-panel .body { flex: 1; overflow-y: auto; padding: 2px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 10px; }
+th, td { padding: 2px 6px; text-align: right; border-bottom: 1px solid #1a1a22; white-space: nowrap; }
+th { color: var(--muted); font-weight: 400; font-size: 9px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+th:first-child, td:first-child { text-align: left; }
+tr:hover { background: #1a1a28; }
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+.mut { color: var(--muted); }
+.score-bar { display: inline-block; height: 3px; border-radius: 1px; vertical-align: middle; margin-right: 4px; }
+
+.toggle-btn {
+    background: #1a1a28; color: var(--muted); border: 1px solid var(--border);
+    padding: 1px 8px; font-size: 9px; cursor: pointer; border-radius: 2px;
+    font-family: var(--font);
+}
+.toggle-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+.toggle-btn:hover:not(.active) { background: #2a2a38; }
+
+.loading { color: var(--muted); padding: 8px; font-style: italic; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+    <span class="brand">NS·1</span>
+    <span class="label">CAPITAL PRESERVATION</span>
+    <span class="sep">|</span>
+    <span class="label">VIX</span>
+    <div class="vix-badge" id="vixBadge">
+        <span class="vix-num" id="vixValue">--</span>
+        <span id="vixLabel" style="font-size:9px;">--</span>
+    </div>
+    <span class="sep">|</span>
+    <span class="label">Exposure</span>
+    <span class="value" id="expCap">--%</span>
+    <span class="sep">|</span>
+    <div id="crisisBadge" class="crisis-indicator crisis-off">NORMAL</div>
+    <span style="flex:1;"></span>
+    <span class="label" id="clock">--:--:--</span>
+</div>
+
+<div class="chart-panel">
+    <div class="header">
+        <span>STRATEGY vs SPY</span>
+        <span style="display:flex;gap:4px;align-items:center;">
+            <span id="chartSubLabel" style="color:var(--muted);font-size:9px;margin-right:6px;">1Y</span>
+            <button id="btn1y" class="toggle-btn active" onclick="setView('1y')">1Y</button>
+            <button id="btnAll" class="toggle-btn" onclick="setView('all')">ALL</button>
+        </span>
+    </div>
+    <div class="content" id="chart"></div>
+</div>
+
+<div class="metrics-bar" id="metricsBar">
+    <div class="metric-cell"><span class="ml">CAGR (Strategy / SPY)</span><span class="mv" id="mCAGR">--</span><span class="ms">SPY: --</span></div>
+    <div class="metric-cell"><span class="ml">Max Drawdown</span><span class="mv neg" id="mMaxDD">--</span><span class="ms">SPY: --</span></div>
+    <div class="metric-cell"><span class="ml">Sharpe</span><span class="mv" id="mSharpe">--</span><span class="ms">SPY: --</span></div>
+    <div class="metric-cell"><span class="ml">Win Rate</span><span class="mv" id="mWin">--</span><span class="ms">% positive months: --</span></div>
+    <div class="metric-cell"><span class="ml">Worst Month</span><span class="mv neg" id="mWorst">--</span><span class="ms">VIX 40+: --</span></div>
+    <div class="metric-cell"><span class="ml">VIX Smile Cap</span><span class="mv" id="mVixSmile">--</span><span class="ms">Crisis: --</span></div>
+</div>
+
+<div class="right-panel">
+    <div class="section" style="flex:2;">
+        <div class="header"><span>COMPOSITE SCORES</span><span id="sigDate">--</span></div>
+        <div class="body"><table>
+            <thead><tr><th>Ticker</th><th>Score</th><th>Price</th><th>RSI</th><th>63d</th></tr></thead>
+            <tbody id="sigBody"><tr><td colspan="5" class="loading">Loading signals...</td></tr></tbody>
+        </table></div>
+    </div>
+    <div class="section">
+        <div class="header"><span>PAPER PORTFOLIO</span><span id="pfClock">--</span></div>
+        <div class="body"><table>
+            <thead><tr><th>Asset</th><th>Qty</th><th>Entry</th><th>PnL</th></tr></thead>
+            <tbody id="pfBody"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+        </table></div>
+    </div>
+</div>
+
+<script>
+const F = (n, d=1) => n != null ? Number(n).toFixed(d) : '--';
+const FC = (n) => new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(n);
+const P = (n) => n >= 0 ? 'pos' : 'neg';
+
+setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', {hour12:false}); }, 1000);
+
+async function loadVIX() {
+    try {
+        const r = await fetch('/api/vix'), d = await r.json();
+        if (d.error) return;
+        const vix = d.vix;
+        const el = document.getElementById('vixValue');
+        el.textContent = F(vix, 1);
+        el.className = 'vix-num ' + (vix < 18 ? 'vix-low' : vix < 28 ? 'vix-mid' : 'vix-high');
+        document.getElementById('vixLabel').textContent = d.regime.replace('_', ' ');
+        document.getElementById('expCap').textContent = d.exposure_cap_pct + '%';
+        const badge = document.getElementById('crisisBadge');
+        if (d.crisis_mode) { badge.textContent = 'CRISIS ⚠'; badge.className = 'crisis-indicator crisis-on'; }
+        else { badge.textContent = 'NORMAL'; badge.className = 'crisis-indicator crisis-off'; }
+        document.getElementById('mVixSmile').textContent = d.exposure_cap_pct + '%';
+        document.getElementById('mVixSmile').nextElementSibling.textContent = 'Crisis: ' + (d.crisis_mode ? 'ON' : 'off');
+    } catch(e) { console.error(e); }
+}
+
+async function loadSignals() {
+    try {
+        const r = await fetch('/api/signals'), d = await r.json();
+        if (d.error || !d.signals) return;
+        document.getElementById('sigDate').textContent = new Date().toLocaleDateString();
+        const maxScore = Math.max(...d.signals.map(s => Math.abs(s.score)));
+        document.getElementById('sigBody').innerHTML = d.signals.map(s => {
+            const barW = maxScore > 0 ? Math.abs(s.score) / maxScore * 60 : 0;
+            const barColor = s.score > 0 ? 'var(--green)' : 'var(--red)';
+            return `<tr><td><strong>${s.ticker}</strong></td>
+                <td class="${P(s.score)}"><span class="score-bar" style="width:${barW}px;background:${barColor};"></span>${F(s.score,3)}</td>
+                <td>${F(s.price,2)}</td>
+                <td class="${s.rsi > 70 ? 'neg' : s.rsi < 30 ? 'pos' : ''}">${F(s.rsi,1)}</td>
+                <td class="${P(s.ret_63d_pct)}">${s.ret_63d_pct > 0 ? '+' : ''}${F(s.ret_63d_pct,1)}%</td></tr>`;
+        }).join('');
+    } catch(e) { console.error(e); }
+}
+
+async function loadPerformance() {
+    try {
+        const r = await fetch('/api/performance'), d = await r.json();
+        const s = d.strategy, b = d.benchmark;
+        document.getElementById('mCAGR').textContent = F(s.cagr_pct,1) + '%';
+        document.getElementById('mCAGR').nextElementSibling.textContent = 'SPY: ' + F(b.cagr_pct,1) + '%';
+        document.getElementById('mMaxDD').textContent = F(s.max_dd_pct,1) + '%';
+        document.getElementById('mMaxDD').nextElementSibling.textContent = 'SPY: ' + F(b.max_dd_pct,1) + '%';
+        document.getElementById('mSharpe').textContent = F(s.sharpe,2);
+        document.getElementById('mSharpe').nextElementSibling.textContent = 'SPY: ' + F(b.sharpe,2);
+        document.getElementById('mWin').textContent = F(s.win_rate_pct,1) + '%';
+        document.getElementById('mWin').nextElementSibling.textContent = '% pos months: ' + F(s.positive_months_pct,1) + '%';
+        document.getElementById('mWorst').textContent = F(s.worst_month_pct,1) + '%';
+        document.getElementById('mWorst').nextElementSibling.textContent = 'VIX 40+: ' + (d.vix40_return >= 0 ? '+' : '') + F(d.vix40_return,1) + '%';
+    } catch(e) { console.error(e); }
+}
+
+async function loadPortfolio() {
+    try {
+        const r = await fetch('/api/portfolio'), d = await r.json();
+        document.getElementById('pfClock').textContent = 'NAV: ' + FC(d.account.total_nav);
+        let html = '';
+        for (const [t, p] of Object.entries(d.positions.equities || {})) {
+            const pnl = (p.pnl || 0);
+            html += `<tr><td><strong>${t}</strong></td><td>${p.shares}</td><td>${FC(p.entry_price || p.avg_price)}</td><td class="${P(pnl)}">${pnl > 0 ? '+' : ''}${FC(pnl)}</td></tr>`;
+        }
+        if (!html) html = '<tr><td colspan="4" class="loading">No positions</td></tr>';
+        document.getElementById('pfBody').innerHTML = html;
+    } catch(e) { console.error(e); }
+}
+
+// ═══════════════════════════════════════════
+// Chart — auto-resize, no modebar, rebased 1Y
+// ═══════════════════════════════════════════
+let chartData = null;
+let chartLayout = null;
+let chartView = '1y';
+
+async function loadChart() {
+    try {
+        const [curveR, chartR] = await Promise.all([
+            fetch('/api/backtest_curve'),
+            fetch('/api/chart?ticker=SPY')
+        ]);
+        const curve = await curveR.json();
+        const chart = await chartR.json();
+        if (curve.error || chart.error) return;
+        chartData = { curve, chart };
+
+        chartLayout = {
+            plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+            font: { color: '#c8c8d0', size: 9 },
+            margin: { l: 50, r: 10, t: 8, b: 30 },
+            xaxis: { gridcolor: '#1a1a22' },
+            yaxis: { gridcolor: '#1a1a22', title: 'Growth of $100' },
+            showlegend: true,
+            legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(10,10,15,0.8)', font: { size: 9 } },
+            hovermode: 'x unified',
+        };
+        renderView('1y');
+        // Auto-resize: re-render on window resize
+        window.addEventListener('resize', () => {
+            const el = document.getElementById('chart');
+            const svg = el.querySelector('svg');
+            if (svg) Plotly.Plots.resize(el);
+        });
+    } catch(e) { console.error(e); }
+}
+
+function renderView(view) {
+    if (!chartData) return;
+    chartView = view;
+    const { curve, chart } = chartData;
+    const now = new Date();
+    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+    let traces = [];
+    let config = { responsive: true, displayModeBar: false };
+
+    if (view === '1y') {
+        // 1Y: rebase both to 100 at start for relative comparison
+        const idxStart = Math.max(0, curve.dates.findIndex(d => new Date(d) >= oneYearAgo));
+        const ci = Math.max(0, chart.dates.findIndex(d => new Date(d) >= oneYearAgo));
+
+        const stratSlice = curve.strategy.slice(idxStart);
+        const spySlice = curve.benchmark.slice(idxStart);
+        const baseStrat = stratSlice[0];
+        const baseSpy = spySlice[0];
+        const stratRebased = stratSlice.map(v => v / baseStrat * 100);
+        const spyRebased = spySlice.map(v => v / baseSpy * 100);
+
+        traces = [
+            { x: curve.dates.slice(idxStart), y: stratRebased,
+              type:'scatter', mode:'lines', name:'Strategy',
+              line:{color:'#22c55e',width:2} },
+            { x: curve.dates.slice(idxStart), y: spyRebased,
+              type:'scatter', mode:'lines', name:'SPY',
+              line:{color:'#3b82f6',width:1.5} },
+            { x: chart.dates.slice(ci), y: chart.vix.slice(ci),
+              type:'scatter', mode:'lines', name:'VIX',
+              line:{color:'#ef4444',width:1,dash:'dot'}, yaxis:'y2' },
+            { x: chart.dates.slice(ci), y: chart.vix_ma20.slice(ci),
+              type:'scatter', mode:'lines', name:'VIX 20MA',
+              line:{color:'#a855f7',width:0.8,dash:'dash'}, yaxis:'y2' },
+        ];
+        document.getElementById('chartSubLabel').textContent = '1Y (rebased) • +VIX';
+    } else {
+        // ALL: Strategy + SPY only, no VIX lines
+        traces = [
+            { x: curve.dates, y: curve.strategy,
+              type:'scatter', mode:'lines', name:'Strategy',
+              line:{color:'#22c55e',width:2} },
+            { x: curve.dates, y: curve.benchmark,
+              type:'scatter', mode:'lines', name:'SPY',
+              line:{color:'#3b82f6',width:1.5} },
+        ];
+        document.getElementById('chartSubLabel').textContent = 'Full history';
+    }
+
+    Plotly.react('chart', traces, {
+        ...chartLayout,
+        yaxis: { ...chartLayout.yaxis, ...(view === '1y' ? {} : {type:'log'}) },
+        yaxis2: view === '1y' ? {
+            overlaying: 'y', side: 'right', gridcolor: 'transparent',
+            title: 'VIX', titlefont: { color: '#ef4444', size: 9 },
+        } : {},
+    }, config);
+
+    // Auto-resize after render
+    setTimeout(() => {
+        const el = document.getElementById('chart');
+        const svg = el.querySelector('svg');
+        if (svg) Plotly.Plots.resize(el);
+    }, 100);
+}
+
+function setView(v) {
+    document.getElementById('btn1y').className = v === '1y' ? 'toggle-btn active' : 'toggle-btn';
+    document.getElementById('btnAll').className = v === 'all' ? 'toggle-btn active' : 'toggle-btn';
+    renderView(v);
+}
+
+// Init
+loadVIX();
+loadSignals();
+loadPerformance();
+loadPortfolio();
+loadChart();
+
+setInterval(loadVIX, 60000);
+setInterval(loadSignals, 60000);
+setInterval(loadPortfolio, 300000);
+</script>
+</body>
+</html>
