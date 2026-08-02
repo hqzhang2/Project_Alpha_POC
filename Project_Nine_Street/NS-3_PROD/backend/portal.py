@@ -7,6 +7,8 @@ Serves as the main entry point for all trading strategies.
 import warnings
 warnings.filterwarnings("ignore")
 
+import os
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +23,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", 8000))
+
+# Service endpoints - env-driven (defaults = current PROD ports; see
+# DEPLOYMENT.md service table). P8 remediation: no hardcoded ports.
+ALPHA_PORT = int(os.environ.get("ALPHA_PORT", 9098))
+NS2_PORT = int(os.environ.get("NS2_PORT", 9228))
+NS3_PORT = int(os.environ.get("NS3_PORT", 9236))
 
 HTML = """
 <!DOCTYPE html>
@@ -111,7 +119,7 @@ HTML = """
             <p>Regime-based trading with HMM detection. Features: Dashboard, OMON, Option Screener, Heatmap, Earnings Estimates.</p>
             <span class="badge badge-prod">PROD</span>
             <br>
-            <a href="http://localhost:9098">Open Terminal →</a>
+            <a href="http://localhost:""" + str(ALPHA_PORT) + """">Open Terminal →</a>
         </div>
         
         <!-- NS-3 Sector Rotation -->
@@ -120,7 +128,7 @@ HTML = """
             <p>3-Tier system: Sector rotation → ETF signal engine → Stock selection. Based on Claudealgo methodology.</p>
             <span class="badge badge-active">ACTIVE</span>
             <br>
-            <a href="http://localhost:3000">Open Dashboard →</a>
+            <a href="http://localhost:""" + str(NS3_PORT) + """">Open Dashboard →</a>
         </div>
         
         <!-- NS-2 Backend API -->
@@ -129,7 +137,7 @@ HTML = """
             <p>Backend API for regime detection and signal generation. Returns ticker data with HMM regimes.</p>
             <span class="badge badge-prod">PROD</span>
             <br>
-            <a href="http://localhost:9098/api/v1/health">API Health →</a>
+            <a href="http://localhost:""" + str(NS2_PORT) + """/api/v1/health">API Health →</a>
         </div>
         
         <!-- NS-3 Backend API -->
@@ -138,7 +146,7 @@ HTML = """
             <p>Backend API for 3-tier sector rotation. Endpoints: /tier1, /tier2, /tier3, /all.</p>
             <span class="badge badge-active">ACTIVE</span>
             <br>
-            <a href="http://localhost:9206/api/v1/health">API Health →</a>
+            <a href="http://localhost:""" + str(NS3_PORT) + """/api/v1/health">API Health →</a>
         </div>
     </div>
     

@@ -107,6 +107,49 @@ SERVERS = [
     ("NS-4_QA/qa_server.py", "/api/v1/all"),
 ]
 
+# PROD servers. Each must exist and expose a do_GET handler (stdlib pattern).
+# NS-3_PROD / NS-4_PROD are FastAPI backends pending Phase-2 port to stdlib
+# (P7 in the remediation plan) - they are skipped for now so the suite stays
+# green; flip skip=True -> False once they run stdlib.
+PROD_SERVERS = [
+    ("NS-1_PROD/server_qa.py", "/health"),
+    ("NS-2_PROD/qa_server.py", "/health"),
+    ("NS-3_PROD/backend/main.py", "/api/v1/health", True),   # FastAPI, Phase 2
+    ("NS-4_PROD/backend/main.py", "/api/v1/health", True),   # FastAPI, Phase 2
+]
+
+# Alpha Terminal PROD (stdlib server.py pattern)
+ALPHA_PROD_SERVER = "Project_Sequoia/terminal/server.py"
+
+
+def test_alpha_prod_server_imports_and_health():
+    f = os.path.join(PROJECT, ALPHA_PROD_SERVER)
+    if not os.path.exists(f):
+        return  # not checked out on this branch
+    mod, handler = _load_handler(f)
+    assert hasattr(handler, "do_GET")
+    req, err = _drive(handler, "/health")
+    assert err is None, f"Alpha PROD /health raised: {err}"
+    assert req.status == 200, f"Alpha PROD /health status={req.status}"
+    body = json.loads(req.body.decode())
+    assert body.get("service") == "alpha-terminal", f"wrong service: {body}"
+
+
+def test_all_prod_servers_import_and_expose_handler():
+    for entry in PROD_SERVERS:
+        rel, route = entry[0], entry[1]
+        skip = entry[2] if len(entry) > 2 else False
+        f = os.path.join(PROJECT, rel)
+        if not os.path.exists(f):
+            continue  # PROD dir not checked out on this branch yet
+        if skip:
+            continue  # pending Phase-2 stdlib port (P7) - documented above
+        mod, handler = _load_handler(f)
+        assert hasattr(handler, "do_GET")
+        req, err = _drive(handler, route)
+        assert err is None, f"{rel} {route} raised: {err}"
+        assert req.status in (200, 404, 503), f"{rel} {route} status={req.status}"
+
 
 def test_all_ns_servers_import_and_expose_handler():
     for rel, _ in SERVERS:

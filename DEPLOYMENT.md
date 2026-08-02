@@ -29,7 +29,7 @@ All services (Alpha Terminal + NS-1/2/3/4) share a single monorepo and single re
 
 | Service | QA Dir | PROD Dir | QA Port | PROD Port | Launchd Job (QA) | Launchd Job (PROD) |
 |---|---|---|---|---|---|---|
-| Alpha Terminal | `Project_Sequoia/QA_terminal` | `Project_Sequoia/terminal` | 9099 | 9098 | `com.ninestreet.alpha.qa` | `com.ninestreet.alpha.prod` |
+| Alpha Terminal | `Project_Sequoia/QA_terminal` | `Project_Sequoia/terminal` | 9099 | 9098 | `com.alpha.terminal.qa` | `com.alpha.terminal.prod` |
 | NS-1 | `NS_1_QA` / `NS-1_QA` | *(none)* | 9219 | 9218 | `com.ninestreet.ns1.qa` | `com.ninestreet.ns1.prod` |
 | NS-2 | `NS-2_QA` | `NS-2_PROD` | 9229 | 9228 | `com.ninestreet.ns2.qa` | `com.ninestreet.ns2.prod` |
 | NS-3 | `NS-3_QA` | `NS-3_PROD` | 9237 | 9236 | `com.ninestreet.ns3.qa` | `com.ninestreet.ns3.prod` |
@@ -75,7 +75,7 @@ git checkout release/vX.Y -- Project_Nine_Street/NS-3_PROD
 git checkout release/vX.Y -- Project_Nine_Street/NS-4_PROD
 
 # 4. Restart ALL PROD launchd services
-launchctl kickstart -k gui/$(id -u)/com.ninestreet.alpha.prod
+launchctl kickstart -k gui/$(id -u)/com.alpha.terminal.prod
 launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns1.prod
 launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns2.prod
 launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns3.prod
@@ -101,7 +101,7 @@ set -euo pipefail
 RELEASE="${1:-release/v2.0}"
 SERVICES=(
     "Project_Sequoia/terminal"
-    "Project_Nine_Street/NS_1_PROD"
+    "Project_Nine_Street/NS-1_PROD"
     "Project_Nine_Street/NS-2_PROD"
     "Project_Nine_Street/NS-3_PROD"
     "Project_Nine_Street/NS-4_PROD"
@@ -111,7 +111,7 @@ echo "Deploying $RELEASE to all PROD directories..."
 git checkout "$RELEASE" -- "${SERVICES[@]}"
 
 echo "Restarting PROD services..."
-launchctl kickstart -k gui/$(id -u)/com.ninestreet.alpha.prod
+launchctl kickstart -k gui/$(id -u)/com.alpha.terminal.prod
 launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns1.prod
 launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns2.prod
 launchctl kickstart -k gui/$(id -u)/com.ninestreet.ns3.prod
