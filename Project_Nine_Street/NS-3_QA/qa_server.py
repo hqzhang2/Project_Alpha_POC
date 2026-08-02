@@ -7,8 +7,9 @@ Tier 1: rank 11 sector ETFs by 52-week ratio momentum vs SPY (weekly bars).
 Tier 2: conviction meters for top-3 ranked sectors (DISPLAY ONLY - the rank is
         the decision driver; the TA/HMM score no longer gates Tier 3).
         Real HMM regime model (hmmlearn), real ADX/OBV on weekly OHLC.
-Tier 3: deterministic stock picks by 26-week relative strength percentile vs
-        the sector ETF. (Piotroski F-Score + TA score deferred.)
+Tier 3: deterministic stock picks: 26w relative strength percentile vs the
+        sector ETF, Piotroski F-Score >= 7 screen, TA score with SOFT HMM
+        conviction (HMM scales confidence, never hard-gates; validated).
 Exact API match with dashboard: tier1, tier2, tier3.
 """
 import os
@@ -464,17 +465,17 @@ def run_tier3() -> dict:
         if len(passed_f) < 2:  # fallback: top-3 by F-Score (PROD behavior)
             passed_f = sorted(top_rs, key=lambda s: f_scores[s][0], reverse=True)[:3]
 
-        # 3) TA score + HMM gate -> decision, confidence
+        # 3) TA score + HMM conviction -> decision, confidence
+        # HMM is SOFT only: hmmOk contributes to the score and hmmProb scales
+        # confidence, but never hard-AVOIDs. (Validated: HMM hard gate destroys
+        # value - see research doc Appendix B.4.)
         stocks = []
         for sym in passed_f:
             df = ohlcv.get(sym)
             if df is None or df.empty:
                 continue
             score, ta = ta_score_stock(df)
-            hmm_gated = ta["hmmOk"]
-            if not hmm_gated:
-                decision = "AVOID"
-            elif score >= TA_SCORE_MIN:
+            if score >= TA_SCORE_MIN:
                 decision = "BUY"
             elif score == 2:
                 decision = "WATCH"

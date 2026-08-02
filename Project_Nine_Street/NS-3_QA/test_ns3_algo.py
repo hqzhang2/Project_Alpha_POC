@@ -126,6 +126,23 @@ class TestTier3(unittest.TestCase):
                 self.assertEqual(st["fscore"], 4)
 
 
+    def test_hmm_gate_is_soft(self):
+        """HMM must never hard-AVOID: a stock with high TA score reaches BUY
+        even when hmmOk=False (hmmProb only scales confidence)."""
+        with mock.patch.object(q, "get_weekly_ohlcv", side_effect=synth_ohlcv), \
+             mock.patch.object(q, "get_piotroski", return_value=(9, {})), \
+             mock.patch.object(q, "fit_hmm_bull_prob", return_value=0.1):  # bear regime
+            t3 = q.run_tier3()
+        # at least one stock must be BUY/WATCH (not everything AVOID'd by HMM)
+        decisions = [st["decision"] for sec in t3["sectors"] for st in sec["stocks"]]
+        self.assertTrue(any(d != "AVOID" for d in decisions),
+                        f"all AVOID despite soft HMM: {decisions}")
+        # confidence must reflect the low hmmProb scaling (<= 0.5 * score/5)
+        for sec in t3["sectors"]:
+            for st in sec["stocks"]:
+                self.assertLessEqual(st["confidence"], 0.5 * (st["taScore"] / 5) + 1e-9)
+
+
 class TestHMM(unittest.TestCase):
     def test_fallback_when_unavailable(self):
         """No hmmlearn -> fit returns None (explicit, never a fake)."""
