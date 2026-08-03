@@ -52,3 +52,30 @@ CHART_COLORS = {
     'puts': '#f85149',
     'volume': 'rgba(88, 166, 255, 0.3)'
 }
+
+# --- Option Screener v2.4 ---
+# Universe = SCREENER_WATCHLIST + SCREENER_LIQUID_POOL + earnings names (gated).
+SCREENER_WATCHLIST = [  # seed set (was terminal/watchlist.json; QA has no file, so config is source of truth)
+    "AAPL", "TSLA", "MSFT", "GOOGL", "AMZN", "NVDA", "SPY", "QQQ", "GLD", "SMH", "XLE",
+]
+SCREENER_LIQUID_POOL = [
+    "META", "NFLX", "AVGO", "ORCL", "AMD", "INTC", "CRM", "ADBE", "QCOM", "MU",
+    "T", "VZ", "BAC", "JPM", "XOM", "CVX", "LLY", "UNH", "JNJ", "PFE",
+    "COIN", "MSTR", "TSM", "BABA", "PLTR", "SOFI", "UBER", "ABNB", "NIO", "MRVL",
+]
+SCREENER_MAX_EXPIRIES = 4          # next 4 expiries per ticker (~0-90 DTE)
+SCREENER_MAX_WORKERS = 8           # thread pool for chain fetches
+SCREENER_CACHE_TTL = 600           # seconds; universe scan cache
+SCREENER_MIN_DTE = 2               # contracts with dte <= this are damped x0.3
+SCREENER_INDEX_TICKERS = {"SPY", "QQQ", "IWM", "DIA"}
+SCREENER_EARNINGS_WINDOW_DAYS = 14
+SCREENER_EARNINGS_CACHE_TTL = 86400  # 24h earnings cache
+SCREENER_MAX_UNIVERSE = 40         # START at 40 (Hong, 2026-08-03: gauge system load first);
+                                   # raise to the 60 hard cap only after the Task-4 load check passes
+SCREENER_EARNINGS_MIN_MCAP = 1e11  # auto-added earnings names must be > $100B market cap
+SCORE_WEIGHTS = {                  # composite score weights (sum = 1.0)
+    "vol_oi_z": 0.30, "notional_z": 0.25, "moneyness": 0.20,
+    "iv_cheap": 0.15, "catalyst": 0.10,
+}
+SCORE_TIER_HIGH = 2.5              # score >= this -> HIGH
+SCORE_TIER_MED = 1.5               # score >= this -> MED (below -> LOW)

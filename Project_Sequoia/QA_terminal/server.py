@@ -279,6 +279,7 @@ class Handler(SimpleHTTPRequestHandler):
             'year_highs': 'year_highs',
             'year_lows': 'year_lows',
             'news': 'news',
+            'option_screener': 'option_screener',
         }
         routes = {}
         for mod_name, import_path in modules.items():
@@ -461,7 +462,19 @@ class Handler(SimpleHTTPRequestHandler):
                 put.update({'type': 'Put', 'expiry': expiry})
                 results.append(put)
         self.send_json({'ticker': ticker, 'results': results})
-    
+
+    def handle_screen_v2(self, qs):
+        """Universe unusual-activity scan (cached; force=1 rebuilds)."""
+        import option_screener
+        force = qs.get('force', [''])[0] == '1'
+        self.send_json(option_screener.scan_universe(force=force))
+
+    def handle_screen_ticker(self, qs):
+        """Fresh per-ticker scored drilldown."""
+        import option_screener
+        ticker = qs.get('ticker', ['SPY'])[0].upper()
+        self.send_json(option_screener.scan_ticker(ticker))
+
     def handle_expirations(self, qs):
         import options
         ticker = qs.get('ticker', ['SPY'])[0]
