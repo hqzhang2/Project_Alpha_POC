@@ -1,14 +1,27 @@
-import numpy as np
-from scipy.stats import norm
+"""
+Black-Scholes-Merton Greeks via vollib (Jaeckel's Let's Be Rational engine).
 
-def calculate_greeks(S, K, T, r, sigma, option_type='call'):
+Replaces the hand-rolled Black-Scholes implementation with the maintained
+vollib library (already used by Project_Nine_Street/scripts/nsoe_pricing.py),
+keeping the dashboard's display conventions:
+  - theta: per-day (raw BS theta is per-year, divided by 365)
+  - vega:  per 1% vol move (raw is per 100%, divided by 100)
+  - rho:   per 1% rate move (raw is per 100%, divided by 100)
+"""
+from vollib.black_scholes_merton.greeks.analytical import delta, gamma, theta, vega, rho
+
+
+def calculate_greeks(S, K, T, r, sigma, option_type='call', q=0.0):
     """
-    Calculate Black-Scholes Greeks.
+    Calculate Black-Scholes-Merton Greeks.
+
     S: Spot Price
     K: Strike Price
     T: Time to Maturity (years)
     r: Risk-free rate (decimal)
     sigma: Volatility (decimal)
+    option_type: 'call' or 'put'
+    q: continuous dividend yield (decimal, 0 if none)
     """
     if T <= 0 or sigma <= 0:
         return {
@@ -19,28 +32,12 @@ def calculate_greeks(S, K, T, r, sigma, option_type='call'):
             'rho': 0.0
         }
 
-    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
+    flag = 'c' if option_type == 'call' else 'p'
 
-    if option_type == 'call':
-        delta = norm.cdf(d1)
-        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) 
-                 - r * K * np.exp(-r * T) * norm.cdf(d2))
-        rho = K * T * np.exp(-r * T) * norm.cdf(d2)
-    else:
-        delta = norm.cdf(d1) - 1
-        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) 
-                 + r * K * np.exp(-r * T) * norm.cdf(-d2))
-        rho = -K * T * np.exp(-r * T) * norm.cdf(-d2)
-
-    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
-    vega = S * norm.pdf(d1) * np.sqrt(T)
-
-    # Scale Theta to daily and Vega/Rho to 1% change
     return {
-        'delta': float(delta),
-        'gamma': float(gamma),
-        'theta': float(theta / 365.0),
-        'vega': float(vega / 100.0),
-        'rho': float(rho / 100.0)
+        'delta': float(delta(flag, S, K, T, r, sigma, q)),
+        'gamma': float(gamma(flag, S, K, T, r, sigma, q)),
+        'theta': float(theta(flag, S, K, T, r, sigma, q) / 365.0),
+        'vega': float(vega(flag, S, K, T, r, sigma, q) / 100.0),
+        'rho': float(rho(flag, S, K, T, r, sigma, q) / 100.0)
     }
