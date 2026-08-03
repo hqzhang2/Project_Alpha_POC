@@ -28,6 +28,52 @@ def json_dumps(data):
     return json.dumps(data, cls=SafeJSONEncoder)
 
 
+def _mid_or_last(row):
+    """
+    Best available price for an option row: bid/ask mid when a two-sided
+    market exists, else the last trade. Returns None when neither exists.
+    """
+    bid, ask, last = row.get('bid'), row.get('ask'), row.get('last')
+    if bid and ask and bid > 0 and ask > 0:
+        return (bid + ask) / 2.0
+    if last and last > 0:
+        return last
+    return None
+
+
+def implied_forward(call_row, put_row, K, T, r):
+    """
+    Forward price implied by put-call parity at one strike:
+        F = C_mid - P_mid + K*exp(-rT)
+    Returns None when either side lacks a usable price.
+    """
+    c_price = _mid_or_last(call_row)
+    p_price = _mid_or_last(put_row)
+    if c_price is None or p_price is None:
+        return None
+    return c_price - p_price + K * math.exp(-r * T)
+
+
+def parity_residual(fwd, fwd_median, call_row, put_row):
+    """
+    Per-strike parity anomaly vs the chain's median implied forward (dollars).
+    Positive means the strike's forward is rich vs the chain consensus.
+
+    Using the median forward (not the spot) removes the systematic
+    carry/dividend offset that otherwise flags every strike; genuine bad
+    quotes deviate from the consensus and get caught.
+    """
+    if fwd is None or fwd_median is None:
+        return None, None
+    residual = fwd - fwd_median
+    # Noise floor: half the combined bid/ask spread + 5c, so stale quotes
+    # don't trip the flag but real mispricings do.
+    c_spread = (call_row.get('ask') or 0) - (call_row.get('bid') or 0)
+    p_spread = (put_row.get('ask') or 0) - (put_row.get('bid') or 0)
+    floor = max(0.05, (max(c_spread, 0) + max(p_spread, 0)) / 2 + 0.05)
+    return residual, abs(residual) <= floor
+
+
 _options_cache = {}
 _cache_ttl = 30
 
@@ -143,14 +189,17 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 # last) - yfinance's raw impliedVolatility field is a quantized
                 # placeholder (e.g. 1/16 = 6.25%) for OTM options with no bid/ask,
                 # NOT a real IV. Trusting it displayed 6.3% where true IV was ~32%.
-                bid, ask, last = row.get('bid'), row.get('ask'), row.get('last')
-                if bid and ask and bid > 0 and ask > 0:
-                    price = (bid + ask) / 2.0      # prefer mid when quoted
-                elif last and last > 0:
-                    price = last                    # else last trade
-                else:
-                    price = None                    # no market price at all
-                
+                price = _mid_or_last(row)
+
+                # Liquidity flags: a two-sided quote is a real market; anything
+                # else (last-only or nothing) is stale/illiquid and gets dimmed.
+                bid, ask = row.get('bid'), row.get('ask')
+                has_quote = bool(bid and ask and bid > 0 and ask > 0)
+                row['hasQuote'] = has_quote
+                row['spread'] = round(ask - bid, 2) if has_quote else None
+                row['spreadPct'] = round((ask - bid) / ((bid + ask) / 2) * 100, 2) if has_quote else None
+                row['illiquid'] = not has_quote
+
                 sigma = None
                 if price and spot and row.get('strike'):
                     sigma = calculate_implied_volatility(price, spot, row['strike'], T, r, opt_type)
@@ -175,12 +224,35 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 clean_records.append(row)
             return clean_records
 
+        calls_processed = process_df(calls, 'call')
+        puts_processed = process_df(puts, 'put')
+
+        # Put-call parity per strike: compute each strike's implied forward,
+        # then flag anomalies vs the chain's MEDIAN forward. Median (not spot)
+        # self-calibrates against carry/dividend offsets so genuine bad
+        # quotes stand out instead of every strike flagging.
+        call_by_strike = {c['strike']: c for c in calls_processed}
+        put_by_strike = {p['strike']: p for p in puts_processed}
+        forwards = {}
+        for K in set(call_by_strike) & set(put_by_strike):
+            f = implied_forward(call_by_strike[K], put_by_strike[K], K, T, r)
+            if f is not None:
+                forwards[K] = f
+        fwd_median = sorted(forwards.values())[len(forwards) // 2] if forwards else None
+        for K, fwd in forwards.items():
+            residual, ok = parity_residual(fwd, fwd_median, call_by_strike[K], put_by_strike[K])
+            if residual is not None:
+                call_by_strike[K]['parityResidual'] = round(residual, 3)
+                call_by_strike[K]['parityOk'] = ok
+                put_by_strike[K]['parityResidual'] = round(residual, 3)
+                put_by_strike[K]['parityOk'] = ok
+
         result = {
             "ticker": ticker.upper(),
             "expiry": expiry,
             "spot": spot,
-            "calls": process_df(calls, 'call'),
-            "puts": process_df(puts, 'put'),
+            "calls": calls_processed,
+            "puts": puts_processed,
             "timestamp": now
         }
         

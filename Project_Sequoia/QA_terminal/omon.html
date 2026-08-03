@@ -12,6 +12,9 @@
         .nav { display: flex; gap: 16px; }
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
+        .chain-table tr.illiquid { opacity: 0.4; }
+        .parity-badge { color: #f85149; font-size: 11px; margin-left: 3px; cursor: help; }
+        .chain-table tr.parity-violation .strike-cell { color: #f85149; font-weight: 600; }
         
         .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
         .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 120px; }
@@ -199,6 +202,15 @@
                     select.appendChild(opt);
                 });
                 
+                // Default to the nearest standard monthly (3rd-Friday) expiry -
+                // the most liquid chain. Weeklies are wide/illiquid; never
+                // default to the nearest weekly.
+                if (data.standard.length > 0) {
+                    select.value = data.standard[0].date;
+                } else if (data.expirations.length > 0) {
+                    select.value = data.expirations[0];
+                }
+                
                 loadOptions();
             } catch (e) {
                 console.error(e);
@@ -262,6 +274,30 @@
             
             function fmtNum(n) { return n ? n.toLocaleString() : '-'; }
             function fmtPct(n) { return n ? (n*100).toFixed(1) + '%' : '-'; }
+            // Spread % display: widen to 2 decimals under 1% so tight quotes
+            // don't all render as "0.0%"
+            function fmtSpreadPct(n) {
+                if (n === null || n === undefined) return '';
+                return (n < 1 ? n.toFixed(2) : n.toFixed(1)) + '%';
+            }
+            function rowClass(opt) {
+                // Dim illiquid rows (no two-sided quote); mark parity violations
+                const cls = [];
+                if (opt && opt.illiquid) cls.push('illiquid');
+                if (opt && opt.parityOk === false) cls.push('parity-violation');
+                return cls.join(' ');
+            }
+            function spreadTitle(opt) {
+                if (!opt || !opt.hasQuote) return 'No two-sided quote (stale/illiquid)';
+                return `Spread: $${opt.spread} (${fmtSpreadPct(opt.spreadPct)})`;
+            }
+            function parityBadge(opt) {
+                if (opt && opt.parityOk === false && opt.parityResidual !== null && opt.parityResidual !== undefined) {
+                    const sign = opt.parityResidual > 0 ? '+' : '';
+                    return `<span class="parity-badge" title="Put-call parity off by $${sign}${opt.parityResidual}">⚠</span>`;
+                }
+                return '';
+            }
             
             let html = `
                 <table class="chain-table">
@@ -301,7 +337,7 @@
                 const isATM = s === atmStrike ? ' atm-row' : '';
                 
                 html += `
-                    <tr class="${isATM}">
+                    <tr class="${isATM} ${rowClass(c)} ${rowClass(p)}">
                         <td class="call-side ${c_itm} greek">${c.vega?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.theta?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.gamma?.toFixed(4) || '-'}</td>
@@ -310,13 +346,13 @@
                         <td class="call-side ${c_itm}">${fmtNum(c.oi)}</td>
                         <td class="call-side ${c_itm}">${fmtNum(c.vol)}</td>
                         <td class="call-side ${c_itm}">${c.last?.toFixed(2) || '-'}</td>
-                        <td class="call-side ${c_itm}">${c.bid?.toFixed(2) || '-'}</td>
-                        <td class="call-side ${c_itm}">${c.ask?.toFixed(2) || '-'}</td>
+                        <td class="call-side ${c_itm}" title="${spreadTitle(c)}">${c.bid?.toFixed(2) || '-'}</td>
+                        <td class="call-side ${c_itm}" title="${spreadTitle(c)}">${c.ask?.toFixed(2) || '-'}</td>
                         
-                        <td class="strike-cell">${s.toFixed(1)}</td>
+                        <td class="strike-cell">${s.toFixed(1)}${parityBadge(c)}${parityBadge(p)}</td>
                         
-                        <td class="put-side ${p_itm}">${p.bid?.toFixed(2) || '-'}</td>
-                        <td class="put-side ${p_itm}">${p.ask?.toFixed(2) || '-'}</td>
+                        <td class="put-side ${p_itm}" title="${spreadTitle(p)}">${p.bid?.toFixed(2) || '-'}</td>
+                        <td class="put-side ${p_itm}" title="${spreadTitle(p)}">${p.ask?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${p.last?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.vol)}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.oi)}</td>
