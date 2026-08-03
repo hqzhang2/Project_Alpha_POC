@@ -11,7 +11,7 @@ keeping the dashboard's display conventions:
 from vollib.black_scholes_merton.greeks.analytical import delta, gamma, theta, vega, rho
 
 
-def calculate_greeks(S, K, T, r, sigma, option_type='call'):
+def calculate_greeks(S, K, T, r, sigma, option_type='call', q=0.0):
     """
     Calculate Black-Scholes-Merton Greeks.
 
@@ -21,6 +21,7 @@ def calculate_greeks(S, K, T, r, sigma, option_type='call'):
     r: Risk-free rate (decimal)
     sigma: Volatility (decimal)
     option_type: 'call' or 'put'
+    q: continuous dividend yield (decimal, 0 if none)
     """
     if T <= 0 or sigma <= 0:
         return {
@@ -32,7 +33,6 @@ def calculate_greeks(S, K, T, r, sigma, option_type='call'):
         }
 
     flag = 'c' if option_type == 'call' else 'p'
-    q = 0.0  # continuous dividend yield; not modeled for chain display
 
     return {
         'delta': float(delta(flag, S, K, T, r, sigma, q)),

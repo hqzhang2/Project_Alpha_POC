@@ -105,10 +105,10 @@ def get_expirations(ticker: str) -> list[str]:
         return []
 
 
-def calculate_implied_volatility(option_price, S, K, T, r, option_type="call"):
+def calculate_implied_volatility(option_price, S, K, T, r, option_type="call", q=0.0):
     """
     Calculate implied volatility from option price using vollib's
-    Let's Be Rational engine (Black-Scholes-Merton, q=0).
+    Let's Be Rational engine (Black-Scholes-Merton with dividend yield q).
     """
     if option_price <= 0 or T <= 0 or S <= 0 or K <= 0:
         return None
@@ -127,7 +127,7 @@ def calculate_implied_volatility(option_price, S, K, T, r, option_type="call"):
     try:
         from vollib.black_scholes_merton.implied_volatility import implied_volatility
         flag = 'c' if option_type == 'call' else 'p'
-        return implied_volatility(option_price, S, K, T, r, 0.0, flag)
+        return implied_volatility(option_price, S, K, T, r, q, flag)
     except Exception:
         # Fallback: use moneyness-based estimate
         moneyness = S / K
@@ -169,6 +169,17 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 spot = ticker_obj.fast_info.get('last_price')
             except:
                 pass
+
+        # Continuous dividend yield (decimal) for BSM pricing.
+        # CAUTION: yfinance's 'dividendYield' is a PERCENTAGE (0.78 = 0.78%),
+        # not a decimal — feeding 0.78 as q would imply a 78% yield and
+        # explode the IV solver. 'trailingAnnualDividendYield' is the proper
+        # decimal; fall back to dividendYield/100, with a sanity clamp.
+        q = info.get("trailingAnnualDividendYield")
+        if q is None:
+            q = (info.get("dividendYield") or 0.0) / 100.0
+        if not isinstance(q, (int, float)) or not (0.0 <= q <= 0.20):  # max 20% yield
+            q = 0.0
         
         # Calculate Time to Maturity (T)
         expiry_dt = datetime.datetime.strptime(expiry, '%Y-%m-%d')
@@ -222,7 +233,7 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
 
                 sigma = None
                 if price and spot and row.get('strike'):
-                    sigma = calculate_implied_volatility(price, spot, row['strike'], T, r, opt_type)
+                    sigma = calculate_implied_volatility(price, spot, row['strike'], T, r, opt_type, q)
                 if not sigma or sigma < 0.01:
                     # No usable market price -> fall back to yahoo's field, but
                     # only if it looks like a real IV. Yahoo's placeholders for
@@ -233,7 +244,7 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 
                 if sigma and sigma > 0.01 and spot and row.get('strike'):
                     try:
-                        g = calculate_greeks(spot, row['strike'], T, r, sigma, opt_type)
+                        g = calculate_greeks(spot, row['strike'], T, r, sigma, opt_type, q)
                         row.update(g)
                         row['iv'] = sigma  # Update with calculated IV
                     except:
@@ -245,7 +256,7 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 # Only meaningful when we have a real IV.
                 if sigma and sigma > 0.01 and spot and row.get('strike'):
                     row['probITM'] = probability_itm('c' if opt_type == 'call' else 'p',
-                                                     spot, row['strike'], T, r, sigma)
+                                                     spot, row['strike'], T, r, sigma, q)
                 else:
                     row['probITM'] = None
 
@@ -300,6 +311,7 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
             "ticker": ticker.upper(),
             "expiry": expiry,
             "spot": spot,
+            "dividendYield": round(q, 4) if q else None,
             "medianForward": round(fwd_median, 3) if fwd_median else None,
             "expectedMove": expected_move,
             "calls": calls_processed,

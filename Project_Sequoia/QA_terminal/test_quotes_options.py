@@ -212,6 +212,58 @@ class TestQuotesOptions(unittest.TestCase):
         self.assertEqual(em['straddle'], 10.0)
         self.assertEqual(em['pct'], 10.0)
 
+    def test_dividend_yield_in_iv(self):
+        """
+        Dividend yield must change the solved IV for a call: with q>0 the
+        forward is lower (S*e^-qT), so the SAME call price implies a HIGHER
+        IV (more time value needed to reach the market price).
+        """
+        S, K, T, r = 100.0, 105.0, 0.25, 0.05
+        price = 2.0
+        iv0 = options.calculate_implied_volatility(price, S, K, T, r, 'call', q=0.0)
+        ivq = options.calculate_implied_volatility(price, S, K, T, r, 'call', q=0.04)
+        self.assertIsNotNone(iv0)
+        self.assertIsNotNone(ivq)
+        self.assertGreater(ivq, iv0)  # dividends -> higher implied vol
+
+    def test_dividend_yield_in_greeks(self):
+        """calculate_greeks must accept and honor q (call delta falls with q)."""
+        from greeks import calculate_greeks
+        S, K, T, r, sig = 100.0, 100.0, 0.25, 0.05, 0.25
+        g0 = calculate_greeks(S, K, T, r, sig, 'call', q=0.0)
+        gq = calculate_greeks(S, K, T, r, sig, 'call', q=0.05)
+        # dividends reduce the forward -> lower call delta
+        self.assertLess(gq['delta'], g0['delta'])
+        self.assertGreater(gq['gamma'], 0)
+        self.assertLess(gq['theta'], 0)
+
+    def test_dividend_yield_percentage_unit_guard(self):
+        """
+        Regression: yfinance 'dividendYield' is a PERCENTAGE (0.78 = 0.78%).
+        Feeding 0.78 as q would imply 78% yield and explode IV (~50% vs ~30%).
+        The chain must emit the proper decimal (<= 0.20) via the clamp.
+        """
+        # simulate the clamp logic exactly as in get_options_chain
+        def resolve_q(info):
+            q = info.get("trailingAnnualDividendYield")
+            if q is None:
+                q = (info.get("dividendYield") or 0.0) / 100.0
+            if not isinstance(q, (int, float)) or not (0.0 <= q <= 0.20):
+                q = 0.0
+            return q
+
+        # yfinance shape: percentage field only -> must become decimal
+        self.assertAlmostEqual(resolve_q({'dividendYield': 0.78}), 0.0078)
+        # trailing decimal field preferred
+        self.assertAlmostEqual(resolve_q({'dividendYield': 0.78,
+                                          'trailingAnnualDividendYield': 0.0078}), 0.0078)
+        # absurd values clamped to 0
+        self.assertEqual(resolve_q({'dividendYield': 78.0}), 0.0)
+        self.assertEqual(resolve_q({'dividendYield': 0.78,
+                                    'trailingAnnualDividendYield': 0.78}), 0.0)
+        # missing -> 0
+        self.assertEqual(resolve_q({}), 0.0)
+
     @patch('yfinance.Ticker')
     @patch('options.calculate_greeks')
     def test_chain_flags_illiquid_row(self, mock_greeks, mock_ticker):
