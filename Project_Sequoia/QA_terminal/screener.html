@@ -106,6 +106,11 @@
 
     <div class="toolbar">
         <h2>🎯 Option Screener</h2>
+        <label class="date-label">Data</label>
+        <select id="providerSel" class="filter-input" onchange="switchProvider()" style="min-width: 130px;">
+            <option value="yfinance">Yahoo Finance</option>
+            <option value="moomoo">Moomoo</option>
+        </select>
         <button class="btn" onclick="runScan()">Scan Market</button>
         <span class="status" id="status">Scanning universe...</span>
         <span class="date-label" style="margin-left: auto;">Min DTE</span>
@@ -190,20 +195,55 @@
         }
 
         // ---- universe scan ----
-        async function runScan() {
+        let providersAvail = { yfinance: true, moomoo: false };
+
+        function syncProviderUI(provider, providers) {
+            providersAvail = providers || providersAvail;
+            const sel = document.getElementById('providerSel');
+            [...sel.options].forEach(o => {
+                const ok = providersAvail[o.value] !== false;
+                o.disabled = !ok;
+                o.textContent = ok ? o.textContent.replace(/ \(unavailable\)$/, '')
+                                   : o.textContent.replace(/ \(unavailable\)$/, '') + ' (unavailable)';
+            });
+            if (provider && providersAvail[provider] !== false) sel.value = provider;
+        }
+
+        async function runScan(providerName) {
+            const provider = providerName || document.getElementById('providerSel').value || 'yfinance';
             const status = document.getElementById('status');
-            status.textContent = 'Scanning universe (first run 10-60s)...';
-            document.getElementById('tickerBody').innerHTML = '<tr><td colspan="8" class="loading">Scanning...</td></tr>';
+            status.textContent = 'Scanning universe (' + provider + ', first run 10-60s)...';
+            document.getElementById('tickerBody').innerHTML = '<tr><td colspan="9" class="loading">Scanning...</td></tr>';
             try {
-                const res = await fetch('/api/screen/v2');
-                scanData = await res.json();
-                status.textContent = 'cached at ' + (scanData.cached_at || '') + ' · ' + scanData.count + ' names';
+                const res = await fetch('/api/screen/v2?provider=' + encodeURIComponent(provider));
+                const data = await res.json();
+                if (data.error) {
+                    status.textContent = data.error + (data.available === false ? ' — staying on current feed' : '');
+                    syncProviderUI(null, data.providers);
+                    document.getElementById('tickerBody').innerHTML = '<tr><td colspan="9" class="loading">' + esc(data.error) + '</td></tr>';
+                    return;
+                }
+                scanData = data;
+                syncProviderUI(data.provider, data.providers);
+                status.textContent = (data.provider === 'moomoo' ? 'Moomoo' : 'Yahoo') + ' · cached at ' + (data.cached_at || '') + ' · ' + data.count + ' names';
                 renderTickers();
             } catch (e) {
                 console.error(e);
                 status.textContent = 'Error: ' + e.message;
-                document.getElementById('tickerBody').innerHTML = '<tr><td colspan="8" class="loading">Error during scan: ' + esc(e.message) + '</td></tr>';
+                document.getElementById('tickerBody').innerHTML = '<tr><td colspan="9" class="loading">Error during scan: ' + esc(e.message) + '</td></tr>';
             }
+        }
+
+        function switchProvider() {
+            const sel = document.getElementById('providerSel');
+            if (providersAvail[sel.value] === false) {
+                const attempted = sel.value;
+                const prev = scanData && scanData.provider ? scanData.provider : 'yfinance';
+                sel.value = prev;
+                document.getElementById('status').textContent = attempted + ' not available — staying on ' + prev;
+                return;
+            }
+            runScan(sel.value);
         }
 
         function renderTickers() {
@@ -313,8 +353,9 @@
             renderTickers();
         }
 
-        // auto-scan on load (cached, instant after first)
-        window.addEventListener('DOMContentLoaded', runScan);
+        // auto-scan on load (cached, instant after first) — arrow fn so the DOMContentLoaded
+        // Event object is NOT passed into runScan(providerName) as the provider!
+        window.addEventListener('DOMContentLoaded', () => runScan());
     </script>
 </body>
 </html>

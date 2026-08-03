@@ -94,6 +94,8 @@ def test_enrich_zero_oi_no_crash():
 # scan integration (fake provider, hermetic)
 # ---------------------------------------------------------------------------
 class FakeProvider:
+    name = "yfinance"  # singleton-swap logic in options_data matches on .name
+
     def get_expirations(self, ticker):
         return ["2099-01-01"]
 
@@ -116,8 +118,7 @@ class FakeProvider:
 
 @pytest.fixture(autouse=True)
 def _reset_caches(monkeypatch):
-    osmod._scan_cache["data"] = None
-    osmod._scan_cache["ts"] = 0.0
+    osmod._scan_cache = {}
     osmod._universe_cache["names"] = None
     osmod._universe_cache["ts"] = 0.0
     osmod._earnings_cache["data"] = {}
@@ -127,8 +128,9 @@ def _reset_caches(monkeypatch):
     options_data._PROVIDER = FakeProvider()
     monkeypatch.setattr(options_data, "_PROVIDER", FakeProvider())
     yield
-    osmod._scan_cache["data"] = None
-    osmod._scan_cache["ts"] = 0.0
+    osmod._scan_cache = {}
+    osmod._universe_cache["names"] = None
+    osmod._universe_cache["ts"] = 0.0
 
 
 def test_score_uses_oi_weights_when_build_present():
@@ -205,12 +207,40 @@ def test_scan_universe_cached_and_force():
     r1 = osmod.scan_universe()
     assert r1["count"] >= 1
     assert isinstance(r1["cached_at"], str)
+    assert r1["provider"] == "yfinance"
     # second call served from cache (same object)
     r2 = osmod.scan_universe()
     assert r2["cached_at"] == r1["cached_at"]
     # force rebuilds
     r3 = osmod.scan_universe(force=True)
     assert r3["count"] == r1["count"]
+
+
+class FakeProviderMoomoo(FakeProvider):
+    name = "moomoo"
+
+
+def test_scan_cache_keyed_by_provider(monkeypatch):
+    import options_data
+    def fake_get(name=None):
+        return FakeProviderMoomoo() if (name or "yfinance") == "moomoo" else FakeProvider()
+    monkeypatch.setattr(options_data, "get_provider", fake_get)
+    a = osmod.scan_universe(provider="yfinance")
+    b = osmod.scan_universe(provider="moomoo")
+    assert a["provider"] == "yfinance" and b["provider"] == "moomoo"
+    # separate cache slots (cached_at is 1s resolution -> compare slot objects)
+    assert osmod._scan_cache["yfinance"] is not osmod._scan_cache["moomoo"]
+    a2 = osmod.scan_universe(provider="yfinance")
+    assert a2["cached_at"] == a["cached_at"]          # yfinance slot still cached
+
+
+def test_scan_universe_provider_unavailable(monkeypatch):
+    import options_data
+    def boom(name=None):
+        raise options_data.ProviderUnavailableError("provider 'moomoo' unavailable: stub")
+    monkeypatch.setattr(options_data, "get_provider", boom)
+    res = osmod.scan_universe(provider="moomoo")
+    assert res["error"] and res["available"] is False and res["count"] == 0 and res["tickers"] == []
 
 
 def test_routes_declared():

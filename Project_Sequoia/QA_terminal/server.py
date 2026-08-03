@@ -464,16 +464,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_json({'ticker': ticker, 'results': results})
 
     def handle_screen_v2(self, qs):
-        """Universe unusual-activity scan (cached; force=1 rebuilds)."""
+        """Universe unusual-activity scan (cached; force=1 rebuilds; provider= feeds toggle)."""
         import option_screener
         force = qs.get('force', [''])[0] == '1'
-        self.send_json(option_screener.scan_universe(force=force))
+        provider = qs.get('provider', [None])[0] or None
+        self.send_json(option_screener.scan_universe(force=force, provider=provider))
 
     def handle_screen_ticker(self, qs):
         """Fresh per-ticker scored drilldown."""
         import option_screener
         ticker = qs.get('ticker', ['SPY'])[0].upper()
-        self.send_json(option_screener.scan_ticker(ticker))
+        provider = qs.get('provider', [None])[0] or None
+        self.send_json(option_screener.scan_ticker(ticker, provider=provider))
 
     def handle_expirations(self, qs):
         import options

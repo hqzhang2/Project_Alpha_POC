@@ -21,7 +21,7 @@ import config
 # ---------------------------------------------------------------------------
 # caches (module-level; server lifetime)
 # ---------------------------------------------------------------------------
-_scan_cache = {"data": None, "ts": 0.0}
+_scan_cache = {}                    # provider name -> {"data": ..., "ts": ...} (per-provider)
 _universe_cache = {"names": None, "ts": 0.0}
 _earnings_cache = {"data": {}, "ts": 0.0}
 
@@ -282,30 +282,44 @@ def _scan_ticker(provider, ticker):
         return None
 
 
-def scan_universe(force=False):
-    """Cached universe scan: {cached_at, count, tickers:[summary...]}. Thread-pooled."""
-    if not force and _scan_cache["data"] and time.time() - _scan_cache["ts"] < config.SCREENER_CACHE_TTL:
-        return _scan_cache["data"]
-    provider = __import__("options_data").get_provider()
-    uni, _ = _universe(provider)
+def _provider_error(provider, msg):
+    return {"error": msg, "provider": provider, "available": False,
+            "cached_at": None, "count": 0, "tickers": []}
+
+
+def scan_universe(force=False, provider=None):
+    """Cached universe scan: {cached_at, provider, count, tickers:[...]}. Thread-pooled.
+    Cache is keyed BY PROVIDER so toggling feeds never serves cross-provider data.
+    Provider unavailable -> graceful {error, available:False} payload (no 500)."""
+    try:
+        prov = __import__("options_data").get_provider(provider)
+    except Exception as e:
+        return _provider_error(provider or getattr(__import__("config"), "OPTION_DATA_PROVIDER", "yfinance"), str(e))
+    name = prov.name
+    slot = _scan_cache.setdefault(name, {"data": None, "ts": 0.0})
+    if not force and slot["data"] and time.time() - slot["ts"] < config.SCREENER_CACHE_TTL:
+        return slot["data"]
+    uni, _ = _universe(prov)
     with ThreadPoolExecutor(max_workers=config.SCREENER_MAX_WORKERS) as ex:
-        tickers = [t for t in ex.map(lambda t: _scan_ticker(provider, t), uni) if t]
+        tickers = [t for t in ex.map(lambda t: _scan_ticker(prov, t), uni) if t]
     tickers.sort(key=lambda t: (t["max_score"] or 0), reverse=True)
-    result = {"cached_at": time.strftime("%H:%M:%S"), "count": len(tickers), "tickers": tickers}
-    _scan_cache["data"] = result
-    _scan_cache["ts"] = time.time()
+    result = {"cached_at": time.strftime("%H:%M:%S"), "provider": name,
+              "providers": __import__("options_data").provider_status(),
+              "count": len(tickers), "tickers": tickers}
+    slot["data"] = result
+    slot["ts"] = time.time()
     return result
 
 
-def scan_ticker(ticker, force=False):
+def scan_ticker(ticker, force=False, provider=None):
     """Fresh per-ticker drilldown (uncached by design)."""
-    provider = __import__("options_data").get_provider()
-    _universe(provider)  # ensure earnings cache populated
+    prov = __import__("options_data").get_provider(provider)
+    _universe(prov)  # ensure earnings cache populated
     t = ticker.upper()
     if t not in _earnings_cache["data"]:
         # drilldown on a name outside the scan universe -> fetch its catalyst directly
-        _earnings_cache["data"][t] = provider.get_next_earnings(t)
-    return _scan_ticker(provider, t)
+        _earnings_cache["data"][t] = prov.get_next_earnings(t)
+    return _scan_ticker(prov, t)
 
 
 # Module route registration (R2) — handler methods live on the Handler class in server.py

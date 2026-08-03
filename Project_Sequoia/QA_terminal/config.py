@@ -54,6 +54,7 @@ CHART_COLORS = {
 }
 
 # --- Option Screener v2.4 ---
+OPTION_DATA_PROVIDER = "yfinance"  # default feed; UI toggle overrides per request
 # Universe = SCREENER_WATCHLIST + SCREENER_LIQUID_POOL + earnings names (gated).
 SCREENER_WATCHLIST = [  # seed set (was terminal/watchlist.json; QA has no file, so config is source of truth)
     "AAPL", "TSLA", "MSFT", "GOOGL", "AMZN", "NVDA", "SPY", "QQQ", "GLD", "SMH", "XLE",

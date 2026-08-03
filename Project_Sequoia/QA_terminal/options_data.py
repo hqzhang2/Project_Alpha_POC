@@ -10,9 +10,17 @@ Greek/parity/IV math in options.py is reused untouched.
 import datetime as _dt
 from typing import Optional
 
+import config
+
+
+class ProviderUnavailableError(Exception):
+    """Raised when a requested data provider cannot serve (not built / not set up)."""
+
 
 class OptionDataProvider:
     """Interface every feed implements."""
+
+    name = "base"
 
     def get_expirations(self, ticker: str) -> list:
         raise NotImplementedError
@@ -32,6 +40,8 @@ class OptionDataProvider:
 
 class YFinanceProvider(OptionDataProvider):
     """Delegates chains to options.py (Greeks/parity/IV reuse) — never reimplement."""
+
+    name = "yfinance"
 
     def get_expirations(self, ticker):
         import options
@@ -72,13 +82,47 @@ class YFinanceProvider(OptionDataProvider):
 _PROVIDER = None
 
 
-def get_provider() -> OptionDataProvider:
+def _provider_class(name):
+    name = name or getattr(config, "OPTION_DATA_PROVIDER", "yfinance")
+    if name == "yfinance":
+        return YFinanceProvider
+    if name == "moomoo":
+        from options_data_moomoo import MoomooProvider
+        return MoomooProvider
+    raise ProviderUnavailableError(f"unknown data provider '{name}'")
+
+
+def get_provider(name=None):
+    """Return the singleton provider for `name` (default: config.OPTION_DATA_PROVIDER).
+    Swapping name swaps the instance (Moomoo holds one OpenD connection)."""
     global _PROVIDER
-    if _PROVIDER is None:
-        import config
-        if getattr(config, "OPTION_DATA_PROVIDER", "yfinance") == "moomoo":
-            from options_data_moomoo import MoomooProvider  # Step 2 artifact
-            _PROVIDER = MoomooProvider()
-        else:
-            _PROVIDER = YFinanceProvider()
+    name = name or getattr(config, "OPTION_DATA_PROVIDER", "yfinance")
+    if _PROVIDER is None or _PROVIDER.name != name:
+        cls = _provider_class(name)
+        if getattr(cls, "IMPLEMENTED", True) is not True:
+            raise ProviderUnavailableError(
+                f"provider '{name}' unavailable: {getattr(cls, 'UNAVAILABLE_REASON', 'not implemented')}")
+        _PROVIDER = cls()
     return _PROVIDER
+
+
+def set_provider(name):
+    """Force a provider swap (UI toggle). Keeps the existing instance when the
+    name is unchanged (avoids needless reconnects). Returns the provider."""
+    global _PROVIDER
+    if _PROVIDER is not None and _PROVIDER.name == name:
+        return _PROVIDER
+    _PROVIDER = None
+    return get_provider(name)
+
+
+def provider_status():
+    """{name: usable} for the UI toggle. 'moomoo' reflects the mapping stub state,
+    not the OpenD gateway (that check happens when the real provider lands)."""
+    status = {"yfinance": True}
+    try:
+        cls = _provider_class("moomoo")
+        status["moomoo"] = getattr(cls, "IMPLEMENTED", True) is True
+    except Exception:
+        status["moomoo"] = False
+    return status

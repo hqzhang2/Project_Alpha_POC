@@ -94,3 +94,40 @@ def test_get_provider_defaults_to_yfinance(monkeypatch):
     import options_data
     options_data._PROVIDER = None  # reset singleton
     assert isinstance(options_data.get_provider(), options_data.YFinanceProvider)
+
+
+def test_get_provider_named_yfinance(monkeypatch):
+    import options_data
+    options_data._PROVIDER = None
+    p = options_data.get_provider("yfinance")
+    assert isinstance(p, options_data.YFinanceProvider) and p.name == "yfinance"
+    # singleton: same instance on repeat call
+    assert options_data.get_provider("yfinance") is p
+
+
+def test_get_provider_moomoo_raises_gracefully():
+    import options_data
+    options_data._PROVIDER = None
+    try:
+        options_data.get_provider("moomoo")
+        assert False, "expected ProviderUnavailableError"
+    except options_data.ProviderUnavailableError as e:
+        assert "moomoo" in str(e) and "unavailable" in str(e)
+
+
+def test_set_provider_swaps(monkeypatch):
+    import options_data
+    options_data._PROVIDER = None
+    a = options_data.get_provider("yfinance")
+    b = options_data.set_provider("yfinance")
+    assert b is a  # same singleton
+    c = options_data.get_provider()
+    assert c is a   # default resolves to same singleton
+
+
+def test_provider_status_shape():
+    import options_data
+    st = options_data.provider_status()
+    assert st["yfinance"] is True
+    assert st["moomoo"] is False  # stub not implemented yet
+    assert set(st) == {"yfinance", "moomoo"}
