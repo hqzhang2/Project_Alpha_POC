@@ -67,3 +67,55 @@ def test_placeholder_iv_not_trusted():
     iv = options.calculate_implied_volatility(2.73, 464.72, 500.0, 18 / 365.25, 0.045, "call")
     assert iv is not None
     assert abs(iv - 0.0625) > 0.05  # must NOT return the yahoo placeholder
+
+
+# ---------------------------------------------------------------------------
+# vollib migration cross-checks
+# ---------------------------------------------------------------------------
+
+def test_vollib_iv_matches_reference_solver():
+    """
+    vollib (Let's Be Rational) IV must agree with an independent Black-Scholes
+    reference solver to within tight tolerance for a spread of strikes.
+    """
+    import numpy as np
+    from scipy.stats import norm
+    from scipy.optimize import brentq
+
+    S, r, T = 464.72, 0.045, 18 / 365.25
+
+    def bs_ref(sig, K, flag):
+        d1 = (np.log(S / K) + (r + 0.5 * sig ** 2) * T) / (sig * np.sqrt(T))
+        d2 = d1 - sig * np.sqrt(T)
+        if flag == 'c':
+            return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+        return K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+
+    for K, price, flag in [(500.0, 2.73, 'c'), (440.0, 4.95, 'p'),
+                           (465.0, 14.05, 'c'), (420.0, 2.0, 'p'),
+                           (520.0, 1.2, 'c')]:
+        ref = brentq(lambda s: bs_ref(s, K, flag) - price, 0.001, 3.0)
+        got = options.calculate_implied_volatility(
+            price, S, K, T, r, 'call' if flag == 'c' else 'put')
+        assert got is not None
+        assert abs(got - ref) < 1e-6, f"K={K} vollib={got} ref={ref}"
+
+
+def test_greeks_sane_ranges():
+    """Greeks from vollib-backed calculate_greeks must be in plausible ranges."""
+    from greeks import calculate_greeks
+    g = calculate_greeks(464.72, 500.0, 18 / 365.25, 0.045, 0.31, 'call')
+    assert 0.0 <= g['delta'] <= 1.0
+    assert g['gamma'] > 0
+    assert g['theta'] < 0      # long option: negative time decay
+    assert g['vega'] > 0
+    # put delta negative
+    gp = calculate_greeks(464.72, 440.0, 18 / 365.25, 0.045, 0.35, 'put')
+    assert -1.0 <= gp['delta'] <= 0.0
+
+
+def test_greeks_zero_inputs():
+    """Degenerate inputs return zeros (no crash)."""
+    from greeks import calculate_greeks
+    g = calculate_greeks(464.72, 500.0, 0, 0.045, 0.31, 'call')
+    assert g == {'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0, 'rho': 0.0}

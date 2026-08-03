@@ -15,10 +15,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from greeks import calculate_greeks
 
-from scipy.stats import norm
-from scipy.optimize import brentq
-import numpy as np
-
 # Custom JSON encoder to handle pandas Timestamps and numpy types
 class SafeJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -44,60 +40,29 @@ def get_expirations(ticker: str) -> list[str]:
 
 
 def calculate_implied_volatility(option_price, S, K, T, r, option_type="call"):
-    """Calculate implied volatility from option price using Black-Scholes"""
+    """
+    Calculate implied volatility from option price using vollib's
+    Let's Be Rational engine (Black-Scholes-Merton, q=0).
+    """
     if option_price <= 0 or T <= 0 or S <= 0 or K <= 0:
         return None
-    
+
     # Check intrinsic value - option price can't be below intrinsic
     if option_type == "call":
         intrinsic = max(0, S - K)
     else:
         intrinsic = max(0, K - S)
-    
-    # If price is below intrinsic, it's likely stale data - use intrinsic as floor
-    if option_price < intrinsic * 0.9:  # Allow 10% buffer
-        option_price = intrinsic
-    
-    # For very short expiry (< 7 days), IV calculation is unreliable due to time decay dominance
-    # Use moneyness-based heuristic instead
-    if T < 7/365:
-        moneyness = S / K
-        if option_type == "call":
-            if moneyness > 1.1:  # Deep ITM
-                return 0.15  # Low IV expected
-            elif moneyness < 0.9:  # Deep OTM
-                return 0.40  # Higher IV for OTM
-            else:
-                return 0.25
-        else:
-            if moneyness < 0.9:  # Deep ITM (put)
-                return 0.15
-            elif moneyness > 1.1:  # Deep OTM (put)
-                return 0.40
-            else:
-                return 0.25
-    
-    def black_scholes_price(sigma):
-        try:
-            d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
-            d2 = d1 - sigma*np.sqrt(T)
-            if option_type == "call":
-                price = S*norm.cdf(d1) - K*np.exp(-r*T)*norm.cdf(d2)
-            else:
-                price = K*np.exp(-r*T)*norm.cdf(-d2) - S*norm.cdf(-d1)
-            return price
-        except Exception as e:
-            return None
-    
+
+    # If price is below intrinsic, it's likely stale data - use intrinsic as
+    # floor (plus epsilon so vollib's solver stays well-defined).
+    if option_price < intrinsic:
+        option_price = intrinsic + 1e-8
+
     try:
-        # Use brentq for root finding
-        from scipy.optimize import brentq
-        result = brentq(
-            lambda sig: (black_scholes_price(sig) or 0) - option_price,
-            0.001, 2.0
-        )
-        return result
-    except Exception as e:
+        from vollib.black_scholes_merton.implied_volatility import implied_volatility
+        flag = 'c' if option_type == 'call' else 'p'
+        return implied_volatility(option_price, S, K, T, r, 0.0, flag)
+    except Exception:
         # Fallback: use moneyness-based estimate
         moneyness = S / K
         return 0.25 if 0.9 <= moneyness <= 1.1 else 0.20
