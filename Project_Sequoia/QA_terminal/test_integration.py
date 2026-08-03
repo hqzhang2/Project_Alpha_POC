@@ -5,10 +5,15 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Clear cache and load fresh (like server does)
-for mod in list(sys.modules.keys()):
-    if 'financials' in mod.lower():
-        del sys.modules[mod]
+# Clear cache and load fresh (like server does). Surgical purge: drop ONLY
+# the module file being reloaded. The old `'financials' in name` check wiped
+# yahoo_financials/sec_financials/other test modules from sys.modules at
+# import time, breaking later string-based patches suite-wide (test isolation
+# bug, found 2026-08-03).
+for name, mod in list(sys.modules.items()):
+    path = getattr(mod, '__file__', '') or ''
+    if os.path.basename(path) == 'financials.py':
+        del sys.modules[name]
 
 import importlib.util
 spec = importlib.util.spec_from_file_location("financials", "financials.py")

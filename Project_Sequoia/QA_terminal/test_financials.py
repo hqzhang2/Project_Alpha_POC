@@ -10,10 +10,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def load_fresh():
     """Load module fresh like server does"""
-    for mod in list(sys.modules.keys()):
-        if 'financials' in mod.lower():
-            del sys.modules[mod]
-    
+    # Surgical purge: drop ONLY the module file being reloaded (financials.py).
+    # The old `'financials' in name` check wiped every sys.modules entry whose
+    # name merely CONTAINS 'financials' — including yahoo_financials,
+    # sec_financials and other test modules — breaking patch-based tests in
+    # other files mid-suite (test isolation bug, found 2026-08-03).
+    for name, mod in list(sys.modules.items()):
+        path = getattr(mod, '__file__', '') or ''
+        if os.path.basename(path) == 'financials.py':
+            del sys.modules[name]
+
     import importlib.util
     spec = importlib.util.spec_from_file_location("financials", "financials.py")
     m = importlib.util.module_from_spec(spec)

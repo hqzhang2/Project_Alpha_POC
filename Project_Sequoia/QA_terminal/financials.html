@@ -57,6 +57,7 @@
 
         .loading { padding: 40px; text-align: center; color: #8b949e; }
         .error { padding: 40px; text-align: center; color: #f85149; }
+        .fallback-banner { background: #1c2128; border: 1px solid #f0883e; color: #f0b37e; padding: 8px 16px; font-size: 13px; border-radius: 6px; margin: 10px 24px 0; }
     </style>
 </head>
 <body>
@@ -120,6 +121,8 @@
             </div>
         </div>
         
+        <div class="fallback-banner" id="fallbackBanner" style="display:none"></div>
+        
         <div class="tabs">
             <button class="tab active" onclick="setTab('income')">Income Statement</button>
             <button class="tab" onclick="setTab('balance')">Balance Sheet</button>
@@ -175,9 +178,20 @@
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 financialsData = await res.json();
                 
-                if (financialsData.error) {
+                if (financialsData.error && (!financialsData.income || financialsData.income.length === 0)) {
                     document.getElementById('dataContainer').innerHTML = '<div class="error">' + financialsData.error + '</div>';
                     return;
+                }
+                // SEC path failed but fallback data exists (ADR / foreign issuer)
+                const isFallback = (financialsData.source || '').indexOf('Fallback') !== -1;
+                const banner = document.getElementById('fallbackBanner');
+                if (isFallback) {
+                    banner.style.display = 'block';
+                    banner.textContent = financialsData.error
+                        ? ('⚠️ ' + financialsData.error + ' — showing ' + financialsData.source + ' data.')
+                        : 'ℹ️ SEC XBRL unavailable for this issuer — showing Yahoo Finance data (delayed). Values converted to USD.';
+                } else {
+                    banner.style.display = 'none';
                 }
                 
                 document.getElementById('qtSource').textContent = 'Source: ' + (financialsData.source || 'SEC EDGAR');
@@ -279,6 +293,12 @@
             return '$' + n.toFixed(2);
         }
         
+        function adrRatio() {
+            // Per-share table figures are scaled to per-ADR for foreign
+            // listings (statements are per ordinary share; the quote is per ADR).
+            return (financialsData && financialsData.metrics && financialsData.metrics.adr_ratio) || 1;
+        }
+        
         function getColor(val) {
             if (val === null || val === undefined || isNaN(val)) return '';
             return val >= 0 ? 'positive' : 'negative';
@@ -320,7 +340,7 @@
                     html += '<td class="num negative">' + fmtNum(row.provision_for_tax) + '</td>';
                     html += '<td class="num ' + getColor(row.net_income) + '">' + fmtNum(row.net_income) + '</td>';
                     html += '<td class="num">' + (row.net_margin_pct || '-') + '%</td>';
-                    html += '<td class="num">' + fmtEPS(row.eps_diluted) + '</td>';
+                    html += '<td class="num">' + fmtEPS(row.eps_diluted * (adrRatio())) + '</td>';
                     html += '<td class="num">' + fmtShares(row.diluted_shares) + '</td>';
                     html += '<td class="num">' + fmtNum(row.stock_comp) + '</td>';
                 } else if (currentTab === 'balance') {

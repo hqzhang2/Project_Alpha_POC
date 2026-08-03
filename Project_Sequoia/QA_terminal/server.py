@@ -614,18 +614,40 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json({'status': 'removed'})
         
         import sec_financials
-        ticker = qs.get('ticker', ['SPY'])[0]
+        ticker = (qs.get('ticker', ['SPY'])[0] or '').strip().upper()
         periods = int(qs.get('periods', [8])[0])
         period_type = qs.get('type', ['Q'])[0]
         data = sec_financials.fetch_financials(ticker, periods, period_type)
-        # Fallback to yahoo if sec returns nothing (e.g., for ADRs like BHP, RIO)
+
+        # SEC path empty (ADR / foreign issuer, or XBRL gap) -> Yahoo fallback.
+        # Build a FRESH payload: the old code mutated the SEC dict in place,
+        # leaving `error` set, so the UI hard-errored despite having data.
         if not data.get('income'):
             import yahoo_financials
-            y_data = yahoo_financials.get_financials(ticker, periods)
-            data['source'] = 'Yahoo Finance (ADR/Fallback)'
-            data['income'] = y_data.get('income', [])
-            data['balance'] = y_data.get('balance', [])
-            data['cashflow'] = y_data.get('cashflow', [])
+            import fundamentals
+            y = yahoo_financials.get_financials(ticker, periods, period_type)
+            if y.get('income'):
+                metrics = fundamentals.calculate_graham_metrics(
+                    y['income'], y['balance'], y['cashflow'],
+                    y.get('info') or {}, ticker)
+                data = {
+                    'ticker': ticker,
+                    'source': 'Yahoo Finance (ADR/Fallback)',
+                    'income': y['income'],
+                    'balance': y['balance'],
+                    'cashflow': y['cashflow'],
+                    'metrics': metrics,
+                    'info': y.get('info') or {},
+                }
+            else:
+                data = {
+                    'ticker': ticker,
+                    'error': data.get('error') or
+                             f'No financial data available for {ticker}',
+                    'source': 'SEC EDGAR (XBRL)',
+                    'income': [], 'balance': [], 'cashflow': [],
+                    'metrics': {},
+                }
         self.send_json(data)
     
     def get_ratio_data(self, t1, t2, tf, sma_period):
