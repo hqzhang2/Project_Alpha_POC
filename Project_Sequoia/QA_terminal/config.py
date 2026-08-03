@@ -60,9 +60,13 @@ SCREENER_WATCHLIST = [  # seed set (was terminal/watchlist.json; QA has no file,
     "AAPL", "TSLA", "MSFT", "GOOGL", "AMZN", "NVDA", "SPY", "QQQ", "GLD", "SMH", "XLE",
 ]
 SCREENER_LIQUID_POOL = [
+    # --- core 30 (2026-08-03): mega-cap tech, banks, energy, biotech, high-beta ---
     "META", "NFLX", "AVGO", "ORCL", "AMD", "INTC", "CRM", "ADBE", "QCOM", "MU",
     "T", "VZ", "BAC", "JPM", "XOM", "CVX", "LLY", "UNH", "JNJ", "PFE",
     "COIN", "MSTR", "TSM", "BABA", "PLTR", "SOFI", "UBER", "ABNB", "NIO", "MRVL",
+    # --- +20 (2026-08-03, load-checked 9.6s / 60 names / +29MB / 437KB = pass) ---
+    "DELL", "SMCI", "ARM", "CRWD", "SNOW", "PANW", "HOOD", "SHOP", "PYPL",
+    "V", "MA", "GS", "MS", "C", "WFC", "WMT", "KO", "ABBV", "MRK", "BA",
 ]
 SCREENER_MAX_EXPIRIES = 4          # next 4 expiries per ticker (~0-90 DTE)
 SCREENER_MAX_WORKERS = 8           # thread pool for chain fetches
@@ -71,8 +75,7 @@ SCREENER_MIN_DTE = 2               # contracts with dte <= this are damped x0.3
 SCREENER_INDEX_TICKERS = {"SPY", "QQQ", "IWM", "DIA"}
 SCREENER_EARNINGS_WINDOW_DAYS = 14
 SCREENER_EARNINGS_CACHE_TTL = 86400  # 24h earnings cache
-SCREENER_MAX_UNIVERSE = 40         # START at 40 (Hong, 2026-08-03: gauge system load first);
-                                   # raise to the 60 hard cap only after the Task-4 load check passes
+SCREENER_MAX_UNIVERSE = 60         # 40->60 (Hong, 2026-08-03: load check 9.6s/+29MB/437KB = pass)
 SCREENER_EARNINGS_MIN_MCAP = 1e11  # auto-added earnings names must be > $100B market cap
 SCORE_WEIGHTS = {                  # composite score weights (sum = 1.0)
     "vol_oi_z": 0.30, "notional_z": 0.25, "moneyness": 0.20,
