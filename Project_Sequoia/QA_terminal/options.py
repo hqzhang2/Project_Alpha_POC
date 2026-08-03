@@ -174,13 +174,28 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 # Clean NaN
                 row = {k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v) for k, v in row.items()}
                 
-                # Calculate Greeks - use provided IV or calculate from price
-                sigma = row.get('iv', 0)
+                # Calculate Greeks. IV is ALWAYS derived from market price (mid or
+                # last) - yfinance's raw impliedVolatility field is a quantized
+                # placeholder (e.g. 1/16 = 6.25%) for OTM options with no bid/ask,
+                # NOT a real IV. Trusting it displayed 6.3% where true IV was ~32%.
+                bid, ask, last = row.get('bid'), row.get('ask'), row.get('last')
+                if bid and ask and bid > 0 and ask > 0:
+                    price = (bid + ask) / 2.0      # prefer mid when quoted
+                elif last and last > 0:
+                    price = last                    # else last trade
+                else:
+                    price = None                    # no market price at all
+                
+                sigma = None
+                if price and spot and row.get('strike'):
+                    sigma = calculate_implied_volatility(price, spot, row['strike'], T, r, opt_type)
                 if not sigma or sigma < 0.01:
-                    # Calculate IV from option price (use 'last' after rename)
-                    price = row.get('last') or row.get('bid') or row.get('ask')
-                    if price and price > 0:
-                        sigma = calculate_implied_volatility(price, spot, row['strike'], T, r, opt_type)
+                    # No usable market price -> fall back to yahoo's field, but
+                    # only if it looks like a real IV. Yahoo's placeholders for
+                    # untraded options are quantized <= 6.25%; real equity IVs
+                    # are >= ~10%. Leave None otherwise (page shows '-').
+                    y_iv = row.get('iv', 0)
+                    sigma = y_iv if (y_iv and 0.10 <= y_iv <= 1.5) else None
                 
                 if sigma and sigma > 0.01 and spot and row.get('strike'):
                     try:
