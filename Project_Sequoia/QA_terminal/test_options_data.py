@@ -130,4 +130,23 @@ def test_provider_status_shape():
     st = options_data.provider_status()
     assert st["yfinance"] is True
     assert st["moomoo"] is False  # stub not implemented yet
-    assert set(st) == {"yfinance", "moomoo"}
+    assert set(st) == {"yfinance", "moomoo", "polygon"}
+
+
+def test_get_provider_polygon_requires_key(monkeypatch):
+    import options_data
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    options_data._PROVIDER = None
+    try:
+        options_data.get_provider("polygon")
+        assert False, "expected ProviderUnavailableError"
+    except options_data.ProviderUnavailableError as e:
+        assert "polygon" in str(e) and "POLYGON_API_KEY" in str(e)
+
+
+def test_provider_status_polygon_key_gated(monkeypatch):
+    import options_data
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    assert options_data.provider_status()["polygon"] is False
+    monkeypatch.setenv("POLYGON_API_KEY", "test-key")
+    assert options_data.provider_status()["polygon"] is True

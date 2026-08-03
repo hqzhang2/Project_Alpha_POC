@@ -119,6 +119,7 @@ class FakeProvider:
 @pytest.fixture(autouse=True)
 def _reset_caches(monkeypatch):
     osmod._scan_cache = {}
+    osmod._scan_inflight = {}
     osmod._universe_cache["names"] = None
     osmod._universe_cache["ts"] = 0.0
     osmod._earnings_cache["data"] = {}
@@ -129,6 +130,7 @@ def _reset_caches(monkeypatch):
     monkeypatch.setattr(options_data, "_PROVIDER", FakeProvider())
     yield
     osmod._scan_cache = {}
+    osmod._scan_inflight = {}
     osmod._universe_cache["names"] = None
     osmod._universe_cache["ts"] = 0.0
 
@@ -246,3 +248,77 @@ def test_scan_universe_provider_unavailable(monkeypatch):
 def test_routes_declared():
     assert osmod.ROUTES["/api/screen/v2"] == "handle_screen_v2"
     assert osmod.ROUTES["/api/screen/ticker"] == "handle_screen_ticker"
+    assert osmod.ROUTES["/api/screen/status"] == "handle_screen_status"
+
+
+# ---------------------------------------------------------------------------
+# polygon provider: mapping + async scan state machine
+# ---------------------------------------------------------------------------
+def _fake_snapshot():
+    return {"results": [
+        {"details": {"contract_type": "call", "expiration_date": "2026-08-21", "strike_price": 150.0,
+                     "shares_per_contract": 100},
+         "day": {"volume": 1200, "close": 2.5}, "open_interest": 350,
+         "last_quote": {"bid": 2.4, "ask": 2.6}, "implied_volatility": 0.31,
+         "underlying_asset": {"price": 148.0}},
+        {"details": {"contract_type": "put", "expiration_date": "2026-08-21", "strike_price": 140.0},
+         "day": {"volume": 300, "close": 1.1}, "open_interest": 80,
+         "last_quote": {"bid": 1.0, "ask": 1.2}, "implied_volatility": 0.34},
+    ]}
+
+
+def test_polygon_records_mapping(monkeypatch):
+    import options_data_polygon as odp
+    calls, puts, spot = odp._records(_fake_snapshot(), "2026-08-21")
+    assert len(calls) == 1 and len(puts) == 1
+    c = calls[0]
+    assert c["strike"] == 150.0 and c["vol"] == 1200 and c["oi"] == 350
+    assert c["bid"] == 2.4 and c["ask"] == 2.6 and c["iv"] == 0.31
+    assert spot == 148.0
+
+
+def test_polygon_get_chain_from_snapshot(monkeypatch):
+    import options_data_polygon as odp
+    monkeypatch.setattr(odp, "_snapshot", lambda t: _fake_snapshot())
+    prov = odp.PolygonProvider()
+    chain = prov.get_chain("SPY", "2026-08-21")
+    assert chain["expiry"] == "2026-08-21" and chain["spot"] == 148.0
+    assert len(chain["calls"]) == 1 and len(chain["puts"]) == 1
+    # expiry filtering: other expiries -> empty chains, no crash
+    other = prov.get_chain("SPY", "2026-09-18")
+    assert other["calls"] == [] and other["puts"] == []
+
+
+def test_polygon_rate_limited_spacing():
+    import time
+    from options_data_polygon import RateLimited
+    rl = RateLimited(600)  # 0.1s interval
+    t0 = time.time()
+    rl.wait()
+    rl.wait()
+    assert time.time() - t0 >= 0.1
+
+
+class SlowProvider(FakeProvider):
+    name = "slow"
+    ASYNC_SCAN = True
+
+
+def test_async_scan_poll_flow(monkeypatch):
+    import time
+    import options_data
+    monkeypatch.setattr(options_data, "get_provider", lambda name=None: SlowProvider())
+    r1 = osmod.scan_universe(provider="slow")
+    assert r1["status"] == "scanning" and r1["progress"]["total"] >= 1
+    s = None
+    for _ in range(100):
+        s = osmod.scan_status(provider="slow")
+        if s.get("cached_at"):
+            break
+        time.sleep(0.05)
+    assert s and s.get("cached_at"), "async scan never completed"
+    assert s["count"] >= 1 and s["provider"] == "slow"
+    assert "slow" not in osmod._scan_inflight
+    # subsequent scan_universe serves cache (not a new async job)
+    r2 = osmod.scan_universe(provider="slow")
+    assert r2.get("cached_at") == s["cached_at"]

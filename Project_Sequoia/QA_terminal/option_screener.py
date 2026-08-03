@@ -13,8 +13,9 @@ import datetime
 import json
 import math
 import os
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import config
 
@@ -22,6 +23,7 @@ import config
 # caches (module-level; server lifetime)
 # ---------------------------------------------------------------------------
 _scan_cache = {}                    # provider name -> {"data": ..., "ts": ...} (per-provider)
+_scan_inflight = {}                 # provider name -> {"thread", "total", "done"} (async scans)
 _universe_cache = {"names": None, "ts": 0.0}
 _earnings_cache = {"data": {}, "ts": 0.0}
 
@@ -287,28 +289,94 @@ def _provider_error(provider, msg):
             "cached_at": None, "count": 0, "tickers": []}
 
 
+def _cache_ttl(name):
+    """Per-provider cache TTL: {NAME}_CACHE_TTL config, else the screener default."""
+    return getattr(config, f"{name.upper()}_CACHE_TTL", None) or config.SCREENER_CACHE_TTL
+
+
+def _scan_all(prov, uni, progress=None):
+    """Shared scan body (sync path + async worker). progress: {total, done} updated per ticker."""
+    with ThreadPoolExecutor(max_workers=config.SCREENER_MAX_WORKERS) as ex:
+        futures = {ex.submit(_scan_ticker, prov, t): t for t in uni}
+        tickers = []
+        for fut in as_completed(futures):
+            try:
+                r = fut.result()
+            except Exception:
+                r = None
+            if r:
+                tickers.append(r)
+            if progress is not None:
+                progress["done"] += 1
+    tickers.sort(key=lambda t: (t["max_score"] or 0), reverse=True)
+    return {"cached_at": time.strftime("%H:%M:%S"), "provider": prov.name,
+            "providers": __import__("options_data").provider_status(),
+            "count": len(tickers), "tickers": tickers}
+
+
+def _scanning_payload(name, inflight):
+    return {"status": "scanning", "provider": name,
+            "progress": {"done": inflight["done"], "total": inflight["total"]},
+            "providers": __import__("options_data").provider_status(),
+            "cached_at": None, "count": 0, "tickers": []}
+
+
+def _scan_worker(prov, uni, inflight):
+    try:
+        result = _scan_all(prov, uni, progress=inflight)
+        _scan_cache[prov.name] = {"data": result, "ts": time.time()}
+    except Exception:
+        _scan_cache[prov.name] = {"data": None, "ts": 0.0}
+    finally:
+        _scan_inflight.pop(prov.name, None)
+
+
 def scan_universe(force=False, provider=None):
-    """Cached universe scan: {cached_at, provider, count, tickers:[...]}. Thread-pooled.
-    Cache is keyed BY PROVIDER so toggling feeds never serves cross-provider data.
-    Provider unavailable -> graceful {error, available:False} payload (no 500)."""
+    """Universe scan. Fast providers (yfinance) run synchronously; rate-limited
+    providers (polygon ASYNC_SCAN) run in a background thread and return a
+    {status:'scanning', progress} payload - the UI polls scan_status().
+    Cache keyed BY PROVIDER; graceful {error, available:false} on unavailable."""
     try:
         prov = __import__("options_data").get_provider(provider)
     except Exception as e:
         return _provider_error(provider or getattr(__import__("config"), "OPTION_DATA_PROVIDER", "yfinance"), str(e))
     name = prov.name
     slot = _scan_cache.setdefault(name, {"data": None, "ts": 0.0})
-    if not force and slot["data"] and time.time() - slot["ts"] < config.SCREENER_CACHE_TTL:
+    if not force and slot["data"] and time.time() - slot["ts"] < _cache_ttl(name):
         return slot["data"]
+    inflight = _scan_inflight.get(name)
+    if inflight and inflight["thread"].is_alive():
+        return _scanning_payload(name, inflight)
     uni, _ = _universe(prov)
-    with ThreadPoolExecutor(max_workers=config.SCREENER_MAX_WORKERS) as ex:
-        tickers = [t for t in ex.map(lambda t: _scan_ticker(prov, t), uni) if t]
-    tickers.sort(key=lambda t: (t["max_score"] or 0), reverse=True)
-    result = {"cached_at": time.strftime("%H:%M:%S"), "provider": name,
-              "providers": __import__("options_data").provider_status(),
-              "count": len(tickers), "tickers": tickers}
+    if getattr(prov, "ASYNC_SCAN", False):
+        inflight = {"thread": None, "total": len(uni), "done": 0}
+        t = threading.Thread(target=_scan_worker, args=(prov, uni, inflight), daemon=True)
+        inflight["thread"] = t
+        _scan_inflight[name] = inflight
+        t.start()
+        return _scanning_payload(name, inflight)
+    result = _scan_all(prov, uni)
     slot["data"] = result
     slot["ts"] = time.time()
     return result
+
+
+def scan_status(provider=None):
+    """UI poll target for async scans: cached result, in-flight progress, or idle."""
+    try:
+        prov = __import__("options_data").get_provider(provider)
+    except Exception as e:
+        return _provider_error(provider or getattr(__import__("config"), "OPTION_DATA_PROVIDER", "yfinance"), str(e))
+    name = prov.name
+    slot = _scan_cache.get(name) or {"data": None, "ts": 0.0}
+    if slot["data"]:
+        return slot["data"]
+    inflight = _scan_inflight.get(name)
+    if inflight and inflight["thread"].is_alive():
+        return _scanning_payload(name, inflight)
+    return {"status": "idle", "provider": name, "progress": None,
+            "providers": __import__("options_data").provider_status(),
+            "cached_at": None, "count": 0, "tickers": []}
 
 
 def scan_ticker(ticker, force=False, provider=None):
@@ -326,4 +394,5 @@ def scan_ticker(ticker, force=False, provider=None):
 ROUTES = {
     '/api/screen/v2': 'handle_screen_v2',
     '/api/screen/ticker': 'handle_screen_ticker',
+    '/api/screen/status': 'handle_screen_status',
 }

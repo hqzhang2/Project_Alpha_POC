@@ -8,6 +8,7 @@ shape ({ticker, expiry, spot, calls: [records], puts: [records], ...}) so all
 Greek/parity/IV math in options.py is reused untouched.
 """
 import datetime as _dt
+import os
 from typing import Optional
 
 import config
@@ -89,6 +90,9 @@ def _provider_class(name):
     if name == "moomoo":
         from options_data_moomoo import MoomooProvider
         return MoomooProvider
+    if name == "polygon":
+        from options_data_polygon import PolygonProvider
+        return PolygonProvider
     raise ProviderUnavailableError(f"unknown data provider '{name}'")
 
 
@@ -102,6 +106,10 @@ def get_provider(name=None):
         if getattr(cls, "IMPLEMENTED", True) is not True:
             raise ProviderUnavailableError(
                 f"provider '{name}' unavailable: {getattr(cls, 'UNAVAILABLE_REASON', 'not implemented')}")
+        key_env = getattr(cls, "API_KEY_ENV", None)
+        if key_env and not os.environ.get(key_env):
+            raise ProviderUnavailableError(
+                f"provider '{name}' unavailable: {getattr(cls, 'UNAVAILABLE_REASON', 'API key not set')}")
         _PROVIDER = cls()
     return _PROVIDER
 
@@ -117,12 +125,17 @@ def set_provider(name):
 
 
 def provider_status():
-    """{name: usable} for the UI toggle. 'moomoo' reflects the mapping stub state,
-    not the OpenD gateway (that check happens when the real provider lands)."""
+    """{name: usable} for the UI toggle. moomoo reflects the mapping stub state;
+    polygon reflects API-key configuration (env var present)."""
     status = {"yfinance": True}
-    try:
-        cls = _provider_class("moomoo")
-        status["moomoo"] = getattr(cls, "IMPLEMENTED", True) is True
-    except Exception:
-        status["moomoo"] = False
+    for name in ("moomoo", "polygon"):
+        try:
+            cls = _provider_class(name)
+            ok = getattr(cls, "IMPLEMENTED", True) is True
+            if ok and name == "polygon":
+                import os as _os
+                ok = bool(_os.environ.get(getattr(cls, "API_KEY_ENV", "POLYGON_API_KEY")))
+            status[name] = ok
+        except Exception:
+            status[name] = False
     return status

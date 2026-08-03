@@ -477,6 +477,12 @@ class Handler(SimpleHTTPRequestHandler):
         provider = qs.get('provider', [None])[0] or None
         self.send_json(option_screener.scan_ticker(ticker, provider=provider))
 
+    def handle_screen_status(self, qs):
+        """Poll target for async (rate-limited) universe scans."""
+        import option_screener
+        provider = qs.get('provider', [None])[0] or None
+        self.send_json(option_screener.scan_status(provider=provider))
+
     def handle_expirations(self, qs):
         import options
         ticker = qs.get('ticker', ['SPY'])[0]

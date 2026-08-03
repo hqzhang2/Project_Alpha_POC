@@ -90,3 +90,10 @@ OI_BUILD_WINDOWS = (1, 5, 20)      # build-% horizons (trading-ish days, calenda
 OI_DIVERGENCE_BUILD = 0.15         # oi_build_5d >= +15% ...
 OI_DIVERGENCE_SPOT = 0.01          # ... while |spot change| <= 1% -> accumulation tell
 OI_MIN_HISTORY_DAYS = 3            # signals only after this many stored days
+
+# --- Option Screener v2.4 — Polygon.io provider (free tier, delayed) ---
+POLYGON_API_KEY_ENV = "POLYGON_API_KEY"   # env-only; no key in source (news.py rule)
+POLYGON_BASE = "https://api.polygon.io"
+POLYGON_RATE_PER_MIN = 5          # free tier = 5 req/min; Starter+ = higher
+POLYGON_CHAIN_TTL = 60            # seconds; per-underlying snapshot cache (scan reuses it)
+POLYGON_CACHE_TTL = 1800          # seconds; universe scan cache on polygon (slow scans -> long TTL)
