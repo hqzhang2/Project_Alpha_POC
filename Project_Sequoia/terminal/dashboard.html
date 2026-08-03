@@ -224,7 +224,10 @@
             <a href="screener.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
             <a href="ratio.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
             <a href="financials.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
-            <a href="estimates.html">Earnings Estimates</a>
+            <a href="estimates.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Earnings Estimates</a>
+            <a href="year_highs.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">52-Week Highs</a>
+            <a href="year_lows.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">52-Week Lows</a>
+            <a href="news.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">News</a>
         </div>
     </div>
     
@@ -312,11 +315,12 @@
                     </label>
                 </div>
                 <canvas id="chart"></canvas>
-            </div>
-        </div>
-    </div>
-    
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                </div>
+                </div>
+                </div>
+
+
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         let quotes = {};
         let watchlist = [];
@@ -673,6 +677,7 @@
             fetchQuotes();
         };
         setInterval(fetchQuotes, 5000); // Live-ish update every 5 seconds
+
     </script>
 </body>
 </html>

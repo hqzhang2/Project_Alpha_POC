@@ -303,6 +303,7 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/estimates': 'handle_estimates',
         '/api/ratio': 'handle_ratio',
         '/api/health': 'handle_health',
+        '/health': 'handle_health',  # deploy_prod.sh checks /health on all services
     }
 
     # Prefix-based routes (for nested APIs like /api/sec/financials)
@@ -315,7 +316,7 @@ class Handler(SimpleHTTPRequestHandler):
         path, qs = parsed.path, parse_qs(parsed.query)
         
         # Route API calls
-        if path.startswith('/api/'):
+        if path.startswith('/api/') or path == '/health':
             # Check module routes first (R2)
             handler_name = self.MODULE_ROUTES.get(path)
             if handler_name and hasattr(self, handler_name):
@@ -476,6 +477,12 @@ class Handler(SimpleHTTPRequestHandler):
         ticker = qs.get('ticker', ['SPY'])[0].upper()
         provider = qs.get('provider', [None])[0] or None
         self.send_json(option_screener.scan_ticker(ticker, provider=provider))
+
+    def handle_screen_status(self, qs):
+        """Poll target for async (rate-limited) universe scans."""
+        import option_screener
+        provider = qs.get('provider', [None])[0] or None
+        self.send_json(option_screener.scan_status(provider=provider))
 
     def handle_expirations(self, qs):
         import options
