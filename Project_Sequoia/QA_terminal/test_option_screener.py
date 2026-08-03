@@ -1,0 +1,248 @@
+"""
+Hermetic tests for option_screener.py (features, score, scan). No live network —
+the provider is faked via options_data.get_provider monkeypatch.
+"""
+import sys
+import pytest
+
+import config
+import option_screener as osmod
+
+
+# ---------------------------------------------------------------------------
+# pure features
+# ---------------------------------------------------------------------------
+def test_zscore_guard():
+    assert osmod._zscore([5, 5, 5]) == [0.0, 0.0, 0.0]
+    assert osmod._zscore([1]) == [0.0]
+    z = osmod._zscore([1, 2, 3, 4, 5])
+    assert abs(sum(z)) < 1e-9
+    assert abs(max(z)) > 1.0
+
+
+def test_moneyness_mult():
+    assert osmod.moneyness_mult(110, 100, "Call") == 1.6      # 10% OTM (>=0.10 bucket)
+    assert osmod.moneyness_mult(108, 100, "Call") == 1.3      # 8% OTM (>=0.05 bucket)
+    assert osmod.moneyness_mult(90, 100, "Put") == 1.6        # 10% OTM put
+    assert osmod.moneyness_mult(95, 100, "Call") == 1.0       # ITM call
+    assert osmod.moneyness_mult(75, 100, "Put") == 2.0        # >20% OTM put (K<spot for puts!)
+    assert osmod.moneyness_mult(104, 100, "Call") == 1.0      # 4% OTM -> bucket 0-5
+    assert osmod.moneyness_mult(None, 100, "Call") == 1.0
+    assert osmod.moneyness_mult(100, None, "Call") == 1.0
+
+
+def test_dte_of():
+    assert osmod.dte_of("1999-01-01") < 0
+    assert osmod.dte_of("garbage") == 999
+
+
+def test_catalyst_bonus():
+    assert osmod.catalyst_bonus(None) == 0.0
+    assert osmod.catalyst_bonus(3) == 1.0
+    assert osmod.catalyst_bonus(10) == 0.5
+    assert osmod.catalyst_bonus(20) == 0.0
+
+
+def test_iv_cheap_flag():
+    assert osmod.iv_cheap_flag({"iv": 0.2}, [0.3, 0.4, 0.5]) == 1.0
+    assert osmod.iv_cheap_flag({"iv": 0.6}, [0.3, 0.4, 0.5]) == 0.0
+    assert osmod.iv_cheap_flag({"iv": None}, [0.3]) == 0.0
+    assert osmod.iv_cheap_flag({"iv": 0.3}, []) == 0.0
+
+
+def test_score_and_tier():
+    r = {"vol_oi_z": 4.0, "notional_z": 4.0, "moneyness_mult": 2.0,
+         "iv_cheap": 1.0, "catalyst_bonus": 1.0, "dte": 10}
+    # 0.3*4 + 0.25*4 + 0.2*1.0 + 0.15*1 + 0.10*1 = 2.65
+    s = osmod.score_contract(r)
+    assert s == 2.65
+    assert s > config.SCORE_TIER_HIGH
+    assert osmod.tier_of(s) == "HIGH"
+    r2 = dict(r, dte=1)
+    # float-noise tolerance: 2.65 * 0.3 = 0.795 (rounds 0.79 or 0.80 depending on repr)
+    assert abs(osmod.score_contract(r2) - 2.65 * 0.3) <= 0.006   # 0DTE dampening
+    assert osmod.tier_of(0.5) == "LOW"
+    assert osmod.tier_of(config.SCORE_TIER_MED) == "MED"
+
+
+def test_enrich_adds_features():
+    from datetime import date, timedelta
+    earnings = (date.today() + timedelta(days=3)).isoformat()  # within 7d -> bonus 1.0
+    recs = [{"expiry": "2099-01-01", "strike": 110.0, "type": "Call",
+             "vol": 1000, "oi": 100, "bid": 1.0, "ask": 1.2, "last": 1.0, "iv": 0.3}]
+    out = osmod.enrich_ticker_contracts(recs, 100.0, earnings)
+    r = out[0]
+    assert r["notional"] == 110000          # 1000 x 1.10 mid x 100
+    assert r["vol_oi"] == 10.0
+    assert r["moneyness_mult"] == 1.6       # 10% OTM -> >=0.10 bucket
+    assert r["otm_pct"] == 10.0             # actual OTM % (not the multiplier!)
+    assert r["dte"] > 0
+    assert r["catalyst_bonus"] == 1.0       # earnings 3 days out
+    assert "score" in r and r["tier"] in ("HIGH", "MED", "LOW")
+
+
+def test_enrich_zero_oi_no_crash():
+    recs = [{"expiry": "2099-01-01", "strike": 100.0, "type": "Put",
+             "vol": 500, "oi": 0, "bid": 0, "ask": 0, "last": 2.0, "iv": None}]
+    out = osmod.enrich_ticker_contracts(recs, 100.0, None)
+    assert out[0]["vol_oi"] == 500.0        # oi=0 -> max(0,1) guard
+    assert out[0]["catalyst_bonus"] == 0.0
+    assert "score" in out[0]
+
+
+# ---------------------------------------------------------------------------
+# scan integration (fake provider, hermetic)
+# ---------------------------------------------------------------------------
+class FakeProvider:
+    name = "yfinance"  # singleton-swap logic in options_data matches on .name
+
+    def get_expirations(self, ticker):
+        return ["2099-01-01"]
+
+    def get_chain(self, ticker, expiry=None):
+        # call K=110 + put K=75 are OTM and must survive; call K=90 is ITM with the
+        # HIGHEST notional ($612.5K vs $110K) and must be EXCLUDED by the OTM filter.
+        return {
+            "ticker": ticker, "expiry": expiry, "spot": 100.0,
+            "calls": [{"strike": 110.0, "vol": 1000, "oi": 100, "bid": 1.0,
+                       "ask": 1.2, "last": 1.0, "iv": 0.3},
+                      {"strike": 90.0, "vol": 500, "oi": 50, "bid": 12.0,
+                       "ask": 12.5, "last": 12.0, "iv": 0.5}],
+            "puts": [{"strike": 75.0, "vol": 500, "oi": 50, "bid": 0.5,
+                      "ask": 0.6, "last": 0.5, "iv": 0.2}],
+        }
+
+    def get_next_earnings(self, ticker):
+        return "2099-01-10" if ticker == "FAKE" else None
+
+
+@pytest.fixture(autouse=True)
+def _reset_caches(monkeypatch):
+    osmod._scan_cache = {}
+    osmod._universe_cache["names"] = None
+    osmod._universe_cache["ts"] = 0.0
+    osmod._earnings_cache["data"] = {}
+    osmod._earnings_cache["ts"] = 0.0
+    # fake provider at the seam option_screener actually uses
+    import options_data
+    options_data._PROVIDER = FakeProvider()
+    monkeypatch.setattr(options_data, "_PROVIDER", FakeProvider())
+    yield
+    osmod._scan_cache = {}
+    osmod._universe_cache["names"] = None
+    osmod._universe_cache["ts"] = 0.0
+
+
+def test_score_uses_oi_weights_when_build_present():
+    r = {"vol_oi_z": 4.0, "notional_z": 4.0, "moneyness_mult": 2.0, "iv_cheap": 1.0,
+         "catalyst_bonus": 1.0, "oi_build_z": 2.0, "dte": 10}
+    # OI weights: 0.20*4 + 0.25*4 + 0.20*1.0 + 0.15*1 + 0.10*1 + 0.10*2 = 2.45
+    assert osmod.score_contract(r) == pytest.approx(2.45)
+    # same record WITHOUT oi_build_z uses base weights: 0.30*4+0.25*4+0.20+0.15+0.10 = 2.65
+    r2 = dict(r)
+    del r2["oi_build_z"]
+    assert osmod.score_contract(r2) == pytest.approx(2.65)
+
+
+def test_attach_oi_signals(monkeypatch):
+    import option_oi_store
+    hist = {("2099-01-01", 110.0, "Call"): [("2099-08-01", 100, 10), ("2099-08-02", 110, 20),
+                                            ("2099-08-03", 130, 30)]}
+    spots = [("2099-08-01", 100.0), ("2099-08-02", 100.0), ("2099-08-03", 100.0)]
+    monkeypatch.setattr(option_oi_store, "load_ticker_history", lambda t: (hist, spots))
+    recs = [{"expiry": "2099-01-01", "strike": 110.0, "type": "Call"}]
+    osmod._attach_oi_signals("X", recs)
+    r = recs[0]
+    assert r.get("oi_build_5d") == pytest.approx(0.30)   # 100 -> 130
+    assert r.get("vol_pctile") is not None
+    assert r.get("divergence") is True                   # OI up, spot flat
+    assert r.get("oi_build_z") == 0.0                    # single contract -> z guard
+
+
+def test_attach_oi_signals_fail_open_without_store(monkeypatch):
+    import option_oi_store
+    monkeypatch.setattr(option_oi_store, "load_ticker_history",
+                        lambda t: (_ for _ in ()).throw(ImportError("no store")))
+    recs = [{"expiry": "2099-01-01", "strike": 110.0, "type": "Call"}]
+    osmod._attach_oi_signals("X", recs)                  # must not raise
+    assert "oi_build_5d" not in recs[0]
+
+
+def test_scan_ticker_with_oi_signals(monkeypatch):
+    import option_oi_store
+    hist = {("2099-01-01", 110.0, "Call"): [("2099-08-01", 100, 10), ("2099-08-02", 110, 20),
+                                            ("2099-08-03", 130, 30)],
+            ("2099-01-01", 75.0, "Put"): [("2099-08-01", 100, 10), ("2099-08-02", 110, 20),
+                                          ("2099-08-03", 120, 25)]}
+    spots = [("2099-08-01", 100.0), ("2099-08-02", 100.0), ("2099-08-03", 100.0)]
+    monkeypatch.setattr(option_oi_store, "load_ticker_history", lambda t: (hist, spots))
+    res = osmod.scan_ticker("FAKE")
+    assert res and res["contracts"]
+    c = res["contracts"][0]
+    assert c.get("oi_build_5d") is not None
+    assert "oi_build_z" in c and c["oi_build_z"] is not None
+
+
+def test_scan_ticker_integration():
+    res = osmod.scan_ticker("FAKE")
+    assert res is not None
+    assert res["ticker"] == "FAKE"
+    assert res["spot"] == 100.0
+    assert res["total_premium"] > 0
+    assert res["pc_ratio"] > 0
+    # 3-contract cross-section incl. an ITM call K=90: z-scores are +/-1, so at
+    # least one OTM contract must score > 0 (top survives the score>0 filter)
+    assert len(res["contracts"]) >= 1
+    # ITM filter: every surfaced contract must be OTM, and the highest-notional
+    # ITM call (K=90, $612.5K) must NOT appear
+    assert all(c.get("otm_pct", 0) > 0 for c in res["contracts"]), "ITM contract leaked into scored set"
+    assert all(c["strike"] != 90.0 for c in res["contracts"]), "ITM K=90 should be excluded"
+    c = res["contracts"][0]
+    for k in ("expiry", "strike", "type", "vol", "oi", "notional", "dte", "score", "tier"):
+        assert k in c
+    assert res["catalyst"] == "2099-01-10"
+
+
+def test_scan_universe_cached_and_force():
+    r1 = osmod.scan_universe()
+    assert r1["count"] >= 1
+    assert isinstance(r1["cached_at"], str)
+    assert r1["provider"] == "yfinance"
+    # second call served from cache (same object)
+    r2 = osmod.scan_universe()
+    assert r2["cached_at"] == r1["cached_at"]
+    # force rebuilds
+    r3 = osmod.scan_universe(force=True)
+    assert r3["count"] == r1["count"]
+
+
+class FakeProviderMoomoo(FakeProvider):
+    name = "moomoo"
+
+
+def test_scan_cache_keyed_by_provider(monkeypatch):
+    import options_data
+    def fake_get(name=None):
+        return FakeProviderMoomoo() if (name or "yfinance") == "moomoo" else FakeProvider()
+    monkeypatch.setattr(options_data, "get_provider", fake_get)
+    a = osmod.scan_universe(provider="yfinance")
+    b = osmod.scan_universe(provider="moomoo")
+    assert a["provider"] == "yfinance" and b["provider"] == "moomoo"
+    # separate cache slots (cached_at is 1s resolution -> compare slot objects)
+    assert osmod._scan_cache["yfinance"] is not osmod._scan_cache["moomoo"]
+    a2 = osmod.scan_universe(provider="yfinance")
+    assert a2["cached_at"] == a["cached_at"]          # yfinance slot still cached
+
+
+def test_scan_universe_provider_unavailable(monkeypatch):
+    import options_data
+    def boom(name=None):
+        raise options_data.ProviderUnavailableError("provider 'moomoo' unavailable: stub")
+    monkeypatch.setattr(options_data, "get_provider", boom)
+    res = osmod.scan_universe(provider="moomoo")
+    assert res["error"] and res["available"] is False and res["count"] == 0 and res["tickers"] == []
+
+
+def test_routes_declared():
+    assert osmod.ROUTES["/api/screen/v2"] == "handle_screen_v2"
+    assert osmod.ROUTES["/api/screen/ticker"] == "handle_screen_ticker"

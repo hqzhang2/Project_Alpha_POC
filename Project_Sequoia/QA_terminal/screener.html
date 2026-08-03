@@ -11,6 +11,7 @@
             background: #0d1117;
             color: #e6edf3;
             min-height: 100vh;
+            padding: 0;
         }
         .header {
             background: #161b22;
@@ -24,56 +25,67 @@
         .nav { display: flex; gap: 16px; }
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
-        
+
         .toolbar {
             background: #161b22;
             padding: 12px 24px;
             display: flex;
-            gap: 16px;
+            gap: 12px;
             align-items: center;
             border-bottom: 1px solid #30363d;
             flex-wrap: wrap;
         }
-        .filter-group { display: flex; align-items: center; gap: 8px; }
-        .filter-group label { font-size: 12px; color: #8b949e; text-transform: uppercase; }
-        
-        .search {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            color: #e6edf3;
-            padding: 8px 12px;
-            border-radius: 6px;
-            width: 100px;
-        }
+        .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
+        .toolbar .status { color: #8b949e; font-size: 13px; }
+        .toolbar .date-label { color: #8b949e; font-size: 13px; }
+
+        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #2ea043; }
+        .btn-secondary { background: #21262d; border: 1px solid #30363d; color: #e6edf3; }
+        .btn-secondary:hover { background: #30363d; }
+
         .filter-input {
             background: #0d1117;
             border: 1px solid #30363d;
             color: #e6edf3;
             padding: 6px 8px;
             border-radius: 4px;
-            width: 80px;
             font-size: 13px;
         }
-        
-        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
-        .btn:hover { background: #2ea043; }
-        .btn-secondary { background: #21262d; border: 1px solid #30363d; color: #e6edf3; }
-        .btn-secondary:hover { background: #30363d; }
-        
+
         .omain { padding: 24px; }
-        
-        .results-container { background: #161b22; border-radius: 8px; overflow: hidden; }
+        .count-bar { margin-bottom: 12px; font-size: 14px; color: #8b949e; }
+
+        .results-container { background: #161b22; border-radius: 8px; overflow: hidden; border: 1px solid #21262d; }
         .results-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .results-table th { padding: 12px 8px; background: #21262d; color: #8b949e; text-align: left; font-weight: 600; border-bottom: 1px solid #30363d; cursor: pointer; }
+        .results-table thead { position: sticky; top: 0; z-index: 1; }
+        .results-table th {
+            padding: 10px 8px; background: #161b22; color: #8b949e; text-align: left;
+            font-weight: 600; border-bottom: 1px solid #30363d; cursor: pointer;
+            user-select: none; text-transform: uppercase; font-size: 11px;
+        }
         .results-table th:hover { color: #e6edf3; }
-        .results-table td { padding: 10px 8px; border-bottom: 1px solid #21262d; }
-        .results-table tr:hover td { background: #21262d; }
-        
+        .results-table th .sort-arrow { display: inline-block; width: 12px; height: 12px; opacity: 0.4; vertical-align: middle; margin-left: 2px; }
+        .results-table th.active .sort-arrow { opacity: 1; }
+        .results-table th .sort-arrow.asc::before { content: "\25b2"; display: block; font-size: 8px; line-height: 1; color: currentColor; }
+        .results-table th .sort-arrow.desc::before { content: "\25bc"; display: block; font-size: 8px; line-height: 1; color: currentColor; }
+        .results-table thead .gradient-row td { padding: 0; height: 3px; background: linear-gradient(90deg, #3fb950, #58a6ff); border: none; }
+        .results-table td { padding: 9px 8px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+        .results-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+        .results-table tbody tr:hover td { background: #21262d; }
+        .results-table .ticker-cell { font-weight: 700; color: #e6edf3; cursor: pointer; }
+        .results-table .ticker-cell:hover { color: #58a6ff; text-decoration: underline; }
+
         .type-call { color: #3fb950; font-weight: 600; }
         .type-put { color: #f85149; font-weight: 600; }
-        
+        .tier-HIGH { color: #f85149; font-weight: 700; }
+        .tier-MED { color: #ffd166; font-weight: 600; }
+        .tier-LOW { color: #8b949e; }
+        .dim { opacity: 0.45; }
+
         .loading { padding: 40px; text-align: center; color: #8b949e; }
-        .count-bar { margin-bottom: 12px; font-size: 14px; color: #8b949e; }
+        .detail-head { padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #30363d; }
+        .detail-head h3 { font-size: 16px; }
     </style>
 </head>
 <body>
@@ -82,185 +94,268 @@
             <h1>🛠️ Alpha Terminal</h1>
             <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
         </div>
-        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
-            <a href="dashboard.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Dashboard</a>
-            <a href="omon.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">OMON</a>
-            <a href="screener.html" class="active" style="background: #21262d; color: #e6edf3; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Option Screener</a>
-            <a href="ratio.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Ratio Analysis</a>
-            <a href="financials.html" style="color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Financial Analyzer</a>
+        <div class="nav" id="header-container" style="display: flex; gap: 16px; margin-left: auto;">
+            <a href="dashboard.html">Dashboard</a>
+            <a href="omon.html">OMON</a>
+            <a href="screener.html" class="active" style="background: #21262d; color: #e6edf3;">Option Screener</a>
+            <a href="ratio.html">Ratio Analysis</a>
+            <a href="financials.html">Financial Analyzer</a>
             <a href="estimates.html">Earnings Estimates</a>
         </div>
     </div>
-    
+
     <div class="toolbar">
-        <div class="filter-group">
-            <label>Ticker</label>
-            <input type="text" class="search" id="ticker" placeholder="SPY" value="SPY">
-        </div>
-        
-        <div class="filter-group">
-            <label>Min Vol</label>
-            <input type="number" class="filter-input" id="minVol" value="100">
-        </div>
-        
-        <div class="filter-group">
-            <label>Min OI</label>
-            <input type="number" class="filter-input" id="minOI" value="0">
-        </div>
-
-        <div class="filter-group">
-            <label>Min IV%</label>
-            <input type="number" class="filter-input" id="minIV" value="0">
-        </div>
-
-        <div class="filter-group">
-            <label>Unusual (V>OI)</label>
-            <input type="checkbox" id="unusualOnly">
-        </div>
-        
+        <h2>🎯 Option Screener</h2>
+        <label class="date-label">Data</label>
+        <select id="providerSel" class="filter-input" onchange="switchProvider()" style="min-width: 130px;">
+            <option value="yfinance">Yahoo Finance</option>
+            <option value="moomoo">Moomoo</option>
+        </select>
         <button class="btn" onclick="runScan()">Scan Market</button>
+        <span class="status" id="status">Scanning universe...</span>
+        <span class="date-label" style="margin-left: auto;">Min DTE</span>
+        <input type="number" class="filter-input" id="minDte" value="2" style="width: 60px;" onchange="renderDetail()">
+        <label class="date-label" style="cursor: pointer;"><input type="checkbox" id="showLow" style="vertical-align: middle;" onchange="renderDetail()"> Show LOW</label>
     </div>
-    
+
     <div class="omain">
         <div class="count-bar" id="countBar">Results: 0</div>
-        <div class="results-container" id="resultsContainer">
-            <div class="loading">Enter ticker and click Scan to analyze first 8 expiries</div>
+
+        <div class="results-container" id="tickerPanel">
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th data-k="ticker" onclick="setSort('ticker')">Ticker<span class="sort-arrow"></span></th>
+                        <th data-k="spot" onclick="setSort('spot')">Spot<span class="sort-arrow"></span></th>
+                        <th data-k="max_score" onclick="setSort('max_score')">Score<span class="sort-arrow"></span></th>
+                        <th data-k="total_premium" onclick="setSort('total_premium')">Premium $<span class="sort-arrow"></span></th>
+                        <th data-k="pc_ratio" onclick="setSort('pc_ratio')">C/P $<span class="sort-arrow"></span></th>
+                        <th data-k="unusual_count" onclick="setSort('unusual_count')">Unusual<span class="sort-arrow"></span></th>
+                        <th>Top Contract Hit</th>
+                        <th data-k="catalyst" onclick="setSort('catalyst')">Earnings<span class="sort-arrow"></span></th>
+                        <th></th>
+                    </tr>
+                    <tr class="gradient-row"><td colspan="9"></td></tr>
+                </thead>
+                <tbody id="tickerBody">
+                    <tr><td colspan="8" class="loading">First scan builds the universe (10-60s). This is cached for 10 min.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="results-container" id="detailPanel" style="display: none; margin-top: 16px;">
+            <div class="detail-head">
+                <button class="btn btn-secondary" onclick="showTickerView()">← Back</button>
+                <h3 id="detailTitle">Contracts</h3>
+                <span class="status" id="detailMeta"></span>
+            </div>
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th>Expiry</th><th>Strike</th><th>Type</th><th>Last</th><th>Vol</th><th>OI</th>
+                        <th>Notional $</th><th>IV</th><th>DTE</th><th>OTM</th><th>OI 5d</th><th>Vol%</th><th>DIV</th><th>Score</th><th>Tier</th>
+                    </tr>
+                    <tr class="gradient-row"><td colspan="15"></td></tr>
+                </thead>
+                <tbody id="detailBody"></tbody>
+            </table>
         </div>
     </div>
-    
+
     <script>
-        // Update time
+        // ---- clock ----
         function updateTime() {
-            const now = new Date();
-            const timeEl = document.getElementById('time');
-            if (timeEl) timeEl.textContent = now.toLocaleTimeString();
+            const el = document.getElementById('time');
+            if (el) el.textContent = new Date().toLocaleTimeString();
         }
         setInterval(updateTime, 1000);
         updateTime();
 
-        let allData = [];
-        let sortCol = 'vol';
+        // ---- state (ALL handlers global scope — inline onclick needs globals) ----
+        let scanData = null;
+        let detailTicker = null;
+        let sortCol = 'max_score';
         let sortAsc = false;
 
-        async function runScan() {
-            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
-            if (!ticker) return;
-            
-            document.getElementById('resultsContainer').innerHTML = '<div class="loading">Scanning first 8 expirations (this may take 10-15 seconds)...</div>';
-            
-            try {
-                const res = await fetch(`/api/screen?ticker=${ticker}`);
-                const data = await res.json();
-                allData = data.results || [];
-                applyFilters();
-            } catch (e) {
-                console.error(e);
-                document.getElementById('resultsContainer').innerHTML = '<div class="loading">Error during scan: ' + e.message + '</div>';
-            }
-        }
-
-        function applyFilters() {
-            const minVol = parseInt(document.getElementById('minVol').value) || 0;
-            const minOI = parseInt(document.getElementById('minOI').value) || 0;
-            const minIV = (parseFloat(document.getElementById('minIV').value) || 0) / 100;
-            const unusualOnly = document.getElementById('unusualOnly').checked;
-
-            let filtered = allData.filter(d => {
-                if (d.vol < minVol) return false;
-                if (d.oi < minOI) return false;
-                if (d.iv < minIV) return false;
-                if (unusualOnly && (d.vol <= d.oi)) return false;
-                return true;
-            });
-
-            // Sort
-            filtered.sort((a, b) => {
-                let valA = a[sortCol];
-                let valB = b[sortCol];
-                if (valA < valB) return sortAsc ? -1 : 1;
-                if (valA > valB) return sortAsc ? 1 : -1;
-                return 0;
-            });
-
-            renderTable(filtered);
-        }
-
-        function renderTable(data) {
-            document.getElementById('countBar').textContent = `Results: ${data.length}`;
-            
-            if (data.length === 0) {
-                document.getElementById('resultsContainer').innerHTML = '<div class="loading">No matches found for these filters.</div>';
-                return;
-            }
-
-            let html = `
-                <table class="results-table">
-                    <thead>
-                        <tr>
-                            <th onclick="setSort('expiry')">Expiry</th>
-                            <th onclick="setSort('strike')">Strike</th>
-                            <th onclick="setSort('type')">Type</th>
-                            <th onclick="setSort('last')">Last</th>
-                            <th onclick="setSort('vol')">Vol</th>
-                            <th onclick="setSort('oi')">OI</th>
-                            <th onclick="setSort('iv')">IV</th>
-                            <th onclick="setSort('delta')">Delta</th>
-                            <th onclick="setSort('theta')">Theta</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            data.forEach(d => {
-                html += `
-                    <tr>
-                        <td>${d.expiry}</td>
-                        <td>${d.strike.toFixed(1)}</td>
-                        <td class="type-${d.type.toLowerCase()}">${d.type}</td>
-                        <td>$${d.last?.toFixed(2) || '-'}</td>
-                        <td>${fmtNum(d.vol)}</td>
-                        <td>${fmtNum(d.oi)}</td>
-                        <td>${fmtPct(d.iv)}</td>
-                        <td>${d.delta?.toFixed(3) || '-'}</td>
-                        <td>${d.theta?.toFixed(3) || '-'}</td>
-                    </tr>
-                `;
-            });
-
-            html += `</tbody></table>`;
-            document.getElementById('resultsContainer').innerHTML = html;
-        }
-
-        function setSort(col) {
-            if (sortCol === col) sortAsc = !sortAsc;
-            else {
-                sortCol = col;
-                sortAsc = (col === 'expiry' || col === 'strike' || col === 'type');
-            }
-            applyFilters();
-        }
-
+        // ---- formatting ----
         function fmtNum(n) {
             if (n == null || isNaN(n)) return '0';
-            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-            return n;
+            if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return String(Math.round(n));
         }
-        
         function fmtPct(n) {
             if (n == null || isNaN(n)) return '-';
             return (n * 100).toFixed(1) + '%';
         }
+        function tierBadge(t) { return '<span class="tier-' + t + '">' + t + '</span>'; }
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
 
-        document.getElementById('ticker').addEventListener('keypress', e => {
-            if (e.key === 'Enter') runScan();
-        });
-        
-        // Auto-scan on load for demo
-        window.addEventListener('DOMContentLoaded', () => {
-            // Uncomment below to auto-scan on load:
-            // runScan();
-        });
+        // ---- universe scan ----
+        let providersAvail = { yfinance: true, moomoo: false };
+
+        function syncProviderUI(provider, providers) {
+            providersAvail = providers || providersAvail;
+            const sel = document.getElementById('providerSel');
+            [...sel.options].forEach(o => {
+                const ok = providersAvail[o.value] !== false;
+                o.disabled = !ok;
+                o.textContent = ok ? o.textContent.replace(/ \(unavailable\)$/, '')
+                                   : o.textContent.replace(/ \(unavailable\)$/, '') + ' (unavailable)';
+            });
+            if (provider && providersAvail[provider] !== false) sel.value = provider;
+        }
+
+        async function runScan(providerName) {
+            const provider = providerName || document.getElementById('providerSel').value || 'yfinance';
+            const status = document.getElementById('status');
+            status.textContent = 'Scanning universe (' + provider + ', first run 10-60s)...';
+            document.getElementById('tickerBody').innerHTML = '<tr><td colspan="9" class="loading">Scanning...</td></tr>';
+            try {
+                const res = await fetch('/api/screen/v2?provider=' + encodeURIComponent(provider));
+                const data = await res.json();
+                if (data.error) {
+                    status.textContent = data.error + (data.available === false ? ' — staying on current feed' : '');
+                    syncProviderUI(null, data.providers);
+                    document.getElementById('tickerBody').innerHTML = '<tr><td colspan="9" class="loading">' + esc(data.error) + '</td></tr>';
+                    return;
+                }
+                scanData = data;
+                syncProviderUI(data.provider, data.providers);
+                status.textContent = (data.provider === 'moomoo' ? 'Moomoo' : 'Yahoo') + ' · cached at ' + (data.cached_at || '') + ' · ' + data.count + ' names';
+                renderTickers();
+            } catch (e) {
+                console.error(e);
+                status.textContent = 'Error: ' + e.message;
+                document.getElementById('tickerBody').innerHTML = '<tr><td colspan="9" class="loading">Error during scan: ' + esc(e.message) + '</td></tr>';
+            }
+        }
+
+        function switchProvider() {
+            const sel = document.getElementById('providerSel');
+            if (providersAvail[sel.value] === false) {
+                const attempted = sel.value;
+                const prev = scanData && scanData.provider ? scanData.provider : 'yfinance';
+                sel.value = prev;
+                document.getElementById('status').textContent = attempted + ' not available — staying on ' + prev;
+                return;
+            }
+            runScan(sel.value);
+        }
+
+        function renderTickers() {
+            const ts = (scanData && scanData.tickers) || [];
+            ts.sort((a, b) => {
+                let va = a[sortCol], vb = b[sortCol];
+                if (va == null) va = -Infinity;
+                if (vb == null) vb = -Infinity;
+                if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+                return sortAsc ? va - vb : vb - va;
+            });
+            document.getElementById('countBar').textContent = 'Results: ' + ts.length + ' names · ' +
+                ts.filter(t => (t.max_score || 0) >= 1.5).length + ' with unusual activity (MED+)';
+            const body = document.getElementById('tickerBody');
+            if (!ts.length) {
+                body.innerHTML = '<tr><td colspan="8" class="loading">No data.</td></tr>';
+                return;
+            }
+            body.innerHTML = ts.map(t => {
+                const dim = (t.max_score || 0) < 1.5 ? ' dim' : '';
+                const tier = t.max_score >= 2.5 ? 'HIGH' : t.max_score >= 1.5 ? 'MED' : 'LOW';
+                return '<tr class="' + dim + '">' +
+                    '<td class="ticker-cell" onclick="showTicker(\'' + esc(t.ticker) + '\')">' + esc(t.ticker) + '</td>' +
+                    '<td>$' + (t.spot != null ? t.spot.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-') + '</td>' +
+                    '<td>' + tierBadge(tier) + ' <span style="color:#e6edf3">' + (t.max_score != null ? t.max_score.toFixed(2) : '-') + '</span></td>' +
+                    '<td>$' + fmtNum(t.total_premium) + '</td>' +
+                    '<td>' + (t.pc_ratio != null ? t.pc_ratio.toFixed(2) : '-') + '</td>' +
+                    '<td>' + (t.unusual_count || 0) + '</td>' +
+                    '<td style="font-size:12px;color:#8b949e">' + esc(t.top_hit || '-') + '</td>' +
+                    '<td>' + esc(t.catalyst || '-') + '</td>' +
+                    '<td><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="showTicker(\'' + esc(t.ticker) + '\')">Drill</button></td>' +
+                    '</tr>';
+            }).join('');
+        }
+
+        // ---- drilldown ----
+        async function showTicker(t) {
+            detailTicker = t;
+            document.getElementById('detailPanel').style.display = '';
+            document.getElementById('tickerPanel').style.display = 'none';
+            document.getElementById('detailTitle').textContent = t + ' contracts';
+            document.getElementById('detailMeta').textContent = 'loading...';
+            try {
+                const res = await fetch('/api/screen/ticker?ticker=' + encodeURIComponent(t));
+                const d = await res.json();
+                document.getElementById('detailMeta').textContent =
+                    (d.catalyst ? 'next earnings ' + d.catalyst + ' · ' : '') +
+                    'spot $' + (d.spot != null ? d.spot : '-') +
+                    ' · total premium $' + fmtNum(d.total_premium);
+                renderDetail(d);
+            } catch (e) {
+                console.error(e);
+                document.getElementById('detailMeta').textContent = 'Error: ' + e.message;
+            }
+        }
+
+        function renderDetail(d) {
+            const body = document.getElementById('detailBody');
+            if (!d || !d.contracts) { body.innerHTML = '<tr><td colspan="12" class="loading">No scored contracts.</td></tr>'; return; }
+            const minDte = parseInt(document.getElementById('minDte').value) || 0;
+            const showLow = document.getElementById('showLow').checked;
+            let rows = d.contracts.filter(c => c.dte >= minDte && (showLow || c.tier !== 'LOW'));
+            rows.sort((a, b) => (b.score || 0) - (a.score || 0));
+            body.innerHTML = rows.map(c => {
+                const b5 = c.oi_build_5d;
+                const build = b5 == null ? '<td>-</td>'
+                    : '<td style="color:' + (b5 >= 0 ? '#3fb950' : '#f85149') + '">' +
+                      (b5 >= 0 ? '+' : '') + (b5 * 100).toFixed(0) + '%</td>';
+                const div = c.divergence
+                    ? '<td style="color:#ffd166" title="OI up, price flat - accumulation tell">⚡</td>'
+                    : '<td>-</td>';
+                return '<tr>' +
+                '<td>' + esc(c.expiry) + '</td>' +
+                '<td>' + (c.strike != null ? c.strike.toFixed(1) : '-') + '</td>' +
+                '<td class="type-' + (c.type || '').toLowerCase() + '">' + esc(c.type) + '</td>' +
+                '<td>$' + (c.last != null ? c.last.toFixed(2) : '-') + '</td>' +
+                '<td>' + fmtNum(c.vol) + '</td>' +
+                '<td>' + fmtNum(c.oi) + '</td>' +
+                '<td>$' + fmtNum(c.notional) + '</td>' +
+                '<td>' + fmtPct(c.iv) + '</td>' +
+                '<td>' + c.dte + '</td>' +
+                '<td>' + (c.otm_pct != null ? c.otm_pct.toFixed(0) + '%' : '-') + '</td>' +
+                build +
+                '<td>' + (c.vol_pctile != null ? c.vol_pctile.toFixed(0) + '%' : '-') + '</td>' +
+                div +
+                '<td style="color:#e6edf3">' + (c.score != null ? c.score.toFixed(2) : '-') + '</td>' +
+                '<td>' + tierBadge(c.tier) + '</td>' +
+                '</tr>';
+            }).join('');
+        }
+
+        function showTickerView() {
+            document.getElementById('detailPanel').style.display = 'none';
+            document.getElementById('tickerPanel').style.display = '';
+        }
+
+        // ---- sorting ----
+        function setSort(col) {
+            if (sortCol === col) sortAsc = !sortAsc;
+            else { sortCol = col; sortAsc = false; }
+            document.querySelectorAll('#tickerPanel th[data-k]').forEach(th => {
+                const active = th.dataset.k === sortCol;
+                th.classList.toggle('active', active);
+                const ar = th.querySelector('.sort-arrow');
+                if (ar) { ar.className = 'sort-arrow' + (active ? (sortAsc ? ' asc' : ' desc') : ''); }
+            });
+            renderTickers();
+        }
+
+        // auto-scan on load (cached, instant after first) — arrow fn so the DOMContentLoaded
+        // Event object is NOT passed into runScan(providerName) as the provider!
+        window.addEventListener('DOMContentLoaded', () => runScan());
     </script>
 </body>
 </html>
