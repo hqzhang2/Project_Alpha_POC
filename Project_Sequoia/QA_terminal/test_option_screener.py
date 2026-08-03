@@ -128,6 +128,56 @@ def _reset_caches(monkeypatch):
     osmod._scan_cache["ts"] = 0.0
 
 
+def test_score_uses_oi_weights_when_build_present():
+    r = {"vol_oi_z": 4.0, "notional_z": 4.0, "moneyness_mult": 2.0, "iv_cheap": 1.0,
+         "catalyst_bonus": 1.0, "oi_build_z": 2.0, "dte": 10}
+    # OI weights: 0.20*4 + 0.25*4 + 0.20*1.0 + 0.15*1 + 0.10*1 + 0.10*2 = 2.45
+    assert osmod.score_contract(r) == pytest.approx(2.45)
+    # same record WITHOUT oi_build_z uses base weights: 0.30*4+0.25*4+0.20+0.15+0.10 = 2.65
+    r2 = dict(r)
+    del r2["oi_build_z"]
+    assert osmod.score_contract(r2) == pytest.approx(2.65)
+
+
+def test_attach_oi_signals(monkeypatch):
+    import option_oi_store
+    hist = {("2099-01-01", 110.0, "Call"): [("2099-08-01", 100, 10), ("2099-08-02", 110, 20),
+                                            ("2099-08-03", 130, 30)]}
+    spots = [("2099-08-01", 100.0), ("2099-08-02", 100.0), ("2099-08-03", 100.0)]
+    monkeypatch.setattr(option_oi_store, "load_ticker_history", lambda t: (hist, spots))
+    recs = [{"expiry": "2099-01-01", "strike": 110.0, "type": "Call"}]
+    osmod._attach_oi_signals("X", recs)
+    r = recs[0]
+    assert r.get("oi_build_5d") == pytest.approx(0.30)   # 100 -> 130
+    assert r.get("vol_pctile") is not None
+    assert r.get("divergence") is True                   # OI up, spot flat
+    assert r.get("oi_build_z") == 0.0                    # single contract -> z guard
+
+
+def test_attach_oi_signals_fail_open_without_store(monkeypatch):
+    import option_oi_store
+    monkeypatch.setattr(option_oi_store, "load_ticker_history",
+                        lambda t: (_ for _ in ()).throw(ImportError("no store")))
+    recs = [{"expiry": "2099-01-01", "strike": 110.0, "type": "Call"}]
+    osmod._attach_oi_signals("X", recs)                  # must not raise
+    assert "oi_build_5d" not in recs[0]
+
+
+def test_scan_ticker_with_oi_signals(monkeypatch):
+    import option_oi_store
+    hist = {("2099-01-01", 110.0, "Call"): [("2099-08-01", 100, 10), ("2099-08-02", 110, 20),
+                                            ("2099-08-03", 130, 30)],
+            ("2099-01-01", 75.0, "Put"): [("2099-08-01", 100, 10), ("2099-08-02", 110, 20),
+                                          ("2099-08-03", 120, 25)]}
+    spots = [("2099-08-01", 100.0), ("2099-08-02", 100.0), ("2099-08-03", 100.0)]
+    monkeypatch.setattr(option_oi_store, "load_ticker_history", lambda t: (hist, spots))
+    res = osmod.scan_ticker("FAKE")
+    assert res and res["contracts"]
+    c = res["contracts"][0]
+    assert c.get("oi_build_5d") is not None
+    assert "oi_build_z" in c and c["oi_build_z"] is not None
+
+
 def test_scan_ticker_integration():
     res = osmod.scan_ticker("FAKE")
     assert res is not None

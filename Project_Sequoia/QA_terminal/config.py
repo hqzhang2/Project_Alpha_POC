@@ -77,5 +77,15 @@ SCORE_WEIGHTS = {                  # composite score weights (sum = 1.0)
     "vol_oi_z": 0.30, "notional_z": 0.25, "moneyness": 0.20,
     "iv_cheap": 0.15, "catalyst": 0.10,
 }
+SCORE_WEIGHTS_OI = {               # used when OI-build history exists (Phase 2 store):
+    "vol_oi_z": 0.20, "oi_build_z": 0.10, "notional_z": 0.25,  # 0.10 shifted from vol_oi_z
+    "moneyness": 0.20, "iv_cheap": 0.15, "catalyst": 0.10,
+}
 SCORE_TIER_HIGH = 2.5              # score >= this -> HIGH
 SCORE_TIER_MED = 1.5               # score >= this -> MED (below -> LOW)
+
+# --- Option Screener v2.4 — OI snapshot store (Phase 2) ---
+OI_BUILD_WINDOWS = (1, 5, 20)      # build-% horizons (trading-ish days, calendar approx)
+OI_DIVERGENCE_BUILD = 0.15         # oi_build_5d >= +15% ...
+OI_DIVERGENCE_SPOT = 0.01          # ... while |spot change| <= 1% -> accumulation tell
+OI_MIN_HISTORY_DAYS = 3            # signals only after this many stored days

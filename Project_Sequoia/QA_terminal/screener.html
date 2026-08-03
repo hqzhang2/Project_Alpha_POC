@@ -147,9 +147,9 @@
                 <thead>
                     <tr>
                         <th>Expiry</th><th>Strike</th><th>Type</th><th>Last</th><th>Vol</th><th>OI</th>
-                        <th>Notional $</th><th>IV</th><th>DTE</th><th>OTM</th><th>Score</th><th>Tier</th>
+                        <th>Notional $</th><th>IV</th><th>DTE</th><th>OTM</th><th>OI 5d</th><th>Vol%</th><th>DIV</th><th>Score</th><th>Tier</th>
                     </tr>
-                    <tr class="gradient-row"><td colspan="12"></td></tr>
+                    <tr class="gradient-row"><td colspan="15"></td></tr>
                 </thead>
                 <tbody id="detailBody"></tbody>
             </table>
@@ -265,8 +265,15 @@
             const showLow = document.getElementById('showLow').checked;
             let rows = d.contracts.filter(c => c.dte >= minDte && (showLow || c.tier !== 'LOW'));
             rows.sort((a, b) => (b.score || 0) - (a.score || 0));
-            body.innerHTML = rows.map(c =>
-                '<tr>' +
+            body.innerHTML = rows.map(c => {
+                const b5 = c.oi_build_5d;
+                const build = b5 == null ? '<td>-</td>'
+                    : '<td style="color:' + (b5 >= 0 ? '#3fb950' : '#f85149') + '">' +
+                      (b5 >= 0 ? '+' : '') + (b5 * 100).toFixed(0) + '%</td>';
+                const div = c.divergence
+                    ? '<td style="color:#ffd166" title="OI up, price flat - accumulation tell">⚡</td>'
+                    : '<td>-</td>';
+                return '<tr>' +
                 '<td>' + esc(c.expiry) + '</td>' +
                 '<td>' + (c.strike != null ? c.strike.toFixed(1) : '-') + '</td>' +
                 '<td class="type-' + (c.type || '').toLowerCase() + '">' + esc(c.type) + '</td>' +
@@ -277,10 +284,13 @@
                 '<td>' + fmtPct(c.iv) + '</td>' +
                 '<td>' + c.dte + '</td>' +
                 '<td>' + (c.otm_pct != null ? c.otm_pct.toFixed(0) + '%' : '-') + '</td>' +
+                build +
+                '<td>' + (c.vol_pctile != null ? c.vol_pctile.toFixed(0) + '%' : '-') + '</td>' +
+                div +
                 '<td style="color:#e6edf3">' + (c.score != null ? c.score.toFixed(2) : '-') + '</td>' +
                 '<td>' + tierBadge(c.tier) + '</td>' +
-                '</tr>'
-            ).join('');
+                '</tr>';
+            }).join('');
         }
 
         function showTickerView() {

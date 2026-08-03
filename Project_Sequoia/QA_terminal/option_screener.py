@@ -84,11 +84,14 @@ def iv_cheap_flag(record, ctx_ivs):
 
 
 def score_contract(r):
-    s = (config.SCORE_WEIGHTS["vol_oi_z"] * r.get("vol_oi_z", 0.0)
-         + config.SCORE_WEIGHTS["notional_z"] * r.get("notional_z", 0.0)
-         + config.SCORE_WEIGHTS["moneyness"] * (r.get("moneyness_mult", 1.0) - 1.0)
-         + config.SCORE_WEIGHTS["iv_cheap"] * r.get("iv_cheap", 0.0)
-         + config.SCORE_WEIGHTS["catalyst"] * r.get("catalyst_bonus", 0.0))
+    w = config.SCORE_WEIGHTS_OI if r.get("oi_build_z") is not None else config.SCORE_WEIGHTS
+    s = (w["vol_oi_z"] * r.get("vol_oi_z", 0.0)
+         + w["notional_z"] * r.get("notional_z", 0.0)
+         + w["moneyness"] * (r.get("moneyness_mult", 1.0) - 1.0)
+         + w["iv_cheap"] * r.get("iv_cheap", 0.0)
+         + w["catalyst"] * r.get("catalyst_bonus", 0.0))
+    if r.get("oi_build_z") is not None:
+        s += w["oi_build_z"] * r["oi_build_z"]
     if r.get("dte", 999) <= config.SCREENER_MIN_DTE:
         s *= 0.3  # dampen 0DTE/1DTE (index casino flow) unless user lifts DTE filter
     return round(s, 2)
@@ -144,6 +147,34 @@ def enrich_ticker_contracts(records, spot, earnings_date):
         r["score"] = score_contract(r)
         r["tier"] = tier_of(r["score"])
     return records
+
+
+def _attach_oi_signals(ticker, records):
+    """Phase-2 store signals per contract: OI build % (1/5/20d), vol percentile,
+    OI-up-price-flat divergence + cross-section oi_build_z. Fail-open: no history
+    (or store missing) -> fields absent -> score falls back to base weights."""
+    try:
+        import option_oi_store
+        hist_map, spots = option_oi_store.load_ticker_history(ticker)
+        if not hist_map:
+            return
+        for r in records:
+            h = hist_map.get((r.get("expiry"), r.get("strike"), r.get("type")))
+            if not h:
+                continue
+            sig = option_oi_store.build_signals(h, spots)
+            if not sig:
+                continue
+            for k, v in sig.items():
+                r[k] = round(v, 4) if isinstance(v, float) else v
+        builds = [r.get("oi_build_5d") for r in records]
+        if any(b is not None for b in builds):
+            z = _zscore([b if b is not None else 0.0 for b in builds])
+            for i, r in enumerate(records):
+                if r.get("oi_build_5d") is not None:
+                    r["oi_build_z"] = round(z[i], 2)
+    except Exception:
+        return  # store unavailable -> fail open
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +249,10 @@ def _scan_ticker(provider, ticker):
         if not calls and not puts:
             return None
         records = enrich_ticker_contracts(calls + puts, spot, _earnings_cache["data"].get(ticker))
+        _attach_oi_signals(ticker, records)          # Phase-2 store signals (fail-open)
+        for r in records:                            # re-score with OI weights when history exists
+            r["score"] = score_contract(r)
+            r["tier"] = tier_of(r["score"])
         scored = [r for r in records if r["score"] > 0]
         scored.sort(key=lambda r: r["score"], reverse=True)
         total = sum(r["notional"] for r in records)
@@ -238,7 +273,8 @@ def _scan_ticker(provider, ticker):
             "catalyst": _earnings_cache["data"].get(ticker),
             "contracts": [{k: r.get(k) for k in ("expiry", "strike", "type", "last", "vol", "oi", "iv",
                                                   "notional", "dte", "otm_pct", "moneyness_mult", "vol_oi_z",
-                                                  "notional_z", "iv_cheap", "score", "tier")}
+                                                  "notional_z", "iv_cheap", "oi_build_5d", "vol_pctile",
+                                                  "divergence", "oi_build_z", "score", "tier")}
                            for r in scored[:20]],
         }
         return summary
