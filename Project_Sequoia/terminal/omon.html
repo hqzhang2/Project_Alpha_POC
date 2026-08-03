@@ -12,6 +12,13 @@
         .nav { display: flex; gap: 16px; }
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
+        .chain-table tr.illiquid { opacity: 0.4; }
+        .parity-badge { color: #f85149; font-size: 11px; margin-left: 3px; cursor: pointer; }
+        .chain-table tr.parity-violation .strike-cell { color: #f85149; font-weight: 600; }
+        .parity-pop { position: fixed; z-index: 1000; background: #161b22; border: 1px solid #f85149; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #e6edf3; box-shadow: 0 4px 16px rgba(0,0,0,0.5); width: 260px; line-height: 1.6; }
+        .parity-pop-title { color: #f85149; font-weight: 600; margin-bottom: 4px; }
+        .parity-pop-res { margin-top: 4px; color: #f85149; font-weight: 600; }
+        .parity-pop-note { margin-top: 6px; color: #8b949e; font-size: 11px; }
         
         .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
         .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 120px; }
@@ -35,6 +42,9 @@
         .atm-row td { background: rgba(88, 166, 255, 0.15); font-weight: 600; }
         .atm-row .strike-cell { color: #58a6ff; }
         .greek { color: #58a6ff; font-weight: 500; }
+        .iv-cell { transition: background-color 0.3s; }
+        .expected-move { color: #3fb950; font-size: 14px; font-weight: 600; }
+        .smile-chart { margin-top: 16px; background: #161b22; border-radius: 8px; padding: 12px; }
         
         .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
         .info-bar .ticker { font-size: 24px; font-weight: 700; }
@@ -85,10 +95,12 @@
             <div class="spot" id="qtSpot">Spot: --</div>
             <div class="last-trade" id="qtLast" style="font-size:14px;color:#8b949e;">--</div>
             <div id="qtExpiryDisplay" style="font-size:18px;font-weight:600;color:#58a6ff;">--</div>
+            <div class="expected-move" id="qtExpectedMove" title="ATM straddle (call mid + put mid at strike nearest spot)">Exp. move: --</div>
             <div>
                 <label style="color:#8b949e;font-size:12px;">View:</label>
                 <select id="viewMode" onchange="renderChain()">
                     <option value="otm">20 OTM (10c/10p)</option>
+                    <option value="violations">⚠ Parity Violations</option>
                     <option value="all">All Strikes</option>
                 </select>
             </div>
@@ -199,6 +211,15 @@
                     select.appendChild(opt);
                 });
                 
+                // Default to the nearest standard monthly (3rd-Friday) expiry -
+                // the most liquid chain. Weeklies are wide/illiquid; never
+                // default to the nearest weekly.
+                if (data.standard.length > 0) {
+                    select.value = data.standard[0].date;
+                } else if (data.expirations.length > 0) {
+                    select.value = data.expirations[0];
+                }
+                
                 loadOptions();
             } catch (e) {
                 console.error(e);
@@ -221,6 +242,11 @@
                 document.getElementById('qtTicker').textContent = ticker;
                 document.getElementById('qtSpot').textContent = 'Spot: $' + spotPrice.toFixed(2);
                 document.getElementById('qtExpiryDisplay').textContent = expiry;
+                
+                const em = optionsData.expectedMove;
+                document.getElementById('qtExpectedMove').textContent = em
+                    ? `Exp. move: $${em.straddle.toFixed(2)} (±${em.pct.toFixed(1)}%)`
+                    : 'Exp. move: --';
                 
                 const quoteRes = await fetch(`/api/quotes?tickers=${ticker}`);
                 const quoteData = await quoteRes.json();
@@ -253,6 +279,15 @@
                 const callOtm = sortedStrikes.filter(s => s > spotPrice).slice(0, 10);
                 const putOtm = sortedStrikes.filter(s => s < spotPrice).reverse().slice(0, 10).reverse();
                 sortedStrikes = [...putOtm, ...callOtm];
+            } else if (viewMode === 'violations') {
+                // Exception report: only strikes where put-call parity fails.
+                const callMapV = {};
+                calls.forEach(c => callMapV[c.strike] = c);
+                const putMapV = {};
+                puts.forEach(p => putMapV[p.strike] = p);
+                sortedStrikes = sortedStrikes.filter(s =>
+                    (callMapV[s] && callMapV[s].parityOk === false) ||
+                    (putMapV[s] && putMapV[s].parityOk === false));
             }
             
             const callMap = {};
@@ -262,6 +297,53 @@
             
             function fmtNum(n) { return n ? n.toLocaleString() : '-'; }
             function fmtPct(n) { return n ? (n*100).toFixed(1) + '%' : '-'; }
+            // Spread % display: widen to 2 decimals under 1% so tight quotes
+            // don't all render as "0.0%"
+            function fmtSpreadPct(n) {
+                if (n === null || n === undefined) return '';
+                return (n < 1 ? n.toFixed(2) : n.toFixed(1)) + '%';
+            }
+            // IV smile coloring: heat-map the IV cell by moneyness-relative IV.
+            // High IV (vs chain range) = warm (red), low = cool (blue).
+            let ivMin = Infinity, ivMax = -Infinity;
+            function computeIvRange() {
+                ivMin = Infinity; ivMax = -Infinity;
+                [calls, puts].forEach(list => list.forEach(o => {
+                    if (o.iv && o.iv > 0.01) {
+                        ivMin = Math.min(ivMin, o.iv);
+                        ivMax = Math.max(ivMax, o.iv);
+                    }
+                }));
+                if (ivMin === Infinity) { ivMin = 0; ivMax = 1; }
+            }
+            function ivColor(iv) {
+                if (!iv || iv <= 0.01) return '';
+                const t = (iv - ivMin) / (ivMax - ivMin || 1);  // 0=cool .. 1=hot
+                // cool blue -> neutral -> hot red
+                const r = Math.round(60 + t * 195);
+                const g = Math.round(120 + (0.5 - Math.abs(t - 0.5)) * 120);
+                const b = Math.round(200 - t * 150);
+                return `background: rgba(${r},${g},${b},0.18);`;
+            }
+            function fmtProb(p) { return p === null || p === undefined ? '-' : (p * 100).toFixed(1) + '%'; }
+            function rowClass(opt) {
+                // Dim illiquid rows (no two-sided quote); mark parity violations
+                const cls = [];
+                if (opt && opt.illiquid) cls.push('illiquid');
+                if (opt && opt.parityOk === false) cls.push('parity-violation');
+                return cls.join(' ');
+            }
+            function spreadTitle(opt) {
+                if (!opt || !opt.hasQuote) return 'No two-sided quote (stale/illiquid)';
+                return `Spread: $${opt.spread} (${fmtSpreadPct(opt.spreadPct)})`;
+            }
+            function parityBadge(opt, strike) {
+                if (opt && opt.parityOk === false && opt.parityResidual !== null && opt.parityResidual !== undefined) {
+                    const sign = opt.parityResidual > 0 ? '+' : '';
+                    return `<span class="parity-badge" title="Put-call parity off by $${sign}${opt.parityResidual} — click for details" onclick="showParityPop(event, ${strike})">⚠</span>`;
+                }
+                return '';
+            }
             
             let html = `
                 <table class="chain-table">
@@ -273,9 +355,9 @@
                         </tr>
                         <tr>
                             <th class="greek">Vega</th><th class="greek">Theta</th><th class="greek">Gamma</th><th class="greek">Delta</th>
-                            <th>IV</th><th>OI</th><th>Vol</th><th>Last</th><th>Bid</th><th>Ask</th>
+                            <th>IV</th><th>P(ITM)</th><th>OI</th><th>Vol</th><th>Last</th><th>Bid</th><th>Ask</th>
                             <th class="strike-cell">Price</th>
-                            <th>Bid</th><th>Ask</th><th>Last</th><th>Vol</th><th>OI</th><th>IV</th>
+                            <th>Bid</th><th>Ask</th><th>Last</th><th>Vol</th><th>OI</th><th>P(ITM)</th><th>IV</th>
                             <th class="greek">Delta</th><th class="greek">Gamma</th><th class="greek">Theta</th><th class="greek">Vega</th>
                         </tr>
                     </thead>
@@ -292,6 +374,8 @@
                     atmStrike = s;
                 }
             });
+            
+            computeIvRange();  // for IV smile coloring
 
             sortedStrikes.forEach(s => {
                 const c = callMap[s] || {};
@@ -301,26 +385,28 @@
                 const isATM = s === atmStrike ? ' atm-row' : '';
                 
                 html += `
-                    <tr class="${isATM}">
+                    <tr class="${isATM} ${rowClass(c)} ${rowClass(p)}">
                         <td class="call-side ${c_itm} greek">${c.vega?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.theta?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.gamma?.toFixed(4) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.delta?.toFixed(3) || '-'}</td>
-                        <td class="call-side ${c_itm}">${fmtPct(c.iv)}</td>
+                        <td class="call-side ${c_itm} iv-cell" style="${ivColor(c.iv)}" title="IV: ${c.iv ? (c.iv*100).toFixed(1) + '%' : '-'}">${fmtPct(c.iv)}</td>
+                        <td class="call-side ${c_itm}">${fmtProb(c.probITM)}</td>
                         <td class="call-side ${c_itm}">${fmtNum(c.oi)}</td>
                         <td class="call-side ${c_itm}">${fmtNum(c.vol)}</td>
                         <td class="call-side ${c_itm}">${c.last?.toFixed(2) || '-'}</td>
-                        <td class="call-side ${c_itm}">${c.bid?.toFixed(2) || '-'}</td>
-                        <td class="call-side ${c_itm}">${c.ask?.toFixed(2) || '-'}</td>
+                        <td class="call-side ${c_itm}" title="${spreadTitle(c)}">${c.bid?.toFixed(2) || '-'}</td>
+                        <td class="call-side ${c_itm}" title="${spreadTitle(c)}">${c.ask?.toFixed(2) || '-'}</td>
                         
-                        <td class="strike-cell">${s.toFixed(1)}</td>
+                        <td class="strike-cell">${s.toFixed(1)}${parityBadge(c, s)}</td>
                         
-                        <td class="put-side ${p_itm}">${p.bid?.toFixed(2) || '-'}</td>
-                        <td class="put-side ${p_itm}">${p.ask?.toFixed(2) || '-'}</td>
+                        <td class="put-side ${p_itm}" title="${spreadTitle(p)}">${p.bid?.toFixed(2) || '-'}</td>
+                        <td class="put-side ${p_itm}" title="${spreadTitle(p)}">${p.ask?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${p.last?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.vol)}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.oi)}</td>
-                        <td class="put-side ${p_itm}">${fmtPct(p.iv)}</td>
+                        <td class="put-side ${p_itm}">${fmtProb(p.probITM)}</td>
+                        <td class="put-side ${p_itm} iv-cell" style="${ivColor(p.iv)}" title="IV: ${p.iv ? (p.iv*100).toFixed(1) + '%' : '-'}">${fmtPct(p.iv)}</td>
                         <td class="put-side ${p_itm} greek">${p.delta?.toFixed(3) || '-'}</td>
                         <td class="put-side ${p_itm} greek">${p.gamma?.toFixed(4) || '-'}</td>
                         <td class="put-side ${p_itm} greek">${p.theta?.toFixed(3) || '-'}</td>
@@ -330,11 +416,100 @@
             });
             
             html += `</tbody></table>`;
+            if (sortedStrikes.length === 0) {
+                html = `<div class="loading" style="padding:24px;color:#3fb950;">✅ No parity violations — all quoted strikes agree with the chain consensus.</div>`;
+            }
             document.getElementById('chainContainer').innerHTML = html;
+            renderSmileChart();
         }
+        
+        // IV smile: IV vs strike for calls + puts (visible in otm/all views).
+        let smileChart = null;
+        function renderSmileChart() {
+            const container = document.getElementById('chainContainer');
+            if (!container || typeof Chart === 'undefined') return;
+            const existing = document.getElementById('smileChartWrap');
+            if (existing) existing.remove();
+            if (smileChart) { smileChart.destroy(); smileChart = null; }
+            
+            const viewMode = document.getElementById('viewMode')?.value || 'otm';
+            if (viewMode === 'violations' || !optionsData) return;  // skip in exception view
+            
+            const calls = optionsData.calls || [];
+            const puts = optionsData.puts || [];
+            const cValid = calls.filter(c => c.iv && c.iv > 0.01 && c.parityOk !== false);
+            const pValid = puts.filter(p => p.iv && p.iv > 0.01 && p.parityOk !== false);
+            if (cValid.length < 3 || pValid.length < 3) return;
+            
+            const wrap = document.createElement('div');
+            wrap.id = 'smileChartWrap';
+            wrap.className = 'smile-chart';
+            wrap.innerHTML = '<div style="color:#8b949e;font-size:12px;margin-bottom:6px;">IV Smile (valid quotes, parity-clean)</div><canvas id="smileCanvas" height="80"></canvas>';
+            container.appendChild(wrap);
+            
+            const canvas = document.getElementById('smileCanvas');
+            const ctx = canvas.getContext('2d');
+            const sorted = (list) => [...list].sort((a, b) => a.strike - b.strike);
+            smileChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sorted(cValid).map(c => c.strike),
+                    datasets: [
+                        { label: 'Calls', data: sorted(cValid).map(c => +(c.iv * 100).toFixed(1)), borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.08)', pointRadius: 2, tension: 0.3 },
+                        { label: 'Puts', data: sorted(pValid).map(p => +(p.iv * 100).toFixed(1)), borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.08)', pointRadius: 2, tension: 0.3 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } } },
+                    scales: {
+                        x: { title: { display: true, text: 'Strike', color: '#8b949e', font: { size: 11 } }, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                        y: { title: { display: true, text: 'IV %', color: '#8b949e', font: { size: 11 } }, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                    }
+                }
+            });
+        }
+        
+        // ===================================================================
+        // Put-call parity popover (GLOBAL scope - the inline onclick on the
+        // ⚠ badge requires these to be reachable from the rendered HTML).
+        // ===================================================================
+        function showParityPop(e, strike) {
+            e.stopPropagation();
+            const existing = document.getElementById('parityPop');
+            if (existing) existing.remove();
+            const c = (optionsData.calls || []).find(o => o.strike === strike) || {};
+            const p = (optionsData.puts || []).find(o => o.strike === strike) || {};
+            const fwd = c.impliedForward ?? p.impliedForward;
+            const med = optionsData.medianForward;
+            const res = c.parityResidual ?? p.parityResidual;
+            const pop = document.createElement('div');
+            pop.id = 'parityPop';
+            pop.className = 'parity-pop';
+            const fmt = n => (n === null || n === undefined) ? '-' : '$' + n.toFixed(2);
+            const cMid = ((c.bid || 0) + (c.ask || 0)) / 2;
+            const pMid = ((p.bid || 0) + (p.ask || 0)) / 2;
+            pop.innerHTML = `
+                <div class="parity-pop-title">Put-Call Parity @ ${strike.toFixed(1)}</div>
+                <div>Call mid: <b>${fmt(cMid)}</b></div>
+                <div>Put mid: <b>${fmt(pMid)}</b></div>
+                <div>Implied forward: <b>${fmt(fwd)}</b></div>
+                <div>Chain median forward: <b>${fmt(med)}</b></div>
+                <div class="parity-pop-res">Residual: <b>${res === null || res === undefined ? '-' : (res > 0 ? '+' : '') + '$' + res.toFixed(2)}</b></div>
+                <div class="parity-pop-note">⚠ = this strike's implied forward deviates from the chain consensus — likely a stale/mispriced quote.</div>`;
+            pop.style.left = Math.min(e.clientX + 12, window.innerWidth - 280) + 'px';
+            pop.style.top = Math.min(e.clientY + 12, window.innerHeight - 200) + 'px';
+            document.body.appendChild(pop);
+        }
+        function closeParityPop() {
+            const el = document.getElementById('parityPop');
+            if (el) el.remove();
+        }
+        document.addEventListener('click', closeParityPop);
         
         renderWatchlist();
         fetchExpirations();
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </body>
 </html>
