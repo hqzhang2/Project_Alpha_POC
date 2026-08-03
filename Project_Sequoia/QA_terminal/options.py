@@ -14,6 +14,22 @@ import os
 # Add current dir to path for local imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from greeks import calculate_greeks
+from vollib.black_scholes_merton.greeks.analytical import d2 as _vollib_d2
+from vollib.black_scholes_merton.greeks.analytical import N as _norm_cdf
+
+
+def probability_itm(flag, S, K, T, r, sigma, q=0.0):
+    """
+    Probability of finishing in-the-money at expiry (risk-neutral, BS):
+        call: N(d2) ; put: N(-d2)
+    """
+    if sigma is None or sigma <= 0 or T <= 0:
+        return None
+    try:
+        d2_val = _vollib_d2(S, K, T, r, sigma, q)
+        return float(_norm_cdf(d2_val) if flag == 'c' else _norm_cdf(-d2_val))
+    except Exception:
+        return None
 
 # Custom JSON encoder to handle pandas Timestamps and numpy types
 class SafeJSONEncoder(json.JSONEncoder):
@@ -89,10 +105,10 @@ def get_expirations(ticker: str) -> list[str]:
         return []
 
 
-def calculate_implied_volatility(option_price, S, K, T, r, option_type="call"):
+def calculate_implied_volatility(option_price, S, K, T, r, option_type="call", q=0.0):
     """
     Calculate implied volatility from option price using vollib's
-    Let's Be Rational engine (Black-Scholes-Merton, q=0).
+    Let's Be Rational engine (Black-Scholes-Merton with dividend yield q).
     """
     if option_price <= 0 or T <= 0 or S <= 0 or K <= 0:
         return None
@@ -111,7 +127,7 @@ def calculate_implied_volatility(option_price, S, K, T, r, option_type="call"):
     try:
         from vollib.black_scholes_merton.implied_volatility import implied_volatility
         flag = 'c' if option_type == 'call' else 'p'
-        return implied_volatility(option_price, S, K, T, r, 0.0, flag)
+        return implied_volatility(option_price, S, K, T, r, q, flag)
     except Exception:
         # Fallback: use moneyness-based estimate
         moneyness = S / K
@@ -153,6 +169,17 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 spot = ticker_obj.fast_info.get('last_price')
             except:
                 pass
+
+        # Continuous dividend yield (decimal) for BSM pricing.
+        # CAUTION: yfinance's 'dividendYield' is a PERCENTAGE (0.78 = 0.78%),
+        # not a decimal — feeding 0.78 as q would imply a 78% yield and
+        # explode the IV solver. 'trailingAnnualDividendYield' is the proper
+        # decimal; fall back to dividendYield/100, with a sanity clamp.
+        q = info.get("trailingAnnualDividendYield")
+        if q is None:
+            q = (info.get("dividendYield") or 0.0) / 100.0
+        if not isinstance(q, (int, float)) or not (0.0 <= q <= 0.20):  # max 20% yield
+            q = 0.0
         
         # Calculate Time to Maturity (T)
         expiry_dt = datetime.datetime.strptime(expiry, '%Y-%m-%d')
@@ -206,7 +233,7 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
 
                 sigma = None
                 if price and spot and row.get('strike'):
-                    sigma = calculate_implied_volatility(price, spot, row['strike'], T, r, opt_type)
+                    sigma = calculate_implied_volatility(price, spot, row['strike'], T, r, opt_type, q)
                 if not sigma or sigma < 0.01:
                     # No usable market price -> fall back to yahoo's field, but
                     # only if it looks like a real IV. Yahoo's placeholders for
@@ -217,14 +244,22 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 
                 if sigma and sigma > 0.01 and spot and row.get('strike'):
                     try:
-                        g = calculate_greeks(spot, row['strike'], T, r, sigma, opt_type)
+                        g = calculate_greeks(spot, row['strike'], T, r, sigma, opt_type, q)
                         row.update(g)
                         row['iv'] = sigma  # Update with calculated IV
                     except:
                         row.update({'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0})
                 else:
                     row.update({'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0})
-                
+
+                # Probability of finishing ITM (risk-neutral, N(d2)/N(-d2)).
+                # Only meaningful when we have a real IV.
+                if sigma and sigma > 0.01 and spot and row.get('strike'):
+                    row['probITM'] = probability_itm('c' if opt_type == 'call' else 'p',
+                                                     spot, row['strike'], T, r, sigma, q)
+                else:
+                    row['probITM'] = None
+
                 clean_records.append(row)
             return clean_records
 
@@ -257,11 +292,28 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 put_by_strike[K]['parityOk'] = ok
                 put_by_strike[K]['impliedForward'] = round(fwd, 3)
 
+        # Expected move to expiry: ATM straddle (call mid + put mid at the
+        # strike nearest spot). Market-implied, uses the same mids as IV.
+        expected_move = None
+        if call_by_strike and put_by_strike and spot:
+            atm_strike = min(call_by_strike, key=lambda k: abs(k - spot))
+            c_atm, p_atm = call_by_strike[atm_strike], put_by_strike[atm_strike]
+            c_mid = _mid_or_last(c_atm)
+            p_mid = _mid_or_last(p_atm)
+            if c_mid is not None and p_mid is not None and c_mid > 0 and p_mid > 0:
+                expected_move = {
+                    'strike': atm_strike,
+                    'straddle': round(c_mid + p_mid, 2),
+                    'pct': round((c_mid + p_mid) / spot * 100, 2)
+                }
+
         result = {
             "ticker": ticker.upper(),
             "expiry": expiry,
             "spot": spot,
+            "dividendYield": round(q, 4) if q else None,
             "medianForward": round(fwd_median, 3) if fwd_median else None,
+            "expectedMove": expected_move,
             "calls": calls_processed,
             "puts": puts_processed,
             "timestamp": now

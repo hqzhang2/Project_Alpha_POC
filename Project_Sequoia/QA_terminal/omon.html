@@ -42,6 +42,9 @@
         .atm-row td { background: rgba(88, 166, 255, 0.15); font-weight: 600; }
         .atm-row .strike-cell { color: #58a6ff; }
         .greek { color: #58a6ff; font-weight: 500; }
+        .iv-cell { transition: background-color 0.3s; }
+        .expected-move { color: #3fb950; font-size: 14px; font-weight: 600; }
+        .smile-chart { margin-top: 16px; background: #161b22; border-radius: 8px; padding: 12px; }
         
         .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
         .info-bar .ticker { font-size: 24px; font-weight: 700; }
@@ -92,6 +95,7 @@
             <div class="spot" id="qtSpot">Spot: --</div>
             <div class="last-trade" id="qtLast" style="font-size:14px;color:#8b949e;">--</div>
             <div id="qtExpiryDisplay" style="font-size:18px;font-weight:600;color:#58a6ff;">--</div>
+            <div class="expected-move" id="qtExpectedMove" title="ATM straddle (call mid + put mid at strike nearest spot)">Exp. move: --</div>
             <div>
                 <label style="color:#8b949e;font-size:12px;">View:</label>
                 <select id="viewMode" onchange="renderChain()">
@@ -239,6 +243,11 @@
                 document.getElementById('qtSpot').textContent = 'Spot: $' + spotPrice.toFixed(2);
                 document.getElementById('qtExpiryDisplay').textContent = expiry;
                 
+                const em = optionsData.expectedMove;
+                document.getElementById('qtExpectedMove').textContent = em
+                    ? `Exp. move: $${em.straddle.toFixed(2)} (±${em.pct.toFixed(1)}%)`
+                    : 'Exp. move: --';
+                
                 const quoteRes = await fetch(`/api/quotes?tickers=${ticker}`);
                 const quoteData = await quoteRes.json();
                 const quote = quoteData[ticker];
@@ -294,6 +303,29 @@
                 if (n === null || n === undefined) return '';
                 return (n < 1 ? n.toFixed(2) : n.toFixed(1)) + '%';
             }
+            // IV smile coloring: heat-map the IV cell by moneyness-relative IV.
+            // High IV (vs chain range) = warm (red), low = cool (blue).
+            let ivMin = Infinity, ivMax = -Infinity;
+            function computeIvRange() {
+                ivMin = Infinity; ivMax = -Infinity;
+                [calls, puts].forEach(list => list.forEach(o => {
+                    if (o.iv && o.iv > 0.01) {
+                        ivMin = Math.min(ivMin, o.iv);
+                        ivMax = Math.max(ivMax, o.iv);
+                    }
+                }));
+                if (ivMin === Infinity) { ivMin = 0; ivMax = 1; }
+            }
+            function ivColor(iv) {
+                if (!iv || iv <= 0.01) return '';
+                const t = (iv - ivMin) / (ivMax - ivMin || 1);  // 0=cool .. 1=hot
+                // cool blue -> neutral -> hot red
+                const r = Math.round(60 + t * 195);
+                const g = Math.round(120 + (0.5 - Math.abs(t - 0.5)) * 120);
+                const b = Math.round(200 - t * 150);
+                return `background: rgba(${r},${g},${b},0.18);`;
+            }
+            function fmtProb(p) { return p === null || p === undefined ? '-' : (p * 100).toFixed(1) + '%'; }
             function rowClass(opt) {
                 // Dim illiquid rows (no two-sided quote); mark parity violations
                 const cls = [];
@@ -323,9 +355,9 @@
                         </tr>
                         <tr>
                             <th class="greek">Vega</th><th class="greek">Theta</th><th class="greek">Gamma</th><th class="greek">Delta</th>
-                            <th>IV</th><th>OI</th><th>Vol</th><th>Last</th><th>Bid</th><th>Ask</th>
+                            <th>IV</th><th>P(ITM)</th><th>OI</th><th>Vol</th><th>Last</th><th>Bid</th><th>Ask</th>
                             <th class="strike-cell">Price</th>
-                            <th>Bid</th><th>Ask</th><th>Last</th><th>Vol</th><th>OI</th><th>IV</th>
+                            <th>Bid</th><th>Ask</th><th>Last</th><th>Vol</th><th>OI</th><th>P(ITM)</th><th>IV</th>
                             <th class="greek">Delta</th><th class="greek">Gamma</th><th class="greek">Theta</th><th class="greek">Vega</th>
                         </tr>
                     </thead>
@@ -342,6 +374,8 @@
                     atmStrike = s;
                 }
             });
+            
+            computeIvRange();  // for IV smile coloring
 
             sortedStrikes.forEach(s => {
                 const c = callMap[s] || {};
@@ -356,7 +390,8 @@
                         <td class="call-side ${c_itm} greek">${c.theta?.toFixed(3) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.gamma?.toFixed(4) || '-'}</td>
                         <td class="call-side ${c_itm} greek">${c.delta?.toFixed(3) || '-'}</td>
-                        <td class="call-side ${c_itm}">${fmtPct(c.iv)}</td>
+                        <td class="call-side ${c_itm} iv-cell" style="${ivColor(c.iv)}" title="IV: ${c.iv ? (c.iv*100).toFixed(1) + '%' : '-'}">${fmtPct(c.iv)}</td>
+                        <td class="call-side ${c_itm}">${fmtProb(c.probITM)}</td>
                         <td class="call-side ${c_itm}">${fmtNum(c.oi)}</td>
                         <td class="call-side ${c_itm}">${fmtNum(c.vol)}</td>
                         <td class="call-side ${c_itm}">${c.last?.toFixed(2) || '-'}</td>
@@ -370,7 +405,8 @@
                         <td class="put-side ${p_itm}">${p.last?.toFixed(2) || '-'}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.vol)}</td>
                         <td class="put-side ${p_itm}">${fmtNum(p.oi)}</td>
-                        <td class="put-side ${p_itm}">${fmtPct(p.iv)}</td>
+                        <td class="put-side ${p_itm}">${fmtProb(p.probITM)}</td>
+                        <td class="put-side ${p_itm} iv-cell" style="${ivColor(p.iv)}" title="IV: ${p.iv ? (p.iv*100).toFixed(1) + '%' : '-'}">${fmtPct(p.iv)}</td>
                         <td class="put-side ${p_itm} greek">${p.delta?.toFixed(3) || '-'}</td>
                         <td class="put-side ${p_itm} greek">${p.gamma?.toFixed(4) || '-'}</td>
                         <td class="put-side ${p_itm} greek">${p.theta?.toFixed(3) || '-'}</td>
@@ -384,6 +420,54 @@
                 html = `<div class="loading" style="padding:24px;color:#3fb950;">✅ No parity violations — all quoted strikes agree with the chain consensus.</div>`;
             }
             document.getElementById('chainContainer').innerHTML = html;
+            renderSmileChart();
+        }
+        
+        // IV smile: IV vs strike for calls + puts (visible in otm/all views).
+        let smileChart = null;
+        function renderSmileChart() {
+            const container = document.getElementById('chainContainer');
+            if (!container || typeof Chart === 'undefined') return;
+            const existing = document.getElementById('smileChartWrap');
+            if (existing) existing.remove();
+            if (smileChart) { smileChart.destroy(); smileChart = null; }
+            
+            const viewMode = document.getElementById('viewMode')?.value || 'otm';
+            if (viewMode === 'violations' || !optionsData) return;  // skip in exception view
+            
+            const calls = optionsData.calls || [];
+            const puts = optionsData.puts || [];
+            const cValid = calls.filter(c => c.iv && c.iv > 0.01 && c.parityOk !== false);
+            const pValid = puts.filter(p => p.iv && p.iv > 0.01 && p.parityOk !== false);
+            if (cValid.length < 3 || pValid.length < 3) return;
+            
+            const wrap = document.createElement('div');
+            wrap.id = 'smileChartWrap';
+            wrap.className = 'smile-chart';
+            wrap.innerHTML = '<div style="color:#8b949e;font-size:12px;margin-bottom:6px;">IV Smile (valid quotes, parity-clean)</div><canvas id="smileCanvas" height="80"></canvas>';
+            container.appendChild(wrap);
+            
+            const canvas = document.getElementById('smileCanvas');
+            const ctx = canvas.getContext('2d');
+            const sorted = (list) => [...list].sort((a, b) => a.strike - b.strike);
+            smileChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sorted(cValid).map(c => c.strike),
+                    datasets: [
+                        { label: 'Calls', data: sorted(cValid).map(c => +(c.iv * 100).toFixed(1)), borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.08)', pointRadius: 2, tension: 0.3 },
+                        { label: 'Puts', data: sorted(pValid).map(p => +(p.iv * 100).toFixed(1)), borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.08)', pointRadius: 2, tension: 0.3 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } } },
+                    scales: {
+                        x: { title: { display: true, text: 'Strike', color: '#8b949e', font: { size: 11 } }, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                        y: { title: { display: true, text: 'IV %', color: '#8b949e', font: { size: 11 } }, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                    }
+                }
+            });
         }
         
         // ===================================================================
@@ -426,5 +510,6 @@
         renderWatchlist();
         fetchExpirations();
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </body>
 </html>

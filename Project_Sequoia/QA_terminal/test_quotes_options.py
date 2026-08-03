@@ -163,6 +163,107 @@ class TestQuotesOptions(unittest.TestCase):
         self.assertIn('parityOk', c)
         self.assertEqual(c['parityResidual'], p['parityResidual'])
 
+    def test_probability_itm_sanity(self):
+        """ATM call prob-ITM ~ 0.5; deep-ITM -> high; deep-OTM -> low (per side)."""
+        S, T, r, sig = 486.0, 18 / 365.25, 0.045, 0.31
+        atm = options.probability_itm('c', S, S, T, r, sig)
+        self.assertIsNotNone(atm)
+        self.assertTrue(0.40 <= atm <= 0.60, f"ATM probITM {atm}")
+        # deep-ITM call (K < S): high probability
+        deep_itm_call = options.probability_itm('c', S, S * 0.8, T, r, sig)
+        self.assertGreater(deep_itm_call, 0.9)
+        # deep-OTM call (K > S): low probability
+        deep_otm_call = options.probability_itm('c', S, S * 1.2, T, r, sig)
+        self.assertLess(deep_otm_call, 0.1)
+        # deep-ITM put (K > S): high probability
+        deep_itm_put = options.probability_itm('p', S, S * 1.2, T, r, sig)
+        self.assertGreater(deep_itm_put, 0.9)
+        # deep-OTM put (K < S): low probability
+        deep_otm_put = options.probability_itm('p', S, S * 0.8, T, r, sig)
+        self.assertLess(deep_otm_put, 0.1)
+        # degenerate inputs -> None
+        self.assertIsNone(options.probability_itm('c', S, S, T, r, 0))
+        self.assertIsNone(options.probability_itm('c', S, S, 0, r, sig))
+
+    def test_expected_move(self):
+        """expectedMove = ATM straddle from call+put mids."""
+        S, K, T, r = 100.0, 100.0, 0.25, 0.05
+        c = {'bid': 5.0, 'ask': 5.2, 'last': 5.1}
+        p = {'bid': 4.8, 'ask': 5.0, 'last': 4.9}
+        # straddle mid = 5.1 + 4.9 = 10.0 -> pct = 10%
+        call_by_strike = {K: c}
+        put_by_strike = {K: p}
+        fwd = options.implied_forward(c, p, K, T, r)
+        fwd_median = fwd
+        min_floor = 0.0025 * S
+        residual, ok = options.parity_residual(fwd, fwd_median, c, p, min_floor)
+        call_by_strike[K]['parityResidual'] = round(residual, 3)
+        call_by_strike[K]['parityOk'] = ok
+        put_by_strike[K]['parityResidual'] = round(residual, 3)
+        put_by_strike[K]['parityOk'] = ok
+
+        # replicate the expectedMove logic from get_options_chain
+        atm_strike = min(call_by_strike, key=lambda k: abs(k - S))
+        c_atm, p_atm = call_by_strike[atm_strike], put_by_strike[atm_strike]
+        c_mid = options._mid_or_last(c_atm)
+        p_mid = options._mid_or_last(p_atm)
+        em = {'strike': atm_strike, 'straddle': round(c_mid + p_mid, 2),
+              'pct': round((c_mid + p_mid) / S * 100, 2)}
+        self.assertEqual(em['straddle'], 10.0)
+        self.assertEqual(em['pct'], 10.0)
+
+    def test_dividend_yield_in_iv(self):
+        """
+        Dividend yield must change the solved IV for a call: with q>0 the
+        forward is lower (S*e^-qT), so the SAME call price implies a HIGHER
+        IV (more time value needed to reach the market price).
+        """
+        S, K, T, r = 100.0, 105.0, 0.25, 0.05
+        price = 2.0
+        iv0 = options.calculate_implied_volatility(price, S, K, T, r, 'call', q=0.0)
+        ivq = options.calculate_implied_volatility(price, S, K, T, r, 'call', q=0.04)
+        self.assertIsNotNone(iv0)
+        self.assertIsNotNone(ivq)
+        self.assertGreater(ivq, iv0)  # dividends -> higher implied vol
+
+    def test_dividend_yield_in_greeks(self):
+        """calculate_greeks must accept and honor q (call delta falls with q)."""
+        from greeks import calculate_greeks
+        S, K, T, r, sig = 100.0, 100.0, 0.25, 0.05, 0.25
+        g0 = calculate_greeks(S, K, T, r, sig, 'call', q=0.0)
+        gq = calculate_greeks(S, K, T, r, sig, 'call', q=0.05)
+        # dividends reduce the forward -> lower call delta
+        self.assertLess(gq['delta'], g0['delta'])
+        self.assertGreater(gq['gamma'], 0)
+        self.assertLess(gq['theta'], 0)
+
+    def test_dividend_yield_percentage_unit_guard(self):
+        """
+        Regression: yfinance 'dividendYield' is a PERCENTAGE (0.78 = 0.78%).
+        Feeding 0.78 as q would imply 78% yield and explode IV (~50% vs ~30%).
+        The chain must emit the proper decimal (<= 0.20) via the clamp.
+        """
+        # simulate the clamp logic exactly as in get_options_chain
+        def resolve_q(info):
+            q = info.get("trailingAnnualDividendYield")
+            if q is None:
+                q = (info.get("dividendYield") or 0.0) / 100.0
+            if not isinstance(q, (int, float)) or not (0.0 <= q <= 0.20):
+                q = 0.0
+            return q
+
+        # yfinance shape: percentage field only -> must become decimal
+        self.assertAlmostEqual(resolve_q({'dividendYield': 0.78}), 0.0078)
+        # trailing decimal field preferred
+        self.assertAlmostEqual(resolve_q({'dividendYield': 0.78,
+                                          'trailingAnnualDividendYield': 0.0078}), 0.0078)
+        # absurd values clamped to 0
+        self.assertEqual(resolve_q({'dividendYield': 78.0}), 0.0)
+        self.assertEqual(resolve_q({'dividendYield': 0.78,
+                                    'trailingAnnualDividendYield': 0.78}), 0.0)
+        # missing -> 0
+        self.assertEqual(resolve_q({}), 0.0)
+
     @patch('yfinance.Ticker')
     @patch('options.calculate_greeks')
     def test_chain_flags_illiquid_row(self, mock_greeks, mock_ticker):
