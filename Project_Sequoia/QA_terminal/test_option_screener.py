@@ -98,11 +98,14 @@ class FakeProvider:
         return ["2099-01-01"]
 
     def get_chain(self, ticker, expiry=None):
-        # call: wins notional_z; put: wins iv_cheap + moneyness (25% OTM) so BOTH score > 0
+        # call K=110 + put K=75 are OTM and must survive; call K=90 is ITM with the
+        # HIGHEST notional ($612.5K vs $110K) and must be EXCLUDED by the OTM filter.
         return {
             "ticker": ticker, "expiry": expiry, "spot": 100.0,
             "calls": [{"strike": 110.0, "vol": 1000, "oi": 100, "bid": 1.0,
-                       "ask": 1.2, "last": 1.0, "iv": 0.3}],
+                       "ask": 1.2, "last": 1.0, "iv": 0.3},
+                      {"strike": 90.0, "vol": 500, "oi": 50, "bid": 12.0,
+                       "ask": 12.5, "last": 12.0, "iv": 0.5}],
             "puts": [{"strike": 75.0, "vol": 500, "oi": 50, "bid": 0.5,
                       "ask": 0.6, "last": 0.5, "iv": 0.2}],
         }
@@ -185,9 +188,13 @@ def test_scan_ticker_integration():
     assert res["spot"] == 100.0
     assert res["total_premium"] > 0
     assert res["pc_ratio"] > 0
-    # 2-contract cross-section: z-scores are +/-1, so at least one contract
-    # must score > 0 (the top one survives the score>0 filter by design)
+    # 3-contract cross-section incl. an ITM call K=90: z-scores are +/-1, so at
+    # least one OTM contract must score > 0 (top survives the score>0 filter)
     assert len(res["contracts"]) >= 1
+    # ITM filter: every surfaced contract must be OTM, and the highest-notional
+    # ITM call (K=90, $612.5K) must NOT appear
+    assert all(c.get("otm_pct", 0) > 0 for c in res["contracts"]), "ITM contract leaked into scored set"
+    assert all(c["strike"] != 90.0 for c in res["contracts"]), "ITM K=90 should be excluded"
     c = res["contracts"][0]
     for k in ("expiry", "strike", "type", "vol", "oi", "notional", "dte", "score", "tier"):
         assert k in c

@@ -121,6 +121,7 @@
                 <thead>
                     <tr>
                         <th data-k="ticker" onclick="setSort('ticker')">Ticker<span class="sort-arrow"></span></th>
+                        <th data-k="spot" onclick="setSort('spot')">Spot<span class="sort-arrow"></span></th>
                         <th data-k="max_score" onclick="setSort('max_score')">Score<span class="sort-arrow"></span></th>
                         <th data-k="total_premium" onclick="setSort('total_premium')">Premium $<span class="sort-arrow"></span></th>
                         <th data-k="pc_ratio" onclick="setSort('pc_ratio')">C/P $<span class="sort-arrow"></span></th>
@@ -129,7 +130,7 @@
                         <th data-k="catalyst" onclick="setSort('catalyst')">Earnings<span class="sort-arrow"></span></th>
                         <th></th>
                     </tr>
-                    <tr class="gradient-row"><td colspan="8"></td></tr>
+                    <tr class="gradient-row"><td colspan="9"></td></tr>
                 </thead>
                 <tbody id="tickerBody">
                     <tr><td colspan="8" class="loading">First scan builds the universe (10-60s). This is cached for 10 min.</td></tr>
@@ -226,6 +227,7 @@
                 const tier = t.max_score >= 2.5 ? 'HIGH' : t.max_score >= 1.5 ? 'MED' : 'LOW';
                 return '<tr class="' + dim + '">' +
                     '<td class="ticker-cell" onclick="showTicker(\'' + esc(t.ticker) + '\')">' + esc(t.ticker) + '</td>' +
+                    '<td>$' + (t.spot != null ? t.spot.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-') + '</td>' +
                     '<td>' + tierBadge(tier) + ' <span style="color:#e6edf3">' + (t.max_score != null ? t.max_score.toFixed(2) : '-') + '</span></td>' +
                     '<td>$' + fmtNum(t.total_premium) + '</td>' +
                     '<td>' + (t.pc_ratio != null ? t.pc_ratio.toFixed(2) : '-') + '</td>' +

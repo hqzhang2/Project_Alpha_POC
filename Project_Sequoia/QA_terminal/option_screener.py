@@ -253,7 +253,7 @@ def _scan_ticker(provider, ticker):
         for r in records:                            # re-score with OI weights when history exists
             r["score"] = score_contract(r)
             r["tier"] = tier_of(r["score"])
-        scored = [r for r in records if r["score"] > 0]
+        scored = [r for r in records if r["score"] > 0 and (r.get("otm_pct") or 0) > 0]  # OTM only
         scored.sort(key=lambda r: r["score"], reverse=True)
         total = sum(r["notional"] for r in records)
         cp = sum(r["notional"] for r in records if r["type"] == "Call")
