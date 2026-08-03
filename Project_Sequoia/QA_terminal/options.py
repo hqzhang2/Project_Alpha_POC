@@ -14,6 +14,22 @@ import os
 # Add current dir to path for local imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from greeks import calculate_greeks
+from vollib.black_scholes_merton.greeks.analytical import d2 as _vollib_d2
+from vollib.black_scholes_merton.greeks.analytical import N as _norm_cdf
+
+
+def probability_itm(flag, S, K, T, r, sigma, q=0.0):
+    """
+    Probability of finishing in-the-money at expiry (risk-neutral, BS):
+        call: N(d2) ; put: N(-d2)
+    """
+    if sigma is None or sigma <= 0 or T <= 0:
+        return None
+    try:
+        d2_val = _vollib_d2(S, K, T, r, sigma, q)
+        return float(_norm_cdf(d2_val) if flag == 'c' else _norm_cdf(-d2_val))
+    except Exception:
+        return None
 
 # Custom JSON encoder to handle pandas Timestamps and numpy types
 class SafeJSONEncoder(json.JSONEncoder):
@@ -224,7 +240,15 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                         row.update({'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0})
                 else:
                     row.update({'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0})
-                
+
+                # Probability of finishing ITM (risk-neutral, N(d2)/N(-d2)).
+                # Only meaningful when we have a real IV.
+                if sigma and sigma > 0.01 and spot and row.get('strike'):
+                    row['probITM'] = probability_itm('c' if opt_type == 'call' else 'p',
+                                                     spot, row['strike'], T, r, sigma)
+                else:
+                    row['probITM'] = None
+
                 clean_records.append(row)
             return clean_records
 
@@ -257,11 +281,27 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
                 put_by_strike[K]['parityOk'] = ok
                 put_by_strike[K]['impliedForward'] = round(fwd, 3)
 
+        # Expected move to expiry: ATM straddle (call mid + put mid at the
+        # strike nearest spot). Market-implied, uses the same mids as IV.
+        expected_move = None
+        if call_by_strike and put_by_strike and spot:
+            atm_strike = min(call_by_strike, key=lambda k: abs(k - spot))
+            c_atm, p_atm = call_by_strike[atm_strike], put_by_strike[atm_strike]
+            c_mid = _mid_or_last(c_atm)
+            p_mid = _mid_or_last(p_atm)
+            if c_mid is not None and p_mid is not None and c_mid > 0 and p_mid > 0:
+                expected_move = {
+                    'strike': atm_strike,
+                    'straddle': round(c_mid + p_mid, 2),
+                    'pct': round((c_mid + p_mid) / spot * 100, 2)
+                }
+
         result = {
             "ticker": ticker.upper(),
             "expiry": expiry,
             "spot": spot,
             "medianForward": round(fwd_median, 3) if fwd_median else None,
+            "expectedMove": expected_move,
             "calls": calls_processed,
             "puts": puts_processed,
             "timestamp": now

@@ -163,6 +163,55 @@ class TestQuotesOptions(unittest.TestCase):
         self.assertIn('parityOk', c)
         self.assertEqual(c['parityResidual'], p['parityResidual'])
 
+    def test_probability_itm_sanity(self):
+        """ATM call prob-ITM ~ 0.5; deep-ITM -> high; deep-OTM -> low (per side)."""
+        S, T, r, sig = 486.0, 18 / 365.25, 0.045, 0.31
+        atm = options.probability_itm('c', S, S, T, r, sig)
+        self.assertIsNotNone(atm)
+        self.assertTrue(0.40 <= atm <= 0.60, f"ATM probITM {atm}")
+        # deep-ITM call (K < S): high probability
+        deep_itm_call = options.probability_itm('c', S, S * 0.8, T, r, sig)
+        self.assertGreater(deep_itm_call, 0.9)
+        # deep-OTM call (K > S): low probability
+        deep_otm_call = options.probability_itm('c', S, S * 1.2, T, r, sig)
+        self.assertLess(deep_otm_call, 0.1)
+        # deep-ITM put (K > S): high probability
+        deep_itm_put = options.probability_itm('p', S, S * 1.2, T, r, sig)
+        self.assertGreater(deep_itm_put, 0.9)
+        # deep-OTM put (K < S): low probability
+        deep_otm_put = options.probability_itm('p', S, S * 0.8, T, r, sig)
+        self.assertLess(deep_otm_put, 0.1)
+        # degenerate inputs -> None
+        self.assertIsNone(options.probability_itm('c', S, S, T, r, 0))
+        self.assertIsNone(options.probability_itm('c', S, S, 0, r, sig))
+
+    def test_expected_move(self):
+        """expectedMove = ATM straddle from call+put mids."""
+        S, K, T, r = 100.0, 100.0, 0.25, 0.05
+        c = {'bid': 5.0, 'ask': 5.2, 'last': 5.1}
+        p = {'bid': 4.8, 'ask': 5.0, 'last': 4.9}
+        # straddle mid = 5.1 + 4.9 = 10.0 -> pct = 10%
+        call_by_strike = {K: c}
+        put_by_strike = {K: p}
+        fwd = options.implied_forward(c, p, K, T, r)
+        fwd_median = fwd
+        min_floor = 0.0025 * S
+        residual, ok = options.parity_residual(fwd, fwd_median, c, p, min_floor)
+        call_by_strike[K]['parityResidual'] = round(residual, 3)
+        call_by_strike[K]['parityOk'] = ok
+        put_by_strike[K]['parityResidual'] = round(residual, 3)
+        put_by_strike[K]['parityOk'] = ok
+
+        # replicate the expectedMove logic from get_options_chain
+        atm_strike = min(call_by_strike, key=lambda k: abs(k - S))
+        c_atm, p_atm = call_by_strike[atm_strike], put_by_strike[atm_strike]
+        c_mid = options._mid_or_last(c_atm)
+        p_mid = options._mid_or_last(p_atm)
+        em = {'strike': atm_strike, 'straddle': round(c_mid + p_mid, 2),
+              'pct': round((c_mid + p_mid) / S * 100, 2)}
+        self.assertEqual(em['straddle'], 10.0)
+        self.assertEqual(em['pct'], 10.0)
+
     @patch('yfinance.Ticker')
     @patch('options.calculate_greeks')
     def test_chain_flags_illiquid_row(self, mock_greeks, mock_ticker):
