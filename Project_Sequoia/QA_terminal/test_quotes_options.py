@@ -102,6 +102,20 @@ class TestQuotesOptions(unittest.TestCase):
         self.assertAlmostEqual(residual, 0.0, places=9)
         self.assertTrue(ok)
 
+    def test_check_put_call_parity_ok_with_min_floor(self):
+        # Small residual within the spot-based min_floor -> OK even though
+        # the raw spread floor alone would flag it. (The ATM-noise case.)
+        K, T, r = 100.0, 0.25, 0.05
+        fwd_median = 105.0
+        c = {'bid': 7.9, 'ask': 8.1, 'last': 8.0}   # mid 8.0
+        p = {'bid': 2.26, 'ask': 2.46, 'last': 2.36}  # mid 2.36
+        f = options.implied_forward(c, p, K, T, r)
+        # fwd ~ 104.4 -> residual ~ -0.60; spread floor ~0.25
+        residual, ok = options.parity_residual(f, fwd_median, c, p)
+        self.assertFalse(ok)            # flagged without min_floor
+        residual2, ok2 = options.parity_residual(f, fwd_median, c, p, min_floor=1.0)
+        self.assertTrue(ok2)            # suppressed with min_floor
+
     def test_check_put_call_parity_violation(self):
         K, T, r = 100.0, 0.25, 0.05
         fwd_median = 105.0
@@ -109,9 +123,9 @@ class TestQuotesOptions(unittest.TestCase):
         c = {'bid': 8.0, 'ask': 8.2, 'last': 8.1}
         p = {'bid': 0.5, 'ask': 0.7, 'last': 0.6}
         f = options.implied_forward(c, p, K, T, r)
-        residual, ok = options.parity_residual(f, fwd_median, c, p)
+        residual, ok = options.parity_residual(f, fwd_median, c, p, min_floor=1.0)
         self.assertIsNotNone(residual)
-        self.assertFalse(ok)
+        self.assertFalse(ok)  # large residual flags even with min_floor
 
     def test_check_put_call_parity_no_price(self):
         K, T, r = 100.0, 0.25, 0.05

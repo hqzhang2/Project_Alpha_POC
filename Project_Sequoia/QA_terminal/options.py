@@ -54,7 +54,7 @@ def implied_forward(call_row, put_row, K, T, r):
     return c_price - p_price + K * math.exp(-r * T)
 
 
-def parity_residual(fwd, fwd_median, call_row, put_row):
+def parity_residual(fwd, fwd_median, call_row, put_row, min_floor=0.0):
     """
     Per-strike parity anomaly vs the chain's median implied forward (dollars).
     Positive means the strike's forward is rich vs the chain consensus.
@@ -62,6 +62,10 @@ def parity_residual(fwd, fwd_median, call_row, put_row):
     Using the median forward (not the spot) removes the systematic
     carry/dividend offset that otherwise flags every strike; genuine bad
     quotes deviate from the consensus and get caught.
+
+    min_floor: absolute dollar floor (e.g. 0.25% of spot) so stale-quote
+    noise in the liquid ATM region doesn't over-trigger; only residuals
+    beyond BOTH the spread-based floor and min_floor flag as violations.
     """
     if fwd is None or fwd_median is None:
         return None, None
@@ -70,7 +74,7 @@ def parity_residual(fwd, fwd_median, call_row, put_row):
     # don't trip the flag but real mispricings do.
     c_spread = (call_row.get('ask') or 0) - (call_row.get('bid') or 0)
     p_spread = (put_row.get('ask') or 0) - (put_row.get('bid') or 0)
-    floor = max(0.05, (max(c_spread, 0) + max(p_spread, 0)) / 2 + 0.05)
+    floor = max(min_floor, 0.05, (max(c_spread, 0) + max(p_spread, 0)) / 2 + 0.05)
     return residual, abs(residual) <= floor
 
 
@@ -239,18 +243,25 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
             if f is not None:
                 forwards[K] = f
         fwd_median = sorted(forwards.values())[len(forwards) // 2] if forwards else None
+        # min_floor = 0.25% of spot: stale-quote noise in the liquid ATM
+        # region (~$0.3-1.0 residual) must not flag; genuine bad quotes
+        # (deep-OTM wings, $10-100+) still do.
+        min_floor = 0.0025 * spot if spot else 0.0
         for K, fwd in forwards.items():
-            residual, ok = parity_residual(fwd, fwd_median, call_by_strike[K], put_by_strike[K])
+            residual, ok = parity_residual(fwd, fwd_median, call_by_strike[K], put_by_strike[K], min_floor)
             if residual is not None:
                 call_by_strike[K]['parityResidual'] = round(residual, 3)
                 call_by_strike[K]['parityOk'] = ok
+                call_by_strike[K]['impliedForward'] = round(fwd, 3)
                 put_by_strike[K]['parityResidual'] = round(residual, 3)
                 put_by_strike[K]['parityOk'] = ok
+                put_by_strike[K]['impliedForward'] = round(fwd, 3)
 
         result = {
             "ticker": ticker.upper(),
             "expiry": expiry,
             "spot": spot,
+            "medianForward": round(fwd_median, 3) if fwd_median else None,
             "calls": calls_processed,
             "puts": puts_processed,
             "timestamp": now
