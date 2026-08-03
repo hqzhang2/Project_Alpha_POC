@@ -96,6 +96,7 @@
                 <label style="color:#8b949e;font-size:12px;">View:</label>
                 <select id="viewMode" onchange="renderChain()">
                     <option value="otm">20 OTM (10c/10p)</option>
+                    <option value="violations">⚠ Parity Violations</option>
                     <option value="all">All Strikes</option>
                 </select>
             </div>
@@ -269,6 +270,15 @@
                 const callOtm = sortedStrikes.filter(s => s > spotPrice).slice(0, 10);
                 const putOtm = sortedStrikes.filter(s => s < spotPrice).reverse().slice(0, 10).reverse();
                 sortedStrikes = [...putOtm, ...callOtm];
+            } else if (viewMode === 'violations') {
+                // Exception report: only strikes where put-call parity fails.
+                const callMapV = {};
+                calls.forEach(c => callMapV[c.strike] = c);
+                const putMapV = {};
+                puts.forEach(p => putMapV[p.strike] = p);
+                sortedStrikes = sortedStrikes.filter(s =>
+                    (callMapV[s] && callMapV[s].parityOk === false) ||
+                    (putMapV[s] && putMapV[s].parityOk === false));
             }
             
             const callMap = {};
@@ -370,6 +380,9 @@
             });
             
             html += `</tbody></table>`;
+            if (sortedStrikes.length === 0) {
+                html = `<div class="loading" style="padding:24px;color:#3fb950;">✅ No parity violations — all quoted strikes agree with the chain consensus.</div>`;
+            }
             document.getElementById('chainContainer').innerHTML = html;
         }
         
