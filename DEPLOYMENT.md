@@ -103,6 +103,17 @@ then health-checks ports 9098/9218/9228/9236/9240.
   in the GitHub UI by the owner (see §1 — already applied).
 - New feature branch from trunk: `git checkout -b feature/x main`, push as above, then
   `git branch --set-upstream-to=origin/feature/x feature/x`.
+- **Merges to `main` go through PRs, and the owner approves them manually** (Hong). The agent
+  creates the PR and may merge it AFTER explicit owner approval — never self-approve. Recipe:
+  ```bash
+  # after pushing the branch, create the PR (App token, no admin needed):
+  curl -s -X POST -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" \
+    https://api.github.com/repos/hqzhang2/Project_Alpha_POC/pulls \
+    -d '{"title":"...","head":"<branch>","base":"main","body":"..."}'
+  # owner approves in the UI (Files changed -> Review -> Approve), then merge:
+  curl -s -X PUT -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" \
+    https://api.github.com/repos/hqzhang2/Project_Alpha_POC/pulls/<n>/merge -d '{"merge_method":"merge"}'
+  ```
 - When cutting a release tag: `git tag -a vX.Y.Z` on `main` — tags never drift; branches do.
 
 ---
