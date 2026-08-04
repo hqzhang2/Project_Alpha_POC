@@ -280,6 +280,7 @@ class Handler(SimpleHTTPRequestHandler):
             'year_lows': 'year_lows',
             'news': 'news',
             'option_screener': 'option_screener',
+            'fundamental_screener': 'fundamental_screener',
         }
         routes = {}
         for mod_name, import_path in modules.items():
@@ -650,6 +651,13 @@ class Handler(SimpleHTTPRequestHandler):
                 }
         self.send_json(data)
     
+    def handle_fundamentals_screen(self, qs):
+        import fundamental_screener
+        force = qs.get('force', ['0'])[0] in ('1', 'true', 'True')
+        as_of = qs.get('as_of', [None])[0]
+        rows = fundamental_screener.screen_universe(as_of=as_of, force=force)
+        self.send_json({'count': len(rows), 'results': rows})
+
     def get_ratio_data(self, t1, t2, tf, sma_period):
         if not YFINANCE_AVAILABLE:
             return {'error': 'yfinance not available'}
