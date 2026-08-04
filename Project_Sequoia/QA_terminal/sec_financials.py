@@ -382,6 +382,49 @@ def calculate_graham_metrics(income: List[Dict], balance: List[Dict],
     return fundamentals.calculate_graham_metrics(
         income, balance, cashflow, stock_info or {}, ticker)
 
+def _derive_missing_year_end_quarters(income: List[Dict]) -> List[Dict]:
+    """Delta-derive fiscal-year-end quarters missing as standalone 90-day
+    filings (e.g. AAPL FY2025 Q4 exists in companyfacts only as a 363-day
+    10-K fact — no 90-day unit, so the Q filter would drop it).
+
+    For each FY row whose end date has NO 'Q' row: Q4 = FY − sum(that FY's
+    three most recent quarters). Emitted as a 'Q' row so both the quarterly
+    display and TTM math get the correct window. No-op when data is complete
+    or fewer than 3 prior quarters exist.
+    """
+    q_rows = sorted([r for r in income if r.get('type') == 'Q'],
+                    key=lambda r: r['period'], reverse=True)
+    q_ends = {r['period'] for r in q_rows}
+    out = list(income)
+    for fy in [r for r in income if r.get('type') == 'FY']:
+        fy_end = fy['period']
+        if fy_end in q_ends:
+            continue
+        prior = [r for r in q_rows if r['period'] < fy_end][:3]
+        if len(prior) < 3:
+            continue
+        row = {'period': fy_end, 'type': 'Q', 'derived': True}
+        for key in _DERIVABLE_KEYS:
+            fv = fy.get(key)
+            if fv is None:
+                continue
+            qsum = sum((p.get(key) or 0) for p in prior)
+            if qsum or fv:
+                row[key] = round(fv - qsum, 4)
+        out.append(row)
+    return out
+
+
+# Period-flow metrics that delta-derive across a fiscal year. Point-in-time
+# items (shares outstanding) and ratios are intentionally excluded.
+_DERIVABLE_KEYS = [
+    'revenue', 'cost_of_revenue', 'gross_profit', 'rd_expense', 'sga_expense',
+    'operating_expenses', 'operating_income', 'other_income',
+    'income_before_tax', 'provision_for_tax', 'net_income',
+    'eps_basic', 'eps_diluted', 'stock_comp', 'depreciation_and_amortization',
+]
+
+
 def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> Dict:
     """Main function to fetch financials for a ticker from SEC EDGAR"""
     # Get CIK
@@ -442,6 +485,11 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
     income_list = sorted(income.values(), key=lambda x: x['period'], reverse=True)
     balance_list = sorted(balance.values(), key=lambda x: x['period'], reverse=True)
     cashflow_list = sorted(cashflow.values(), key=lambda x: x['period'], reverse=True)
+
+    # Delta-derive fiscal-year-end quarters missing as standalone 90-day
+    # filings (AAPL FY2025 Q4) BEFORE the type filter drops FY rows.
+    income_list = _derive_missing_year_end_quarters(income_list)
+    income_list = sorted(income_list, key=lambda x: x['period'], reverse=True)
     
     # Calculate margins and per-share metrics
     for inc in income_list:
