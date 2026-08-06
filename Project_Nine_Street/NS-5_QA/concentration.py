@@ -266,6 +266,118 @@ def merge_concentration_grade(factor_result: Dict,
 # Full concentration grading pipeline (Phase 2.6 + Phase 3.5 wiring)
 # ============================================================================
 
+
+# ============================================================================
+# 4.2 Tweak-list generator (MONEY-PATH — frontier-owned, do not edit)
+# ============================================================================
+
+_TWEAK_TEMPLATES = {
+    # per-factor tweak: {factor: (direction_word, description)}
+    "MKT": ("reduce", "high market beta — lower equity allocation or rotate to lower-beta instruments"),
+    "SMB": ("reduce", "large-cap tilt — add small-cap exposure"),
+    "HML": ("reduce", "growth-heavy tilt — rotate to value/defensive names"),
+    "MOM": ("reduce", "momentum-chasing — reduce exposure to recent winners, add contrarian positions"),
+    "DUR": ("reduce", "high duration/rate sensitivity — shorten bond duration or reduce long-bond exposure"),
+}
+
+
+def generate_tweaks(concentration_result: Dict, theta: dict) -> list:
+    """
+    Produce a ranked list of actionable tweaks from the full concentration
+    grading result.
+
+    Scans factor_loading, sector, effective_n, and tail_correlation sub-
+    results for flagged or below-threshold items, then outputs specific
+    recommended actions ordered by severity (most critical first).
+
+    Args:
+        concentration_result: complete output of run_concentration_grade()
+        theta:               Θ parameter dict
+
+    Returns:
+        list of dicts, each: {axis, sub_axis, severity, current_value,
+                              target_value, recommended_action, rationale}
+    """
+    tweaks = []
+    tol = theta["factor_tolerance_sigma"]
+
+    # --- factor loading ---
+    fl = concentration_result.get("factor_loading", {})
+    for name, fdata in fl.get("factors", {}).items():
+        if not fdata.get("flagged"):
+            continue
+        beta, policy_b, sigma = fdata["beta"], fdata["policy_beta"], fdata["sigma"]
+        dir_word, desc = _TWEAK_TEMPLATES.get(name, ("adjust", f"{name} factor loading"))
+        direction = "overweight" if beta > policy_b else "underweight"
+        tweaks.append({
+            "axis": "factor_loading",
+            "sub_axis": name,
+            "severity": "critical" if sigma >= 3.5 else ("high" if sigma >= 2.5 else "medium"),
+            "current_beta": beta,
+            "policy_beta": policy_b,
+            "sigma": sigma,
+            "recommended_action": f"{dir_word} {name} exposure: {desc}",
+            "rationale": f"{name} loading {direction} at {sigma:.1f}σ vs policy "
+                         f"({beta:+.3f} vs {policy_b:+.3f})",
+        })
+
+    # --- sector ---
+    sec = concentration_result.get("sector", {})
+    for sector_name, sdata in sec.get("sector_details", {}).items():
+        if not sdata.get("flagged"):
+            continue
+        weight, cap, ratio = sdata["weight"], sdata["cap"], sdata["ratio"]
+        tweaks.append({
+            "axis": "sector",
+            "sub_axis": sector_name,
+            "severity": "critical" if ratio >= 2.0 else ("high" if ratio >= 1.5 else "medium"),
+            "current_weight": weight,
+            "cap": cap,
+            "ratio": ratio,
+            "recommended_action": f"reduce {sector_name} from {weight:.0%} to ≤{cap:.0%}",
+            "rationale": f"{sector_name} at {weight:.0%} ({ratio:.1f}× the {cap:.0%} sector cap)",
+        })
+
+    # --- effective-N ---
+    en = concentration_result.get("effective_n", {})
+    n_eff, floor = en.get("effective_n", 0), en.get("floor", 0)
+    en_score = en.get("composite_score", 5)
+    if en_score < 3.0 and n_eff < floor:  # C or worse AND below floor
+        gap = max(floor - n_eff, 1)
+        tweaks.append({
+            "axis": "effective_n",
+            "sub_axis": None,
+            "severity": "critical" if en_score < 1.5 else ("high" if en_score < 2.5 else "medium"),
+            "current_n": round(n_eff, 1),
+            "floor": floor,
+            "recommended_action": f"diversify from {n_eff:.1f} to ≥{floor} effective positions",
+            "rationale": f"portfolio is as concentrated as {n_eff:.0f} equal-weight holdings "
+                         f"(target ≥{floor})",
+        })
+
+    # --- tail correlation ---
+    tc = concentration_result.get("tail_correlation", {})
+    for pair in tc.get("flagged_pairs", []):
+        t1, t2, corr_val = pair[0], pair[1], pair[2]
+        pair_label = f"{t1}–{t2}"
+        tweaks.append({
+            "axis": "tail_correlation",
+            "sub_axis": pair_label,
+            "severity": "medium",
+            "current_corr": corr_val,
+            "threshold": theta["tail_corr_threshold"],
+            "recommended_action": f"{t1} and {t2} co-move in tail events (ρ={corr_val:.2f}); "
+                                   "consider reducing one or replacing with an uncorrelated alternative",
+            "rationale": f"tail correlation {corr_val:.2f} exceeds {theta['tail_corr_threshold']} "
+                           "threshold on worst {theta['tail_pctile']}% of days",
+        })
+
+    tweaks.sort(key=lambda t: {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(t["severity"], 99))
+    return tweaks
+
+
+# ============================================================================
+
 def run_concentration_grade(holdings: Dict[str, float],
                             theta: dict,
                             factor_returns: Optional[pd.DataFrame] = None,
@@ -338,6 +450,12 @@ def run_concentration_grade(holdings: Dict[str, float],
             "policy_beta": policy.get("beta", {}),
         },
         "concentration": composite,
+        "tweaks": generate_tweaks({
+            "factor_loading": grade,
+            "sector": sector_result,
+            "effective_n": eff_n_result,
+            "tail_correlation": tail_result,
+        }, theta),
         "factor_loading": grade,
         "sector": sector_result,
         "effective_n": eff_n_result,

@@ -152,10 +152,10 @@ THETA_DEFAULTS = {
     # --- Sector grading (frontier-set: worst-of rule, do not change) ---
     # grade on the WORST-deviating sector, not the average.
     "sector_ratio_bounds": [  # ratio = sector_weight / cap → letter
-        (0.5, "A"),
-        (0.75, "B"),
-        (1.0, "C"),
-        (1.5, "D"),
+        (0.5, "A"),      # well within cap
+        (1.0, "B"),      # ≤ cap = fine (not flagged)
+        (1.25, "C"),     # moderate overage
+        (1.5, "D"),      # significant overage
         (float("inf"), "F"),
     ],
     # benchmark sector weights (informational; empty = no benchmark comparison)

@@ -53,11 +53,12 @@ class TestSectorWeights:
         assert result["composite_grade"] == "F"  # worst-of
         assert result["composite_score"] == 1
 
-    def test_within_cap_all_a(self):
+    def test_within_cap_all_b(self):
         theta = _make_theta(max_sector_pct=0.30)
         holdings = {"AAPL": 0.15, "XOM": 0.15, "JPM": 0.15, "UNH": 0.15,
                      "PG": 0.15, "CAT": 0.15, "LIN": 0.10}
         result = checks.grade_sector_weights(holdings, theta)
+        # All sectors at ≤0.5 of 30% cap (0.15=ratio 0.5, 0.10=ratio 0.33) → A
         assert result["composite_grade"] == "A"
         assert all(d["flagged"] is False for d in result["sector_details"].values())
 
