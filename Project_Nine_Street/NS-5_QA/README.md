@@ -130,11 +130,32 @@ env -i HOME=$HOME /usr/bin/python3 run_weekly_refresh.py   # manual refresh
 # launchd: com.ninestreet.ns5.refresh (Saturday 08:00) — see deploy/
 ```
 
+## Drift axis (v2)
+
+The drift axis monitors how the portfolio has moved away from its policy
+target over time — a time-series consumer of the same five-factor model.
+
+| Level | Monitors | Flag when |
+|---|---|---|
+| **Weight drift** | Position weight vs policy band | \|w − target\| / target > 20% (relative) |
+| **Risk drift** | Trailing 60d/120d/250d vol, VaR/CVaR(95%) | Trailing vol > long-run × 1.5σ, or VaR/CVaR breach |
+| **Style/factor drift** | Factor β on trailing 2yr vs policy β* | \|β − β*\| / se > 1.5, or QQQ corr > 0.90 |
+| **Frontier drift** | Long-run vs trailing frontier | Sharpe degradation > 0.15, tangency shift > 15pp, stock-bond corr sign flip |
+
+Composite drift grade = weighted average (15/25/30/30) with severity
+green → yellow → orange → red. Drift tweaks are appended to the shared
+tweak list with `axis: "drift"`.
+
+Request both axes: `POST /api/grade` with `{"axes": ["concentration", "drift"]}`
+(default when omitted). Drift-specific Θ keys: `drift_band`, `risk_budget`,
+`style_tolerance`, `frontier_thresholds`, `drift_axis_weights`,
+`drift_severity_bounds` — see `theta.py`.
+
 ## Tests
 
 ```bash
 cd Project_Nine_Street/NS-5_QA
-env -i HOME=$HOME /usr/bin/python3 -m pytest tests/ -q    # 55 tests, all synthetic
+env -i HOME=$HOME /usr/bin/python3 -m pytest tests/ -q    # 102 tests, all synthetic
 ```
 
 | File | Coverage |
@@ -143,6 +164,9 @@ env -i HOME=$HOME /usr/bin/python3 -m pytest tests/ -q    # 55 tests, all synthe
 | `test_phase2.py` | Policy β, factor-loading grading boundaries, missing-SE fallback |
 | `test_phase3.py` | Sector worst-of, effective-N linear scale, tail-correlation |
 | `test_phase4.py` | **End-to-end pipeline**, edge cases (single/zero/all-same/NaN), **acceptance gate** (determinism, no-NaN JSON, fail-open) |
+| `test_frontier.py` | Efficient frontier math, GMV, diversification effect, benchmark anchors |
+| `test_store.py` | Portfolio/policy store CRUD, shares→weights conversion |
+| `test_drift.py` | Drift checkers (weight/risk/style/frontier), grade/merge, tweak structure |
 
 ## Deployment
 

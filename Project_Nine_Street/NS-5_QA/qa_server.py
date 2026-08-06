@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import concentration
 import config
 import data_fetcher
+import drift
 import environment
 import frontier
 import portfolio
@@ -155,6 +156,27 @@ def _frontier_response(holdings=None, policy=None, force_refresh=False):
 # ---------------------------------------------------------------------------
 # Portfolio / policy CRUD helpers (called from Handler)
 # ---------------------------------------------------------------------------
+
+def _resolve_for_drift(holdings, policy_weights):
+    """Resolve holdings/policy (dicts of weights OR stored names) → weight dicts."""
+    import portfolio as portfolio_mod
+
+    hw = holdings
+    if isinstance(holdings, str):
+        entry = portfolio_store.get_portfolio(holdings)
+        if entry is None:
+            raise ValueError(f"portfolio '{holdings}' not found")
+        closes_tmp = data_fetcher.get_closes(list(entry.keys()))
+        hw = portfolio_mod.shares_to_weights(entry, closes_tmp)
+
+    pw = policy_weights
+    if isinstance(policy_weights, str):
+        entry = portfolio_store.get_policy(policy_weights)
+        if entry is None:
+            raise ValueError(f"policy '{policy_weights}' not found")
+        pw = entry
+    return hw, pw
+
 
 def _portfolios_get(path):
     """GET /api/portfolios           → {portfolios: [names]}
@@ -326,8 +348,25 @@ class Handler(BaseHTTPRequestHandler):
                 factors = _get_factors()
                 if factors.empty:
                     self._json({"error": "no factor data"}, 503); return
-                result = concentration.run_concentration_grade(
-                    holdings, theta, factor_returns=factors)
+                axes = body.get("axes") or ["concentration", "drift"]
+
+                result = {}
+                if "concentration" in axes:
+                    conc = concentration.run_concentration_grade(
+                        holdings, theta, factor_returns=factors)
+                    if "error" in conc:
+                        self._json(conc, 400); return
+                    result.update(conc)  # concentration + tweaks + axis raw data
+                if "drift" in axes:
+                    # Resolve names → weight dicts for drift checkers
+                    hw, pw = _resolve_for_drift(holdings, theta["policy_weights"])
+                    drift_res = drift.run_drift_grade(
+                        hw, pw, factor_returns=factors, theta=theta)
+                    result["drift"] = drift_res
+                    # Merge drift tweaks into the shared tweak list
+                    combined = list(result.get("tweaks", [])) + list(drift_res.get("tweaks", []))
+                    if combined:
+                        result["tweaks"] = combined
                 self._json(result)
             elif self.path.startswith("/api/frontier"):
                 result = _frontier_response(body.get("holdings"),

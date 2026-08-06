@@ -139,6 +139,15 @@
         <thead><tr><th>Axis</th><th>Grade</th><th>Score</th><th>Weight</th></tr></thead>
         <tbody></tbody>
       </table>
+      <h3 style="margin-top:18px">Drift</h3>
+      <div class="composite" style="padding:12px 0">
+        <div class="grade" id="driftGrade" style="font-size:34px">—</div>
+        <div class="score" id="driftScore">composite drift score</div>
+      </div>
+      <table id="driftTable">
+        <thead><tr><th>Level</th><th>Grade</th><th>Score</th><th>Weight</th></tr></thead>
+        <tbody></tbody>
+      </table>
       <h3 style="margin-top:18px">Tweaks</h3>
       <div id="tweaks"></div>
     </div>
@@ -363,13 +372,37 @@ async function grade() {
                      '<td>' + (sg.weight * 100).toFixed(0) + '%</td>';
       tb.appendChild(tr);
     });
+    // Drift card (present when axes include drift)
+    const dr = data.drift;
+    if (dr && dr.composite_drift_grade) {
+      document.getElementById('driftGrade').textContent = dr.composite_drift_grade;
+      document.getElementById('driftScore').textContent =
+        'composite drift score: ' + dr.composite_drift_score + ' · ' + dr.severity;
+      const dtb = document.querySelector('#driftTable tbody');
+      dtb.innerHTML = '';
+      ['weight', 'risk', 'style', 'frontier'].forEach(k => {
+        const sg = dr.sub_grades[k];
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + k + ' drift</td>' +
+                       '<td>' + pill(sg.grade) + '</td>' +
+                       '<td>' + sg.score + '</td>' +
+                       '<td>' + (sg.weight * 100).toFixed(0) + '%</td>';
+        dtb.appendChild(tr);
+      });
+      document.getElementById('driftGrade').parentElement.style.display = '';
+      document.getElementById('driftTable').style.display = '';
+    } else {
+      document.getElementById('driftGrade').parentElement.style.display = 'none';
+      document.getElementById('driftTable').style.display = 'none';
+    }
     const tw = document.getElementById('tweaks');
     tw.innerHTML = '';
     (data.tweaks || []).forEach(t => {
       const div = document.createElement('div');
       div.className = 'tweak';
+      var sub = t.sub_axis || t.level || t.factor || '';
       div.innerHTML = '<span class="sev ' + t.severity + '">' + esc(t.severity) + '</span> ' +
-        esc(t.axis) + (t.sub_axis ? ' / ' + esc(t.sub_axis) : '') +
+        esc(t.axis) + (sub ? ' / ' + esc(sub) : '') +
         '<div class="action">' + esc(t.recommended_action) + '</div>' +
         '<div class="why">' + esc(t.rationale) + '</div>';
       tw.appendChild(div);

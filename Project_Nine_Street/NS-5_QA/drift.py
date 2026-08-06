@@ -13,7 +13,9 @@ Four drift levels per research doc §3.2:
 """
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+import pandas as pd
 
 import theta as theta_mod
 
@@ -265,6 +267,8 @@ def generate_drift_tweaks(levels: Dict[str, dict], theta: dict) -> List[dict]:
             continue
         ratio = item.get("ratio", 0)
         sev = "critical" if ratio > 0.5 else ("high" if ratio > 0.3 else "medium")
+        target_pct = f"{item['policy']:.1%}" if item.get('policy', 0) > 0 else "0% (no policy anchor)"
+        mult = f"{item['actual']/item['policy']:.1%}× target, " if item.get('policy', 0) > 0 else "no policy target, "
         tweaks.append({
             "axis": "drift",
             "level": "weight_drift",
@@ -275,13 +279,13 @@ def generate_drift_tweaks(levels: Dict[str, dict], theta: dict) -> List[dict]:
             "ratio": round(ratio, 3),
             "recommended_action": (
                 f"rebalance {item['ticker']} from "
-                f"{item['actual']:.1%} to ≤{item['policy']:.1%} "
+                f"{item['actual']:.1%} to ≤{target_pct} "
                 f"(±{band_pct} relative band breach)"
             ),
             "rationale": (
                 f"{item['ticker']} weight at {item['actual']:.1%}, "
-                f"policy target {item['policy']:.1%} — "
-                f"{item['actual']/item['policy']:.1%}× target, "
+                f"policy target {target_pct} — "
+                f"{mult}"
                 f"outside ±{band_pct} tolerance"
             ),
         })
@@ -437,3 +441,290 @@ def factor_drift_action(fc: dict) -> str:
     return (f"reduce {direction} exposure to {factor} factor: "
             f"β drifted from {policy:.2f} to {current:.2f}"
             f"{' — ' + hint if hint else ''}")
+
+
+# =========================================================================
+# C1–C4 — Drift checker functions (deterministic math — cheap-owned)
+# Each returns {composite_grade, composite_score, severity, ...} compatible
+# with merge_drift_grade() and generate_drift_tweaks().
+# =========================================================================
+
+def check_weight_drift(holdings_weights: Dict[str, float],
+                       policy_weights: Dict[str, float],
+                       theta: dict) -> Dict:
+    """
+    Level 1 — Weight drift: position weight vs policy band.
+
+    |w_actual − w_policy| / w_policy > drift_band → flagged.
+    Positions with no policy target (policy weight 0) are flagged when
+    actual weight > band (any position without a policy anchor is a drift).
+    """
+    band = theta.get("drift_band", 0.20)
+    all_tickers = sorted(set(holdings_weights) | set(policy_weights))
+    items = []
+    flagged_count = 0
+    for tk in all_tickers:
+        actual = holdings_weights.get(tk, 0.0)
+        target = policy_weights.get(tk, 0.0)
+        if target > 0:
+            ratio = abs(actual - target) / target
+        else:
+            # No policy anchor — any nonzero position is a deviation
+            ratio = 1.0 if actual > 0 else 0.0
+        flagged = ratio > band
+        if flagged:
+            flagged_count += 1
+        items.append({
+            "ticker": tk,
+            "actual": round(actual, 4),
+            "policy": round(target, 4),
+            "ratio": round(ratio, 3),
+            "flagged": flagged,
+        })
+
+    grade = grade_weight_drift(flagged_count, len(all_tickers), theta)
+    grade["items"] = items
+    return grade
+
+
+def check_risk_drift(portfolio_returns, theta: dict) -> Dict:
+    """
+    Level 2 — Risk drift: trailing vol/VaR/CVaR vs long-run baseline.
+
+    Trailing windows: 60d / 120d / 250d annualized vol vs full-sample
+    long-run vol. VaR(95%)/CVaR(95%) from the most recent 250 days.
+    vol_ratio = worst trailing window / long-run; > 1.5 → spike.
+    """
+    if portfolio_returns is None or len(portfolio_returns) < 60:
+        return {"composite_grade": "N/A", "composite_score": 0.0,
+                "severity": "green", "error": "insufficient return data"}
+
+    rets = portfolio_returns.dropna()
+    long_run_vol = float(rets.std() * (252 ** 0.5))
+
+    trailing_vols = {}
+    for win in (60, 120, 250):
+        if len(rets) >= win:
+            trailing_vols[f"{win}d"] = round(float(rets.iloc[-win:].std() * (252 ** 0.5)), 4)
+
+    vol_ratio = 1.0
+    if trailing_vols and long_run_vol > 0:
+        vol_ratio = max(trailing_vols.values()) / long_run_vol
+
+    # VaR/CVaR(95%) from the trailing 250 days (or full if shorter)
+    tail = rets.iloc[-250:]
+    var_95 = float(tail.quantile(0.05))
+    cvar_95 = float(tail[tail <= var_95].mean()) if (tail <= var_95).any() else var_95
+
+    budget = theta.get("risk_budget", {})
+    var_breach = var_95 < budget.get("var_95_limit", -0.15)
+    cvar_breach = cvar_95 < budget.get("cvar_95_limit", -0.22)
+
+    grade = grade_risk_drift(vol_ratio, var_breach, cvar_breach, theta)
+    grade["trailing_vols"] = trailing_vols
+    grade["long_run_vol"] = round(long_run_vol, 4)
+    grade["var_95"] = round(var_95, 4)
+    grade["cvar_95"] = round(cvar_95, 4)
+    return grade
+
+
+def check_style_drift(portfolio_returns, factor_returns,
+                      policy_beta: Dict[str, float], theta: dict) -> Dict:
+    """
+    Level 3 — Style/factor drift: β shift vs policy + QQQ correlation.
+
+    OLS on the trailing 2yr window; |β_actual − β_policy| / se > tolerance
+    → flagged factor. QQQ correlation > 0.90 → 'this IS QQQ' flag.
+    """
+    import regression
+
+    if portfolio_returns is None or factor_returns is None or factor_returns.empty:
+        return {"composite_grade": "N/A", "composite_score": 0.0,
+                "severity": "green", "error": "insufficient data"}
+
+    # Trailing window: last ~2 years of daily data (config-driven default 2)
+    win_years = theta.get("factor_regression_window", 2)
+    win_days = int(win_years * 252)
+    rets = portfolio_returns.dropna()
+    if len(rets) > win_days:
+        rets = rets.iloc[-win_days:]
+
+    result = regression.regress(rets, factor_returns)
+    if result is None:
+        return {"composite_grade": "N/A", "composite_score": 0.0,
+                "severity": "green", "error": "regression failed"}
+
+    tolerance = theta.get("style_tolerance", {}).get("factor_sigma", 1.5)
+    factor_deviations = []
+    for factor, actual_beta in result["beta"].items():
+        policy_b = policy_beta.get(factor, 0.0)
+        se = result.get("se", {}).get(factor, 0.0) or 0.0
+        delta_sigma = abs(actual_beta - policy_b) / se if se > 0 else 0.0
+        factor_deviations.append({
+            "factor": factor,
+            "current_beta": round(actual_beta, 4),
+            "policy_beta": round(policy_b, 4),
+            "sigma": round(delta_sigma, 2),
+            "flagged": delta_sigma > tolerance,
+        })
+
+    # QQQ correlation (QQQ is the tech-growth benchmark — style proxy)
+    qqq_corr = 0.0
+    try:
+        import data_fetcher
+        qqq_closes = data_fetcher.get_closes(["QQQ"])
+        if not qqq_closes.empty:
+            qqq_rets = data_fetcher.compute_log_returns(qqq_closes[["QQQ"]]).iloc[:, 0]
+            aligned = pd.concat([rets, qqq_rets], axis=1, join="inner").dropna()
+            if len(aligned) > 30:
+                qqq_corr = float(aligned.iloc[:, 0].corr(aligned.iloc[:, 1]))
+    except Exception:
+        qqq_corr = 0.0  # fail-open: no QQQ data → no QQQ flag
+
+    grade = grade_style_drift(factor_deviations, qqq_corr, theta)
+    grade["factor_deviations"] = factor_deviations
+    return grade
+
+
+def check_frontier_drift(closes, holdings_weights: Dict[str, float],
+                         policy_weights: Dict[str, float], theta: dict) -> Dict:
+    """
+    Level 4 — Frontier drift: long-run vs trailing 2yr frontier.
+
+    Sharpe degradation: long-run Sharpe of the policy portfolio vs trailing.
+    Tangency shift: max weight diff in the max-Sharpe (tangency) portfolio.
+    Bond flip: stock-bond correlation sign change on trailing window.
+    """
+    import frontier as frontier_mod
+    import numpy as np
+
+    tickers = list(holdings_weights.keys())
+    if closes is None or closes.empty or len(closes) < 120:
+        return {"composite_grade": "N/A", "composite_score": 0.0,
+                "severity": "green", "error": "insufficient closes"}
+
+    available = [t for t in tickers if t in closes.columns]
+    if len(available) < 2:
+        return {"composite_grade": "N/A", "composite_score": 0.0,
+                "severity": "green", "error": "insufficient universe"}
+
+    closes_f = closes[available].copy()
+    trail_len = min(504, len(closes_f) // 2)  # trailing window ≈ 2yr (max)
+    closes_trail = closes_f.iloc[-trail_len:]
+
+    # --- Sharpe degradation: policy portfolio return series, both windows ---
+    import data_fetcher
+    import portfolio as portfolio_mod
+
+    def _policy_sharpe(cdf):
+        p_ret = portfolio_mod.build_portfolio_returns(policy_weights, closes=cdf)
+        if p_ret is None or len(p_ret) < 30:
+            return None
+        mu = p_ret.mean() * 252
+        sd = p_ret.std() * (252 ** 0.5)
+        return (mu / sd) if sd > 0 else None
+
+    sharpe_long = _policy_sharpe(closes_f)
+    sharpe_trail = _policy_sharpe(closes_trail)
+    degradation = 0.0
+    if sharpe_long is not None and sharpe_trail is not None:
+        degradation = max(0.0, sharpe_long - sharpe_trail)
+
+    # --- Tangency (max-Sharpe) portfolio weights on both windows ---
+    def _tangency_weights(cdf):
+        rets = data_fetcher.compute_log_returns(cdf)
+        if rets.empty or len(rets) < 60:
+            return None
+        mu = rets.mean().to_numpy() * 252
+        cov = frontier_mod._cov_shrunk(rets)
+        inv = np.linalg.pinv(cov)
+        ones = np.ones(len(mu))
+        w = inv @ mu
+        denom = ones @ w
+        if abs(denom) < 1e-12:
+            return None
+        w = w / denom
+        w = np.clip(w, 0, 1)          # long-only flavor for comparison
+        if w.sum() > 0:
+            w = w / w.sum()
+        return w
+
+    w_long = _tangency_weights(closes_f)
+    w_trail = _tangency_weights(closes_trail)
+    tangency_shift = 0.0
+    if w_long is not None and w_trail is not None:
+        tangency_shift = float(np.max(np.abs(w_long - w_trail)))
+
+    # --- Stock-bond correlation sign flip ---
+    bond_flip = False
+    corr_trail = None
+    try:
+        eq = "SPY" if "SPY" in closes_f.columns else ("QQQ" if "QQQ" in closes_f.columns else None)
+        bd = "TLT" if "TLT" in closes_f.columns else None
+        if eq and bd:
+            r = data_fetcher.compute_log_returns(closes_f[[eq, bd]].dropna())
+            if len(r) > 60:
+                corr_long = float(r.iloc[:, 0].corr(r.iloc[:, 1]))
+                r_t = data_fetcher.compute_log_returns(closes_trail[[eq, bd]].dropna())
+                corr_trail = float(r_t.iloc[:, 0].corr(r_t.iloc[:, 1])) if len(r_t) > 30 else corr_long
+                if abs(corr_long) > 0.1 and abs(corr_trail) > 0.1:
+                    bond_flip = (corr_long * corr_trail) < 0
+    except Exception:
+        bond_flip = False  # fail-open
+
+    grade = grade_frontier_drift(degradation, tangency_shift, bond_flip, theta)
+    grade["sharpe_long_run"] = round(sharpe_long, 4) if sharpe_long is not None else None
+    grade["sharpe_trailing"] = round(sharpe_trail, 4) if sharpe_trail is not None else None
+    grade["bond_corr"] = round(corr_trail, 4) if corr_trail is not None else None
+    return grade
+
+
+# =========================================================================
+# C7 — Drift pipeline: run all checkers + merge + tweaks
+# =========================================================================
+
+def run_drift_grade(holdings_weights: Dict[str, float],
+                    policy_weights: Dict[str, float],
+                    factor_returns=None,
+                    closes=None,
+                    theta: dict = None,
+                    force_refresh: bool = False) -> Dict:
+    """
+    End-to-end drift grading: run 4 checkers → merge → tweaks.
+
+    holdings_weights: {ticker: weight} (normalized)
+    policy_weights:   {ticker: weight} — the policy target
+    factor_returns:   optional pre-loaded factor DataFrame
+    closes:           optional pre-loaded closes DataFrame
+    """
+    import data_fetcher
+    import portfolio as portfolio_mod
+
+    if theta is None:
+        theta = theta_mod.load_theta()
+
+    # Portfolio returns from holdings (for risk + style drift)
+    if closes is None:
+        all_tk = sorted(set(holdings_weights) | set(policy_weights))
+        closes = data_fetcher.get_closes(all_tk, force_refresh=force_refresh)
+    portfolio_returns = portfolio_mod.build_portfolio_returns(holdings_weights, closes=closes)
+
+    # Policy β* for style drift (reuse concentration's policy derivation)
+    import concentration
+    policy_beta_result = concentration.compute_policy_beta(
+        policy_weights, factor_returns=factor_returns, closes=closes,
+        force_refresh=force_refresh)
+    policy_beta = policy_beta_result.get("beta", {}) if isinstance(policy_beta_result, dict) else {}
+
+    levels = {
+        "weight": check_weight_drift(holdings_weights, policy_weights, theta),
+        "risk": check_risk_drift(portfolio_returns, theta),
+        "style": check_style_drift(portfolio_returns, factor_returns, policy_beta, theta),
+        "frontier": check_frontier_drift(closes, holdings_weights, policy_weights, theta),
+    }
+
+    merged = merge_drift_grade(levels, theta)
+    merged["tweaks"] = generate_drift_tweaks(levels, theta)
+    merged["as_of"] = str(closes.index[-1].date()) if closes is not None and not closes.empty else None
+    merged["n_obs"] = int(len(portfolio_returns)) if portfolio_returns is not None else 0
+    return merged
