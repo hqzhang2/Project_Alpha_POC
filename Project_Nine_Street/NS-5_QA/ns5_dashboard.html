@@ -18,6 +18,8 @@
     background: #161b22; border: 1px solid #1e1e2e; border-radius: 8px;
     padding: 16px; min-width: 340px; flex: 1; max-width: 560px;
   }
+  .card.wide { max-width: 100%; flex-basis: 100%; }
+  .chart-wrap { position: relative; height: 420px; }
   .card h3 { font-size: 13px; color: #8888a0; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
   label { display: block; font-size: 12px; color: #8888a0; margin: 10px 0 4px; }
   textarea {
@@ -91,7 +93,16 @@
     </div>
   </div>
 
+  <div class="card wide" style="margin-top:20px">
+    <h3>Efficient Frontier</h3>
+    <div class="chart-wrap"><canvas id="frontierChart"></canvas></div>
+    <div class="meta" id="frontierMeta">Loading frontier…</div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
+let frontierChart = null;
+
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -154,6 +165,90 @@ async function grade() {
     btn.disabled = false;
   }
 }
+async function loadFrontier() {
+  var meta = document.getElementById('frontierMeta');
+  try {
+    var holdings = JSON.parse(document.getElementById('holdings').value);
+    var policy = JSON.parse(document.getElementById('policy').value);
+    var res = await fetch('/api/frontier', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({holdings: holdings, policy_weights: policy})
+    });
+    var d = await res.json();
+    if (!res.ok || d.error) { meta.textContent = 'frontier: ' + (d.error || ('HTTP ' + res.status)); return; }
+
+    // Scatter points: assets (gray), GMV (blue), portfolio (green), policy (orange)
+    var assets = (d.assets || []).map(function(a) {
+      return {x: a.vol, y: a.ret, label: a.ticker};
+    });
+    var gmv = d.gmv ? [{x: d.gmv.vol, y: d.gmv.ret, label: 'GMV'}] : [];
+    var port = d.portfolio && d.portfolio.vol != null
+      ? [{x: d.portfolio.vol, y: d.portfolio.ret, label: 'Portfolio'}] : [];
+    var pol = d.policy && d.policy.vol != null
+      ? [{x: d.policy.vol, y: d.policy.ret, label: 'Policy'}] : [];
+
+    var frontierPts = (d.frontier || []).map(function(p) { return {x: p.vol, y: p.ret}; });
+
+    var ctx = document.getElementById('frontierChart').getContext('2d');
+    if (frontierChart) frontierChart.destroy();
+    frontierChart = new Chart(ctx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {label: 'Efficient Frontier', data: frontierPts, showLine: true, borderColor: '#58a6ff',
+           borderWidth: 2, pointRadius: 0, fill: false, tension: 0},
+          {label: 'Assets', data: assets, backgroundColor: '#6e7681', pointRadius: 4,
+           pointHoverRadius: 6},
+          {label: 'GMV', data: gmv, backgroundColor: '#f0883e', pointRadius: 7,
+           pointStyle: 'rectRot'},
+          {label: 'Portfolio', data: port, backgroundColor: '#4ade80', pointRadius: 9,
+           pointStyle: 'triangle'},
+          {label: 'Policy', data: pol, backgroundColor: '#f0b429', pointRadius: 8,
+           pointStyle: 'star'}
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#e8e8f0', font: {size: 11} } },
+          tooltip: {
+            callbacks: {
+              label: function(c) {
+                var lbl = c.dataset.label || '';
+                var pt = c.raw;
+                var tag = '';
+                if (c.datasetIndex === 0) { tag = ' frontier'; }
+                else if (c.datasetIndex === 1) {
+                  var a = d.assets[c.dataIndex]; tag = ' ' + (a && a.ticker ? a.ticker : '');
+                }
+                return lbl + tag + ': vol ' + (pt.x * 100).toFixed(1) + '% / ret ' +
+                       (pt.y * 100).toFixed(1) + '%';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title: {display: true, text: 'Volatility (ann. %)', color: '#8888a0'},
+               ticks: {color: '#8888a0', callback: function(v) { return (v * 100).toFixed(0) + '%'; }},
+               grid: {color: '#1e1e2e'} },
+          y: { title: {display: true, text: 'Return (ann. %)', color: '#8888a0'},
+               ticks: {color: '#8888a0', callback: function(v) { return (v * 100).toFixed(0) + '%'; }},
+               grid: {color: '#1e1e2e'} }
+        }
+      }
+    });
+
+    meta.textContent = 'as_of: ' + (d.as_of || 'n/a') + ' · universe: ' +
+      (d.universe || []).length + ' tickers · ' + (d.frontier || []).length + ' frontier points';
+  } catch (e) {
+    meta.textContent = 'frontier failed: ' + e.message;
+  }
+}
+
+// Initial load — frontier + dashboard
+loadFrontier();
 </script>
 </body>
 </html>

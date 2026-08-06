@@ -21,6 +21,7 @@ import concentration
 import config
 import data_fetcher
 import environment
+import frontier
 import portfolio
 import theta as theta_mod
 
@@ -72,6 +73,50 @@ def _serve_dashboard(handler):
     handler.wfile.write(body)
 
 
+DEFAULT_FRONTIER_HOLDINGS = {
+    "AAPL": 0.14, "MSFT": 0.12, "NVDA": 0.08, "GOOGL": 0.07,
+    "AMZN": 0.06, "META": 0.05, "TSLA": 0.04,
+    "JPM": 0.05, "UNH": 0.04, "XOM": 0.05, "TLT": 0.30,
+}
+DEFAULT_FRONTIER_POLICY = {"SPY": 0.60, "TLT": 0.40}
+
+
+def _frontier_response(holdings=None, policy=None, force_refresh=False):
+    """Efficient frontier + portfolio/policy positions for a holdings dict."""
+    holdings = holdings or DEFAULT_FRONTIER_HOLDINGS
+    policy = policy or DEFAULT_FRONTIER_POLICY
+
+    universe = list(holdings.keys()) + list(policy.keys())
+    closes = data_fetcher.get_closes(universe, force_refresh=force_refresh)
+    if closes.empty:
+        return {"error": "no price data for universe"}
+
+    fc = frontier.compute_frontier(closes, list(holdings.keys()))
+    if "error" in fc:
+        return fc
+
+    # Positions: portfolio, policy, and each asset (scatter points)
+    pos_portfolio = frontier.position_on_frontier(holdings, closes, list(holdings.keys()))
+    pos_policy = frontier.position_on_frontier(policy, closes, list(policy.keys()))
+
+    assets = []
+    for tk in fc["tickers"]:
+        if tk in fc["mu"] and tk in fc["sigma"]:
+            assets.append({"ticker": tk, "ret": fc["mu"][tk], "vol": fc["sigma"][tk]})
+
+    return {
+        "as_of": str(closes.index[-1].date()) if not closes.empty else None,
+        "universe": fc["tickers"],
+        "frontier": fc["frontier"],
+        "gmv": fc["gmv"],
+        "max_ret": fc["max_ret"],
+        "assets": assets,
+        "portfolio": pos_portfolio,
+        "policy": pos_policy,
+        "n_obs": pos_portfolio.get("n_obs", 0) if isinstance(pos_portfolio, dict) else 0,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, status=200):
         body = json.dumps(obj, default=str).encode()
@@ -118,6 +163,14 @@ class Handler(BaseHTTPRequestHandler):
                 if factors.empty:
                     self._json({"error": "no factor data"}, 503); return
                 self._json(environment.environment_summary(factors))
+            elif self.path.startswith("/api/frontier"):
+                # GET: fetch closes for the default tech-heavy example universe
+                from urllib.parse import parse_qs, urlparse
+                q = parse_qs(urlparse(self.path).query)
+                holdings = json.loads(q.get("holdings", [None])[0]) if q.get("holdings") else None
+                policy = json.loads(q.get("policy", [None])[0]) if q.get("policy") else None
+                result = _frontier_response(holdings, policy)
+                self._json(result)
             elif self.path.startswith("/api/grade"):
                 self._json({"usage": "POST /api/grade JSON: {holdings: {TICKER: weight}, "
                                       "policy_weights: {TICKER: weight}}",
@@ -150,6 +203,14 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": "no factor data"}, 503); return
                 result = concentration.run_concentration_grade(
                     holdings, theta, factor_returns=factors)
+                self._json(result)
+            elif self.path.startswith("/api/frontier"):
+                length = int(self.headers.get("Content-Length", 0))
+                if length == 0:
+                    self._json({"error": "empty body"}, 400); return
+                body = json.loads(self.rfile.read(length))
+                result = _frontier_response(body.get("holdings"),
+                                            body.get("policy_weights"))
                 self._json(result)
             else:
                 self._json({"error": "not found"}, 404)
