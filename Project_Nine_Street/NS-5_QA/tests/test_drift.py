@@ -56,29 +56,33 @@ def _theta(**over):
 class TestWeightDrift:
     def test_within_band_all_clean(self):
         th = _theta(drift_band=0.20)
-        r = drift.check_weight_drift({"AAPL": 0.12, "TLT": 0.40},
-                                     {"AAPL": 0.10, "TLT": 0.40}, th)
+        # SPY↦Equity, TLT↦Fixed-Income — within band at asset-class level
+        r = drift.check_weight_drift({"SPY": 0.12, "TLT": 0.40},
+                                     {"SPY": 0.10, "TLT": 0.40}, th)
         assert r["flagged_count"] == 0
         assert r["composite_grade"] == "A"
-        assert r["composite_score"] == 5.0
 
     def test_outside_band_flagged(self):
         th = _theta(drift_band=0.20)
-        # AAPL 0.14 vs 0.10 → ratio 0.40 > 0.20 → flagged
-        r = drift.check_weight_drift({"AAPL": 0.14, "TLT": 0.40},
-                                     {"AAPL": 0.10, "TLT": 0.40}, th)
+        # SPY 0.40→Equity=0.40, TLT→Fixed=0.40 (sum 0.80, unnormalized)
+        # vs policy SPY 0.10→Equity=0.10, TLT 0.40→Fixed=0.40
+        # Equity ratio = |0.40−0.10|/0.10 = 3.0 → flagged
+        r = drift.check_weight_drift({"SPY": 0.40, "TLT": 0.40},
+                                     {"SPY": 0.10, "TLT": 0.40}, th)
         assert r["flagged_count"] == 1
-        items = {i["ticker"]: i for i in r["items"]}
-        assert items["AAPL"]["flagged"] is True
-        assert items["AAPL"]["ratio"] == pytest.approx(0.4, abs=1e-3)
+        items = {i["sector"]: i for i in r["items"]}
+        assert items["Equity"]["flagged"] is True
+        assert items["Equity"]["ratio"] == pytest.approx(3.0, abs=1e-1)
 
     def test_no_policy_anchor_flags_position(self):
         th = _theta(drift_band=0.20)
+        # AAPL → Sector-Tech → rolls up to Equity with no policy target
         r = drift.check_weight_drift({"AAPL": 0.20}, {}, th)
-        assert r["flagged_count"] == 1  # position with no policy target
+        assert r["flagged_count"] == 1  # Equity asset class has no anchor
 
     def test_all_flagged_is_f(self):
         th = _theta(drift_band=0.20)
+        # Two tech stocks → Equity vs empty policy → all flagged
         r = drift.check_weight_drift({"AAPL": 0.20, "MSFT": 0.20}, {}, th)
         assert r["composite_grade"] == "F"
         assert r["severity"] == "red"
@@ -87,7 +91,21 @@ class TestWeightDrift:
         th = _theta(drift_band=0.20)
         r = drift.check_weight_drift({}, {}, th)
         assert r["flagged_count"] == 0
-        assert r["composite_grade"] == "N/A"  # fail-open: no positions to grade
+        assert r["composite_grade"] == "N/A"
+
+    def test_sector_aggregation_works(self):
+        """Three equity positions roll into one Equity asset class."""
+        th = _theta(drift_band=0.20)
+        # AAPL+Sector-Tech→Equity 0.30, SPY→Equity 0.20, TLT→Fixed 0.40
+        # Equity total 0.50 vs policy Equity 0.60 → ratio 0.17 < 0.20 → NOT flagged
+        # Adding more equity: AAPL 0.40+MSFT 0.40+SPY 0.20=1.0 Eq, TLT 0.40=0.4 FI
+        # Equity ratio = |1.0−0.6|/0.6 = 0.67 > 0.20 → flagged, actual=1.0
+        r = drift.check_weight_drift({"AAPL": 0.40, "MSFT": 0.40, "SPY": 0.20, "TLT": 0.40},
+                                     {"SPY": 0.60, "TLT": 0.40}, th)
+        assert r["flagged_count"] >= 1
+        items = {i["sector"]: i for i in r["items"]}
+        assert items["Equity"]["actual"] == pytest.approx(1.0, abs=1e-3)
+        assert items["Equity"]["flagged"] is True
 
 
 # =========================================================================

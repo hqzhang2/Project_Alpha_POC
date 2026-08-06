@@ -267,23 +267,24 @@ def generate_drift_tweaks(levels: Dict[str, dict], theta: dict) -> List[dict]:
             continue
         ratio = item.get("ratio", 0)
         sev = "critical" if ratio > 0.5 else ("high" if ratio > 0.3 else "medium")
-        target_pct = f"{item['policy']:.1%}" if item.get('policy', 0) > 0 else "0% (no policy anchor)"
-        mult = f"{item['actual']/item['policy']:.1%}× target, " if item.get('policy', 0) > 0 else "no policy target, "
+        label = item.get("sector", item.get("ticker", ""))
+        target_pct = f"{item['policy']:.1%}" if item.get('policy', 0) > 0 else "0% (no anchor)"
+        mult = f"{item['actual']/item['policy']:.1%}× target, " if item.get('policy', 0) > 0 else "no policy anchor, "
         tweaks.append({
             "axis": "drift",
             "level": "weight_drift",
             "severity": sev,
-            "ticker": item.get("ticker", ""),
+            "ticker": label,
             "current_weight": item.get("actual", 0),
             "policy_weight": item.get("policy", 0),
             "ratio": round(ratio, 3),
             "recommended_action": (
-                f"rebalance {item['ticker']} from "
+                f"rebalance {label} from "
                 f"{item['actual']:.1%} to ≤{target_pct} "
                 f"(±{band_pct} relative band breach)"
             ),
             "rationale": (
-                f"{item['ticker']} weight at {item['actual']:.1%}, "
+                f"{label} weight at {item['actual']:.1%}, "
                 f"policy target {target_pct} — "
                 f"{mult}"
                 f"outside ±{band_pct} tolerance"
@@ -453,36 +454,58 @@ def check_weight_drift(holdings_weights: Dict[str, float],
                        policy_weights: Dict[str, float],
                        theta: dict) -> Dict:
     """
-    Level 1 — Weight drift: position weight vs policy band.
+    Level 1 — Weight drift: asset-class-level weight vs policy band.
 
-    |w_actual − w_policy| / w_policy > drift_band → flagged.
-    Positions with no policy target (policy weight 0) are flagged when
-    actual weight > band (any position without a policy anchor is a drift).
+    Aggregates ticker weights into sectors via theta['sector_map'], then
+    rolls up into asset classes (Equity / Fixed-Income / Cash / Commodity)
+    so that a stock portfolio of Sector-Tech + Sector-Healthcare compares
+    meaningfully to an ETF policy of Equity-Large.  A ticker-level
+    comparison is meaningless when the portfolio holds individual stocks
+    and the policy is expressed in ETFs.
     """
     band = theta.get("drift_band", 0.20)
-    all_tickers = sorted(set(holdings_weights) | set(policy_weights))
+    sector_map = theta.get("sector_map", {})
+
+    def _to_asset_class(sec):
+        if sec.startswith("Sector-") or sec.startswith("Equity-") or sec == "Unknown":
+            return "Equity"
+        if sec.startswith("Fixed-Income"):
+            return "Fixed-Income"
+        return sec  # Cash, Commodity, or custom — pass through
+
+    def _aggregate(weights):
+        ac = {}
+        for tk, w in weights.items():
+            sec = sector_map.get(tk, "Unknown")
+            cls = _to_asset_class(sec)
+            ac[cls] = ac.get(cls, 0.0) + w
+        return ac
+
+    port_ac = _aggregate(holdings_weights)
+    policy_ac = _aggregate(policy_weights)
+    all_classes = sorted(set(port_ac) | set(policy_ac))
+
     items = []
     flagged_count = 0
-    for tk in all_tickers:
-        actual = holdings_weights.get(tk, 0.0)
-        target = policy_weights.get(tk, 0.0)
+    for cls in all_classes:
+        actual = port_ac.get(cls, 0.0)
+        target = policy_ac.get(cls, 0.0)
         if target > 0:
             ratio = abs(actual - target) / target
         else:
-            # No policy anchor — any nonzero position is a deviation
             ratio = 1.0 if actual > 0 else 0.0
         flagged = ratio > band
         if flagged:
             flagged_count += 1
         items.append({
-            "ticker": tk,
+            "sector": cls,
             "actual": round(actual, 4),
             "policy": round(target, 4),
             "ratio": round(ratio, 3),
             "flagged": flagged,
         })
 
-    grade = grade_weight_drift(flagged_count, len(all_tickers), theta)
+    grade = grade_weight_drift(flagged_count, len(all_classes), theta)
     grade["items"] = items
     return grade
 
