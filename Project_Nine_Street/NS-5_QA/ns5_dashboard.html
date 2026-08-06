@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-5 Portfolio Concentration</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117; color: #e8e8f0;
+    min-height: 100vh; padding: 20px;
+  }
+  h1 { font-size: 18px; color: #4ade80; margin-bottom: 4px; }
+  .sub { font-size: 12px; color: #6b7280; margin-bottom: 20px; }
+  .grid { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .card {
+    background: #161b22; border: 1px solid #1e1e2e; border-radius: 8px;
+    padding: 16px; min-width: 340px; flex: 1; max-width: 560px;
+  }
+  .card h3 { font-size: 13px; color: #8888a0; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  label { display: block; font-size: 12px; color: #8888a0; margin: 10px 0 4px; }
+  textarea {
+    width: 100%; background: #0d1117; color: #e8e8f0; border: 1px solid #30363d;
+    border-radius: 6px; padding: 8px; font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px; min-height: 90px; resize: vertical;
+  }
+  button {
+    margin-top: 12px; padding: 8px 18px; border-radius: 6px; border: 1px solid #4ade80;
+    background: #14532d; color: #4ade80; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #166534; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .composite {
+    text-align: center; padding: 20px 0 16px; border-bottom: 1px solid #1e1e2e; margin-bottom: 14px;
+  }
+  .composite .grade { font-size: 44px; font-weight: 800; color: #4ade80; }
+  .composite .score { font-size: 13px; color: #8888a0; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1e1e2e; }
+  th { color: #8888a0; font-weight: 500; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+  .pill.A { background: #14532d; color: #4ade80; }
+  .pill.B { background: #1e3a5f; color: #58a6ff; }
+  .pill.C { background: #4d3800; color: #f0b429; }
+  .pill.D { background: #5f1e1e; color: #ff6b6b; }
+  .pill.F, .pill.N-A { background: #7a1f1f; color: #ff8b8b; }
+  .tweak {
+    background: #0d1117; border: 1px solid #1e1e2e; border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 8px; font-size: 12px;
+  }
+  .tweak .sev { font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .sev.critical { color: #ff6b6b; } .sev.high { color: #f0b429; } .sev.medium { color: #58a6ff; }
+  .tweak .action { color: #e8e8f0; margin: 4px 0; }
+  .tweak .why { color: #6b7280; font-size: 11px; }
+  .err { color: #ff6b6b; font-size: 12px; margin-top: 10px; white-space: pre-wrap; }
+  .meta { font-size: 11px; color: #484f58; margin-top: 12px; }
+  .example { font-size: 11px; color: #58a6ff; cursor: pointer; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <h1>NS-5 · Portfolio Concentration Grading</h1>
+  <div class="sub">Evaluate any portfolio against a policy — factor loading, sector, effective-N, tail correlation. Not a return engine; a governance engine.</div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Portfolio</h3>
+      <label>Holdings (JSON: ticker → weight)</label>
+      <textarea id="holdings">{"AAPL": 0.14, "MSFT": 0.12, "NVDA": 0.08, "GOOGL": 0.07,
+ "AMZN": 0.06, "META": 0.05, "TSLA": 0.04,
+ "JPM": 0.05, "UNH": 0.04, "XOM": 0.05, "TLT": 0.30}</textarea>
+      <label>Policy weights (JSON: ticker → weight)</label>
+      <textarea id="policy">{"SPY": 0.60, "TLT": 0.40}</textarea>
+      <button id="gradeBtn" onclick="grade()">Grade Portfolio</button>
+      <div class="err" id="err"></div>
+      <div class="meta" id="meta"></div>
+    </div>
+
+    <div class="card" id="resultCard" style="display:none">
+      <h3>Scorecard</h3>
+      <div class="composite">
+        <div class="grade" id="compGrade">—</div>
+        <div class="score" id="compScore">composite concentration score</div>
+      </div>
+      <table id="axesTable">
+        <thead><tr><th>Axis</th><th>Grade</th><th>Score</th><th>Weight</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h3 style="margin-top:18px">Tweaks</h3>
+      <div id="tweaks"></div>
+    </div>
+  </div>
+
+<script>
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function pill(g) {
+  var cls = String(g || 'N/A').replace(/[^A-Z]/g, '') || 'N-A';
+  return '<span class="pill ' + cls + '">' + esc(g) + '</span>';
+}
+async function grade() {
+  var btn = document.getElementById('gradeBtn');
+  btn.disabled = true;
+  document.getElementById('err').textContent = '';
+  try {
+    var holdings = JSON.parse(document.getElementById('holdings').value);
+    var policy = JSON.parse(document.getElementById('policy').value);
+    var res = await fetch('/api/grade', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({holdings: holdings, policy_weights: policy})
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) {
+      document.getElementById('err').textContent = (data.error || ('HTTP ' + res.status));
+      return;
+    }
+    var c = data.concentration;
+    document.getElementById('compGrade').textContent = c.composite_concentration_grade;
+    document.getElementById('compScore').textContent =
+      'composite concentration score: ' + c.composite_concentration_score;
+    var tb = document.querySelector('#axesTable tbody');
+    tb.innerHTML = '';
+    var order = ['factor_loading', 'sector', 'effective_n', 'tail_correlation'];
+    order.forEach(function(k) {
+      var sg = c.sub_grades[k];
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + k.replace('_', ' ') + '</td>' +
+                     '<td>' + pill(sg.grade) + '</td>' +
+                     '<td>' + sg.score + '</td>' +
+                     '<td>' + (sg.weight * 100).toFixed(0) + '%</td>';
+      tb.appendChild(tr);
+    });
+    var tw = document.getElementById('tweaks');
+    tw.innerHTML = '';
+    (data.tweaks || []).forEach(function(t) {
+      var div = document.createElement('div');
+      div.className = 'tweak';
+      div.innerHTML = '<span class="sev ' + t.severity + '">' + esc(t.severity) + '</span> ' +
+        esc(t.axis) + (t.sub_axis ? ' / ' + esc(t.sub_axis) : '') +
+        '<div class="action">' + esc(t.recommended_action) + '</div>' +
+        '<div class="why">' + esc(t.rationale) + '</div>';
+      tw.appendChild(div);
+    });
+    if (!data.tweaks || !data.tweaks.length) tw.innerHTML = '<div class="meta">No tweaks — portfolio is within policy bands.</div>';
+    document.getElementById('resultCard').style.display = 'block';
+    var meta = document.getElementById('meta');
+    meta.textContent = 'as_of: ' + (data.as_of || 'n/a') + ' · n_obs: ' + (data.n_obs || 0) +
+      ' · r²: ' + (data.regression ? data.regression.r_squared : 'n/a');
+  } catch (e) {
+    document.getElementById('err').textContent = 'Failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

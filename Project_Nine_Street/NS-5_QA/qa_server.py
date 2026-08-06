@@ -57,6 +57,21 @@ def _freshness_meta():
     return {"error": "no factor_meta.json — run refresh"}
 
 
+def _serve_dashboard(handler):
+    """Serve ns5_dashboard.html (the portal-facing UI)."""
+    dash_path = config.BASE_DIR / "ns5_dashboard.html"
+    if not dash_path.exists():
+        handler._json({"error": "ns5_dashboard.html not found"}, 404)
+        return
+    with open(dash_path, "rb") as fh:
+        body = fh.read()
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/html; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, status=200):
         body = json.dumps(obj, default=str).encode()
@@ -66,9 +81,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def end_headers(self):
+        # Single CORS header source — applies to JSON, HTML, and 404s.
+        # (Adding it in _json AND here produced "*, *" which browsers reject.)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
     def do_GET(self):
         try:
-            if self.path in ("/health", "/health/"):
+            if self.path in ("/", "/index.html", "/ns5_dashboard.html"):
+                _serve_dashboard(self)
+            elif self.path in ("/health", "/health/"):
                 meta = _freshness_meta()
                 factors = _get_factors()
                 self._json({"status": "ok", "service": "ns5", "env": ENV, "port": PORT,

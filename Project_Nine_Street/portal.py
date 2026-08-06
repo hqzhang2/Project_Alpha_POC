@@ -41,6 +41,7 @@ STRATEGIES = {
     'ns2':   {'name': 'NS-2 (MAG7 HMM)', 'path': '', 'prod': 9228, 'qa': 9229},
     'ns3':   {'name': 'NS-3 (Sector Rotation)', 'path': 'ns3_dashboard.html', 'prod': 9236, 'qa': 9237},
     'ns4':   {'name': 'NS-4 (Ratio Trading)', 'path': 'ns4_dashboard.html', 'prod': 9240, 'qa': 9241},
+    'ns5':   {'name': 'NS-5 (Portfolio Grading)', 'path': 'ns5_dashboard.html', 'prod': 9250, 'qa': 9251},
 }
 
 # HTML Template with all braces escaped for Python .format()
@@ -181,6 +182,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <button class="nav-tab" data-strategy="ns2" onclick="switchStrategy('ns2')"><span class="status-indicator" id="status-ns2"></span>NS-2</button>
               <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')"><span class="status-indicator" id="status-ns3"></span>NS-3</button>
               <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')"><span class="status-indicator" id="status-ns4"></span>NS-4</button>
+              <button class="nav-tab" data-strategy="ns5" onclick="switchStrategy('ns5')"><span class="status-indicator" id="status-ns5"></span>NS-5</button>
             </div>
     </div>
     <div class="env-toggle">
@@ -243,7 +245,8 @@ const SERVICE_ENDPOINTS = {
   'ns1': '/health',
   'ns2': '/health',
   'ns3': '/health',
-  'ns4': '/health'
+  'ns4': '/health',
+  'ns5': '/health'
 };
 
 async function checkServiceHealth(key, port, path) {
@@ -260,7 +263,7 @@ async function checkServiceHealth(key, port, path) {
 }
 
 async function updateStatusIndicators() {
-  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4'];
+  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4', 'ns5'];
   for (const key of strategies) {
     const s = STRATS[key];
     if (!s) continue;
