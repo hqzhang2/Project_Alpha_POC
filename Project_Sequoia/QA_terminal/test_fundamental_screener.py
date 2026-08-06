@@ -143,6 +143,38 @@ class TestScreenUniverse(unittest.TestCase):
             for p in patchers:
                 p.stop()
 
+    def test_stale_snapshot_skipped(self):
+        # PBR-like: us-gaap facts end years ago — must not screen on them
+        stale = dict(SNAP)
+        stale["period_end"] = "2010-12-31"
+        patchers = _mock_store({"STALE": stale}, {"STALE": 10.0})
+        try:
+            rows = fs.screen_universe("2026-08-01")
+            self.assertEqual(rows, [])
+        finally:
+            for p in patchers:
+                p.stop()
+
+    @patch.object(fs, "derive_adr_ratio",
+                  side_effect=lambda t: 8.0 if t == "STRONG" else 1.0)
+    def test_adr_ratio_adjusts_per_share_math(self, _mock_ratio):
+        # STRONG at $240/ADR with ratio 8 == $30 ordinary: same verdicts as
+        # the $30 US case, but the display price stays the ADR price.
+        prices = {"STRONG": 240.0, "WEAK": 400.0}
+        patchers = _mock_store({"STRONG": dict(SNAP), "WEAK": dict(SNAP)},
+                               prices, {"STRONG": HIST, "WEAK": HIST})
+        try:
+            rows = {r["ticker"]: r for r in fs.screen_universe("2026-08-01")}
+        finally:
+            for p in patchers:
+                p.stop()
+        s = rows["STRONG"]
+        self.assertEqual(s["price"], 240.0)
+        self.assertEqual(s["adr_ratio"], 8)
+        self.assertTrue(s["graham"]["pass"])       # P/E 240/8/6.5 = 4.6
+        self.assertTrue(s["lynch"]["pass"])        # PEG on ordinary price
+        self.assertEqual(s["agreement"], 3)        # same as the $30 US case
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

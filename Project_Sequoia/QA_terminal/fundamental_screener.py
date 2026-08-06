@@ -19,6 +19,7 @@ import time
 from datetime import datetime, timedelta
 
 import fundamentals_history as fh
+from fundamentals import derive_adr_ratio
 from validate_frameworks import (score_graham, score_greenblatt,
                                  score_lynch, score_buffett)
 
@@ -41,18 +42,32 @@ def screen_universe(as_of=None, force=False):
         snap = fh.get_snapshot(t, as_of)
         price = fh.price_on(t, as_of)
         if snap and price:
-            snapshots[t] = (snap, price)
+            # skip stale snapshots (>24 months old — data gap, e.g. PBR's
+            # us-gaap facts end 2010; showing those verdicts would mislead)
+            try:
+                age = (datetime.strptime(as_of, "%Y-%m-%d")
+                       - datetime.strptime(snap["period_end"], "%Y-%m-%d")).days
+            except ValueError:
+                age = 0
+            if age > 730:
+                continue
+            # ADR-ratio-adjust the per-share price (ADR price ÷ R gives the
+            # ordinary-share price) so P/E, Graham #, EV and PEG are computed
+            # on the right share basis. Display keeps the ADR price.
+            ratio = derive_adr_ratio(t)
+            snapshots[t] = (snap, price / ratio, ratio)
 
     peers = _greenblatt_peers(snapshots)   # cross-sectional EY/ROC ranks
     rows = []
-    for t, (snap, price) in snapshots.items():
+    for t, (snap, price, ratio) in snapshots.items():
         g_pass = score_graham(snap, price)
         gb_pass = score_greenblatt(snap, price, peers)
         ly_pass = score_lynch(t, snap, price, as_of)
         bf_pass = score_buffett(snap)
         row = {
             "ticker": t,
-            "price": price,
+            "price": round(price * ratio, 2),
+            "adr_ratio": ratio,
             "snapshot_period": snap["period_end"],
             "snapshot_filed": snap["filed"],
             "agreement": sum([g_pass, gb_pass, ly_pass, bf_pass]),
@@ -73,7 +88,7 @@ def screen_universe(as_of=None, force=False):
 # --------------------------------------------------------------------------- #
 def _greenblatt_peers(snapshots):
     peers = {"ey": [], "roc": []}
-    for snap, price in snapshots.values():
+    for snap, price, _ratio in snapshots.values():
         oi = snap["operating_income"]
         if not oi or oi <= 0:
             continue

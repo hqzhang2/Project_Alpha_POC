@@ -148,7 +148,7 @@ def _annual_facts(us_gaap, tag):
     for unit_facts in units.values():
         for u in unit_facts:
             form = u.get("form", "")
-            if "10-K" not in form:
+            if "10-K" not in form and "20-F" not in form:
                 continue
             end = u.get("end")
             if not end:

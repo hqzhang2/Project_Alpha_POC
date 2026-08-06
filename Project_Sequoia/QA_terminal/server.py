@@ -655,7 +655,11 @@ class Handler(SimpleHTTPRequestHandler):
         import fundamental_screener
         force = qs.get('force', ['0'])[0] in ('1', 'true', 'True')
         as_of = qs.get('as_of', [None])[0]
+        ticker = qs.get('ticker', [None])[0]
         rows = fundamental_screener.screen_universe(as_of=as_of, force=force)
+        if ticker:
+            ticker = ticker.strip().upper()
+            rows = [r for r in rows if r['ticker'] == ticker]
         self.send_json({'count': len(rows), 'results': rows})
 
     def get_ratio_data(self, t1, t2, tf, sma_period):

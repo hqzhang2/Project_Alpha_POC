@@ -67,6 +67,18 @@ class TestAnnualFacts(unittest.TestCase):
         got = fh._annual_facts(ug, "StockholdersEquity")
         self.assertEqual(got, [("2025-09-27", "2025-11-01", 62000.0)])
 
+    def test_20f_annual_accepted(self):
+        # ADRs (BABA/TSM/BHP) file Form 20-F — same ~365d annual facts, USD
+        ug = {"NetIncomeLoss": {"units": {"USD": [
+            _fact("2026-03-31", "2026-06-15", 15.0, form="20-F",
+                  start="2025-04-01"),   # 365d annual OK
+            _fact("2026-06-30", "2026-08-14", 4.0, form="6-K",
+                  start="2026-04-01"),   # 90d 6-K quarterly — skipped
+        ]}}}
+        got = fh._annual_facts(ug, "NetIncomeLoss")
+        self.assertEqual([(e, f, v) for e, f, v in got],
+                         [("2026-03-31", "2026-06-15", 15.0)])
+
 
 class TestExtractTicker(unittest.TestCase):
     @patch.object(fh, "_fetch_companyfacts")

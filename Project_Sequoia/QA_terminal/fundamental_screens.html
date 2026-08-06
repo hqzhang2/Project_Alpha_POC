@@ -38,8 +38,8 @@
     .b4 { background: rgba(63,185,80,.15); color: #3fb950; }
     .b3, .b2 { background: rgba(88,166,255,.15); color: #58a6ff; }
     .b1, .b0 { background: rgba(139,148,158,.15); color: #8b949e; }
-    .pass { color: #3fb950; font-weight: 600; }
-    .fail { color: #6e7681; }
+    .fs-table td.pass, .m-row .pass { color: #3fb950; font-weight: 600; }
+    .fs-table td.fail, .m-row .fail { color: #f0883e; font-weight: 600; }
     .detail { color: #8b949e; font-size: 11px; }
     /* drilldown modal */
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; }
@@ -50,6 +50,8 @@
     .m-row .k { color: #8b949e; }
     .m-row .v { font-family: Monaco, monospace; font-size: 12px; }
     .modal .close { float: right; cursor: pointer; color: #8b949e; font-size: 18px; background: none; border: none; }
+    .m-legend { margin-top: 12px; padding-top: 8px; border-top: 1px solid #21262d; color: #8b949e; font-size: 11px; line-height: 1.7; }
+    .m-legend b { color: #8b949e; }
 </style>
 </head>
 <body>
@@ -93,6 +95,16 @@
         <h3 id="mdTicker"></h3>
         <div class="sub" id="mdSub"></div>
         <div id="mdBody"></div>
+        <div class="m-legend">
+            <b>Acronyms:</b>
+            P/E = Price / Earnings &nbsp;·&nbsp; EPS = Earnings Per Share &nbsp;·&nbsp;
+            PEG = P/E ÷ Earnings Growth &nbsp;·&nbsp; CAGR = Compound Annual Growth Rate &nbsp;·&nbsp;
+            EBIT = Earnings Before Interest &amp; Taxes &nbsp;·&nbsp; EV = Enterprise Value &nbsp;·&nbsp;
+            ROC = Return on Capital &nbsp;·&nbsp; EY = Earnings Yield &nbsp;·&nbsp;
+            ROE = Return on Equity &nbsp;·&nbsp; FCF = Free Cash Flow &nbsp;·&nbsp;
+            D/E = Debt-to-Equity &nbsp;·&nbsp; IC = Invested Capital &nbsp;·&nbsp;
+            NI = Net Income
+        </div>
     </div>
 </div>
 

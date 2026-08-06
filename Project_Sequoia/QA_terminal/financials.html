@@ -58,6 +58,31 @@
         .loading { padding: 40px; text-align: center; color: #8b949e; }
         .error { padding: 40px; text-align: center; color: #f85149; }
         .fallback-banner { background: #1c2128; border: 1px solid #f0883e; color: #f0b37e; padding: 8px 16px; font-size: 13px; border-radius: 6px; margin: 10px 24px 0; }
+
+        /* 4-framework cross-reference tiles (replaces the single Graham matrix) */
+        .fs-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+        .fs-agree { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px 14px; border-radius: 8px; background: #21262d; border: 1px solid #30363d; }
+        .fs-agree .n { font-size: 22px; font-weight: 700; }
+        .fs-tile { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; cursor: pointer; min-width: 118px; text-align: left; }
+        .fs-tile:hover { border-color: #58a6ff; }
+        .fs-tile .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; }
+        .fs-tile .verdict { font-size: 13px; font-weight: 700; margin: 4px 0; }
+        .fs-tile .metric { font-family: 'Monaco', monospace; font-size: 14px; }
+        .pass { color: #3fb950; font-weight: 600; }
+        .fail { color: #f0883e; font-weight: 600; }
+        .m-row .pass { color: #3fb950; font-weight: 600; }
+        .m-row .fail { color: #f0883e; font-weight: 600; }
+        .fs-store-banner { background: #1c2128; border: 1px solid #f0883e; color: #f0b37e; padding: 8px 16px; font-size: 13px; border-radius: 6px; margin: 10px 24px 0; }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; }
+        .modal { position: absolute; top: 12%; left: 50%; transform: translateX(-50%); width: 480px; max-width: 92vw; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 18px 22px; }
+        .modal h3 { margin-bottom: 4px; font-size: 18px; }
+        .modal .sub { color: #8b949e; font-size: 12px; margin-bottom: 10px; }
+        .m-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 13px; }
+        .m-row .k { color: #8b949e; }
+        .m-row .v { font-family: 'Monaco', monospace; font-size: 12px; }
+        .modal .close { float: right; cursor: pointer; color: #8b949e; font-size: 18px; background: none; border: none; }
+        .m-legend { margin-top: 12px; padding-top: 8px; border-top: 1px solid #21262d; color: #8b949e; font-size: 11px; line-height: 1.7; }
+        .m-legend b { color: #8b949e; }
     </style>
 </head>
 <body>
@@ -105,23 +130,44 @@
                 <div class="ticker" id="qtTicker">AAPL <span id="qtPrice" class="price yahoo"></span></div>
                 <div class="source" id="qtSource">Source: SEC EDGAR (XBRL)</div>
             </div>
-            <div class="valuation-card" id="valuationCard" style="display:none">
-                <div>
-                    <div class="valuation-label">Valuation Score</div>
-                    <div class="valuation-score" id="valScore">0</div>
+            <div class="fs-row" id="fsRow" style="display:none">
+                <div class="fs-agree"><div class="label">Agreement</div><div class="n" id="fsAgree">-</div></div>
+                <div class="fs-tile" id="tile-graham" onclick="fsOpen('graham')">
+                    <div class="label">Graham</div><div class="verdict" id="g-graham">-</div><div class="metric" id="m-graham">-</div>
                 </div>
-                <div>
-                    <div class="valuation-label">Graham Number</div>
-                    <div class="graham-num" id="grahamNum">$0.00</div>
+                <div class="fs-tile" id="tile-greenblatt" onclick="fsOpen('greenblatt')">
+                    <div class="label">Greenblatt</div><div class="verdict" id="g-greenblatt">-</div><div class="metric" id="m-greenblatt">-</div>
                 </div>
-                <div>
-                    <div class="valuation-label">Intelligent Investor Rating</div>
-                    <div class="valuation-rating" id="valRating">N/A</div>
+                <div class="fs-tile" id="tile-lynch" onclick="fsOpen('lynch')">
+                    <div class="label">Lynch</div><div class="verdict" id="g-lynch">-</div><div class="metric" id="m-lynch">-</div>
+                </div>
+                <div class="fs-tile" id="tile-buffett" onclick="fsOpen('buffett')">
+                    <div class="label">Buffett</div><div class="verdict" id="g-buffett">-</div><div class="metric" id="m-buffett">-</div>
                 </div>
             </div>
         </div>
         
+        <div class="fs-store-banner" id="fsStoreBanner" style="display:none"></div>
         <div class="fallback-banner" id="fallbackBanner" style="display:none"></div>
+        
+        <div class="modal-overlay" id="fsModal" onclick="if (event.target === this) fsClose()">
+            <div class="modal">
+                <button class="close" onclick="fsClose()">✕</button>
+                <h3 id="mdTitle"></h3>
+                <div class="sub" id="mdSub"></div>
+                <div id="mdBody"></div>
+                <div class="m-legend">
+                    <b>Acronyms:</b>
+                    P/E = Price / Earnings &nbsp;·&nbsp; EPS = Earnings Per Share &nbsp;·&nbsp;
+                    PEG = P/E ÷ Earnings Growth &nbsp;·&nbsp; CAGR = Compound Annual Growth Rate &nbsp;·&nbsp;
+                    EBIT = Earnings Before Interest &amp; Taxes &nbsp;·&nbsp; EV = Enterprise Value &nbsp;·&nbsp;
+                    ROC = Return on Capital &nbsp;·&nbsp; EY = Earnings Yield &nbsp;·&nbsp;
+                    ROE = Return on Equity &nbsp;·&nbsp; FCF = Free Cash Flow &nbsp;·&nbsp;
+                    D/E = Debt-to-Equity &nbsp;·&nbsp; IC = Invested Capital &nbsp;·&nbsp;
+                    NI = Net Income
+                </div>
+            </div>
+        </div>
         
         <div class="tabs">
             <button class="tab active" onclick="setTab('income')">Income Statement</button>
@@ -196,18 +242,118 @@
                 
                 document.getElementById('qtSource').textContent = 'Source: ' + (financialsData.source || 'SEC EDGAR');
                 
-                // Render Valuation Metrics
-                if (financialsData.metrics) {
-                    document.getElementById('valuationCard').style.display = 'flex';
-                    document.getElementById('valScore').textContent = financialsData.metrics.valuation_score || 0;
-                    document.getElementById('valRating').textContent = financialsData.metrics.rating || 'N/A';
-                    document.getElementById('grahamNum').textContent = financialsData.metrics.graham_number ? '$' + financialsData.metrics.graham_number.toFixed(2) : 'N/A';
-                }
+                // Render the 4-framework cross-reference (replaces the old
+                // single Graham matrix). Store-backed; degrades to SEC/Yahoo
+                // Graham-only with a warning when not in the store.
+                renderFrameworkMatrix(ticker);
 
                 renderTable();
             } catch(e) {
                 document.getElementById('dataContainer').innerHTML = '<div class="error">Error: ' + e.message + '</div>';
             }
+        }
+
+        let fsRow = null;
+
+        async function renderFrameworkMatrix(ticker) {
+            const banner = document.getElementById('fsStoreBanner');
+            const row = document.getElementById('fsRow');
+            // reset tile visibility for the store path
+            ['greenblatt', 'lynch', 'buffett', 'graham'].forEach(
+                m => document.getElementById('tile-' + m).style.display = '');
+            try {
+                const res = await fetch('/api/fundamentals/screen?ticker=' + encodeURIComponent(ticker));
+                const d = await res.json();
+                if (d.count && d.results.length) {
+                    fsRow = d.results[0];
+                    banner.style.display = 'none';
+                    row.style.display = 'flex';
+                    document.getElementById('fsAgree').textContent = fsRow.agreement + '/4';
+                    setTile('graham', fsRow.graham, fsRow.graham.score != null ? fsRow.graham.score : '-');
+                    setTile('greenblatt', fsRow.greenblatt, pct(fsRow.greenblatt.ey));
+                    setTile('lynch', fsRow.lynch, fsRow.lynch.peg != null ? fsRow.lynch.peg.toFixed(2) : '-');
+                    setTile('buffett', fsRow.buffett, pct(fsRow.buffett.roe));
+                } else {
+                    degradeToGrahamOnly(ticker);
+                }
+            } catch (e) {
+                degradeToGrahamOnly(ticker);
+            }
+        }
+
+        function setTile(method, m, metric) {
+            document.getElementById('g-' + method).textContent = m.pass ? '✓ PASS' : '✗ FAIL';
+            document.getElementById('g-' + method).className = 'verdict ' + (m.pass ? 'pass' : 'fail');
+            document.getElementById('m-' + method).textContent = metric;
+        }
+
+        function degradeToGrahamOnly(ticker) {
+            fsRow = null;
+            const banner = document.getElementById('fsStoreBanner');
+            banner.style.display = 'block';
+            banner.textContent = '⚠️ ' + ticker + ' is not in the fundamentals store — showing SEC/Yahoo Graham only. Run fundamentals_history.py to include it in the 4-framework cross-reference.';
+            document.getElementById('fsRow').style.display = 'flex';
+            ['greenblatt', 'lynch', 'buffett'].forEach(
+                m => document.getElementById('tile-' + m).style.display = 'none');
+            document.getElementById('tile-graham').style.display = 'block';
+            const m = financialsData.metrics || {};
+            const score = m.valuation_score;
+            document.getElementById('g-graham').textContent = 'Score ' + (score ?? '-');
+            document.getElementById('g-graham').className = 'verdict ' + ((score || 0) >= 6 ? 'pass' : 'fail');
+            document.getElementById('m-graham').textContent = (m.rating || 'N/A') +
+                (m.graham_number ? ' · # $' + m.graham_number.toFixed(2) : '');
+            document.getElementById('fsAgree').textContent = '1/4*';
+        }
+
+        function fsOpen(method) {
+            const om = financialsData.metrics || {};
+            let rows = '';
+            if (method === 'graham') {
+                if (fsRow) {
+                    rows += mRow('Score (0-12)', fsRow.graham.score ?? '-') +
+                        mRow('Rating', fsRow.graham.rating || '-') +
+                        mRow('P/E', fsRow.graham.pe ?? '-') +
+                        mRow('Graham #', fsRow.graham.graham_number != null ? '$' + fsRow.graham.graham_number.toFixed(2) : '-');
+                }
+                rows += mRow('Valuation Score (legacy)', om.valuation_score ?? '-') +
+                    mRow('Intelligent Investor Rating', om.rating || 'N/A') +
+                    mRow('Graham Number (legacy)', om.graham_number ? '$' + om.graham_number.toFixed(2) : 'N/A');
+            } else if (fsRow) {
+                if (method === 'greenblatt') {
+                    rows += mRow('EBIT / EV', pct(fsRow.greenblatt.ey)) +
+                        mRow('ROC (EBIT / IC)', pct(fsRow.greenblatt.roc)) +
+                        mRow('Ranked vs', '500-name store universe');
+                } else if (method === 'lynch') {
+                    rows += mRow('P/E', fsRow.lynch.pe ?? '-') +
+                        mRow('5y EPS CAGR', pct(fsRow.lynch.growth)) +
+                        mRow('PEG', fsRow.lynch.peg ?? '-');
+                } else if (method === 'buffett') {
+                    rows += mRow('ROE', pct(fsRow.buffett.roe)) +
+                        mRow('FCF / Net Income', pct(fsRow.buffett.fcf_conv)) +
+                        mRow('D/E', fsRow.buffett.de ?? '-');
+                }
+            }
+            const m = fsRow ? fsRow[method] : null;
+            document.getElementById('mdTitle').textContent =
+                method.charAt(0).toUpperCase() + method.slice(1) + ' — ' +
+                (fsRow ? (m && m.pass ? 'PASS' : 'FAIL') : 'degraded (Graham only)');
+            document.getElementById('mdSub').textContent = financialsData.ticker + ' · ' +
+                (fsRow ? 'Snapshot FY ' + fsRow.snapshot_period + ' (filed ' + fsRow.snapshot_filed + ')'
+                       : 'SEC/XBRL current-period metrics');
+            document.getElementById('mdBody').innerHTML = rows;
+            document.getElementById('fsModal').style.display = 'block';
+        }
+
+        function fsClose() {
+            document.getElementById('fsModal').style.display = 'none';
+        }
+
+        function mRow(k, v) {
+            return '<div class="m-row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
+        }
+
+        function pct(v) {
+            return v != null ? (v * 100).toFixed(1) + '%' : '-';
         }
 
         async function loadFromWatchlist() {
