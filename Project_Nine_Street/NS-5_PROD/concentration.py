@@ -1,0 +1,491 @@
+#!/usr/bin/env python3
+"""
+NS-5 Concentration Consumer — policy loading vector + factor-loading grading.
+
+ROADMAP §2.4–2.5 (MONEY-PATH — frontier-owned, do not edit without review):
+- `compute_policy_beta()`: derive policy β* from policy weights
+- `grade_factor_loading()`: compare portfolio β to policy β, produce per-factor
+  grades, a composite, and flagged deviations.
+
+All thresholds are in theta.THETA_DEFAULTS — single source of truth.
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Dict, Optional
+
+import numpy as np
+import pandas as pd
+
+import config
+import data_fetcher
+import regression
+import theta as theta_mod
+import checks
+
+
+# ============================================================================
+# Policy loading vector (§2.4)
+# ============================================================================
+
+def compute_policy_beta(policy_weights: Dict[str, float],
+                        factor_returns: Optional[pd.DataFrame] = None,
+                        closes: Optional[pd.DataFrame] = None,
+                        force_refresh: bool = False) -> Dict:
+    """
+    Derive the policy loading vector β* from policy weights.
+
+    Constructs the theoretical daily return series of the policy portfolio
+    (Σ w_i × r_i), regresses it on the 5 factors, and returns the β vector.
+
+    Returns: dict with {beta: {factor_name: float, ...}, alpha, r_squared, n_obs}
+             or {"error": "..."} on failure.
+    """
+    if factor_returns is None:
+        factor_returns, _, _ = data_fetcher.build_factor_returns(force_refresh=force_refresh)
+    if factor_returns.empty:
+        return {"error": "no factor data — run refresh"}
+
+    all_tickers = list(policy_weights.keys())
+    if closes is None:
+        closes = data_fetcher.get_closes(all_tickers, force_refresh=force_refresh)
+    if closes.empty:
+        return {"error": "no price data for policy tickers"}
+
+    available = [t for t in all_tickers if t in closes.columns]
+    if not available:
+        return {"error": "none of the policy tickers have price data"}
+
+    # Build policy daily returns (same contract as build_portfolio_returns)
+    rets = data_fetcher.compute_log_returns(closes[available].copy())
+    if rets.empty:
+        return {"error": "no return data for policy tickers"}
+    weights_arr = np.array([policy_weights[t] for t in available])
+    policy_rets = (rets[available] @ weights_arr)
+    policy_rets = policy_rets.where(np.isfinite(policy_rets)).dropna()
+
+    if len(policy_rets) < 60:
+        return {"error": f"insufficient policy return observations ({len(policy_rets)})"}
+
+    result = regression.regress(policy_rets, factor_returns)
+    if result is None:
+        return {"error": "regression failed — insufficient data after alignment"}
+    # Tag so consumers know this is the policy target, not a portfolio
+    result["kind"] = "policy"
+    result["policy_weights"] = deepcopy(policy_weights)
+    return result
+
+
+# ============================================================================
+# Factor-loading grading (§2.5 — MONEY-PATH)
+# ============================================================================
+
+def _sigma_to_grade(sigma: float, bounds: list) -> tuple:
+    """Map |deviation| ÷ SE to letter grade and numeric score (5=A, 1=F)."""
+    scores = {"A": 5, "B": 4, "C": 3, "D": 2, "F": 1}
+    for upper, letter in bounds:
+        if sigma <= upper:
+            return letter, scores[letter]
+    return "F", 1
+
+
+def _composite_from_scores(scores: list, bounds: list) -> tuple:
+    avg = float(np.mean(scores)) if scores else 0.0
+    letter = "F"
+    for threshold, ltr in bounds:
+        if avg >= threshold:
+            letter = ltr
+            break
+    return round(avg, 2), letter
+
+
+def grade_factor_loading(loading_vector: Dict[str, float],
+                         policy_beta: Dict,
+                         theta: dict,
+                         standard_errors: Optional[Dict[str, float]] = None) -> Dict:
+    """
+    Grade factor-loading deviation: portfolio β vs policy β*.
+
+    Args:
+        loading_vector:  dict {factor_name: beta} from regression.regress()['beta']
+        policy_beta:     dict from compute_policy_beta() — must have 'beta' key
+        theta:           Θ parameter dict
+        standard_errors: dict {factor_name: se}, from regression output — if None
+                         or NaN, grade conservatively (> 2σ degradation)
+
+    Returns:
+        dict: {
+            composite_grade: "B",           # overall letter
+            composite_score: 3.2,           # numeric 1-5
+            factors: {
+                MKT: {beta, policy_beta, sigma, grade, score, flagged},
+                ...
+            }
+        }
+
+    Grade scale:
+        A (5): ≤ 0.5σ  — near policy
+        B (4): ≤ 1.5σ  — slight tilt, within tolerance
+        C (3): ≤ 2.5σ  — material deviation, flags for review
+        D (2): ≤ 3.5σ  — significant deviation, action recommended
+        F (1): > 3.5σ  — severe, urgent
+    """
+    bounds = theta["sigma_grade_bounds"]
+    letter_bounds = theta["letter_score_bounds"]
+    tolerance = theta["factor_tolerance_sigma"]
+
+    policy_betas = policy_beta.get("beta", {}) if isinstance(policy_beta, dict) else {}
+    if not policy_betas:
+        return {"composite_grade": "F", "composite_score": 1.0,
+                "error": "no policy beta vector available",
+                "factors": {}}
+
+    if standard_errors is None:
+        standard_errors = {}
+
+    factor_details = {}
+    scores = []
+
+    for name in config.FACTOR_NAMES:
+        beta_i = loading_vector.get(name, 0.0)
+        policy_i = policy_betas.get(name, 0.0)
+        se_i = standard_errors.get(name, np.nan)
+
+        delta = beta_i - policy_i
+        abs_delta = abs(delta)
+
+        # Normalise by standard error — when SE is missing/NaN, estimate a floor
+        # so we don't under-grade near-zero deviations. Use a pessimistic SE floor
+        # equal to the factor's typical daily vol / sqrt(n_obs) ≈ 0.05–0.10.
+        # NaN/Inf SE → conservative: double the effective sigma.
+        if np.isfinite(se_i) and se_i > 0:
+            sigma = abs_delta / se_i
+        else:
+            # Conservative: treat as 2× tolerance → C/ flagged by default when
+            # delta is non-trivial. For near-zero delta (≤ 0.02), pass as "no
+            # reliable SE — treating as estimate noise."
+            sigma = tolerance * 2.0 if abs_delta > 0.02 else 0.0
+
+        grade, score = _sigma_to_grade(sigma, bounds)
+        flagged = sigma >= tolerance
+
+        factor_details[name] = {
+            "beta": round(beta_i, 4),
+            "policy_beta": round(policy_i, 4),
+            "delta": round(delta, 4),
+            "sigma": round(sigma, 2),
+            "se": round(se_i, 6) if np.isfinite(se_i) else None,
+            "grade": grade,
+            "score": score,
+            "flagged": flagged,
+        }
+        scores.append(score)
+
+    composite_score, composite_grade = _composite_from_scores(scores, letter_bounds)
+
+    return {
+        "composite_grade": composite_grade,
+        "composite_score": composite_score,
+        "flagged_count": sum(1 for f in factor_details.values() if f["flagged"]),
+        "flagged_factors": [n for n, f in factor_details.items() if f["flagged"]],
+        "factors": factor_details,
+    }
+
+
+# ============================================================================
+# 3.5 Composite concentration grade merger (MONEY-PATH — frontier-owned)
+# ============================================================================
+
+def _score_to_letter(score: float, bounds: list) -> str:
+    for threshold, letter in bounds:
+        if score >= threshold:
+            return letter
+    return "F"
+
+
+def merge_concentration_grade(factor_result: Dict,
+                              sector_result: Dict,
+                              eff_n_result: Dict,
+                              tail_corr_result: Dict,
+                              theta: dict) -> Dict:
+    """
+    Merge the four sub-grades into a single concentration composite.
+
+    Weights: factor_loading 40%, sector 25%, effective_n 20%, tail_correlation 15%
+    (tunable via theta['concentration_axis_weights']).
+
+    Missing or errored sub-grades are weighted at 0 with an
+    INSUFFICIENT_DATA note — the composite is still computable from the
+    remaining axes (fail-open pattern, per house rule).
+
+    Returns:
+        {composite_concentration_grade, composite_concentration_score,
+         axis_weights, sub_grades: {name: {grade, score, weight}}}
+    """
+    weights = theta.get("concentration_axis_weights", {})
+    letter_bounds = theta["letter_score_bounds"]
+
+    sub_grades = {
+        "factor_loading": {"grade": "N/A", "score": 0.0, "weight": weights.get("factor_loading", 0)},
+        "sector":          {"grade": "N/A", "score": 0.0, "weight": weights.get("sector", 0)},
+        "effective_n":     {"grade": "N/A", "score": 0.0, "weight": weights.get("effective_n", 0)},
+        "tail_correlation":{"grade": "N/A", "score": 0.0, "weight": weights.get("tail_correlation", 0)},
+    }
+
+    # Populate from available sub-grades
+    for key, source in (("factor_loading", factor_result), ("sector", sector_result),
+                        ("effective_n", eff_n_result), ("tail_correlation", tail_corr_result)):
+        if isinstance(source, dict) and "composite_score" in source:
+            sub_grades[key]["grade"] = source.get("composite_grade", "N/A")
+            sub_grades[key]["score"] = float(source.get("composite_score", 0.0))
+        else:
+            # Missing axis: zero-weight it so it doesn't dilute the composite
+            sub_grades[key]["weight"] = 0.0
+
+    # Weighted composite — normalise if weights are missing/zero-sum
+    numerator = sum(sg["score"] * sg["weight"] for sg in sub_grades.values())
+    denom = sum(sg["weight"] for sg in sub_grades.values())
+    if denom <= 0:
+        return {"composite_concentration_grade": "N/A",
+                "composite_concentration_score": None,
+                "error": "all axis weights are zero",
+                "axis_weights": weights, "sub_grades": sub_grades}
+
+    composite_score = round(numerator / denom, 2)
+    composite_letter = _score_to_letter(composite_score, letter_bounds)
+
+    return {
+        "composite_concentration_grade": composite_letter,
+        "composite_concentration_score": composite_score,
+        "axis_weights": weights,
+        "sub_grades": sub_grades,
+    }
+
+
+# ============================================================================
+# Full concentration grading pipeline (Phase 2.6 + Phase 3.5 wiring)
+# ============================================================================
+
+
+# ============================================================================
+# 4.2 Tweak-list generator (MONEY-PATH — frontier-owned, do not edit)
+# ============================================================================
+
+_TWEAK_TEMPLATES = {
+    # per-factor tweak: {factor: (direction_word, description)}
+    "MKT": ("reduce", "high market beta — lower equity allocation or rotate to lower-beta instruments"),
+    "SMB": ("reduce", "large-cap tilt — add small-cap exposure"),
+    "HML": ("reduce", "growth-heavy tilt — rotate to value/defensive names"),
+    "MOM": ("reduce", "momentum-chasing — reduce exposure to recent winners, add contrarian positions"),
+    "DUR": ("reduce", "high duration/rate sensitivity — shorten bond duration or reduce long-bond exposure"),
+}
+
+
+def generate_tweaks(concentration_result: Dict, theta: dict) -> list:
+    """
+    Produce a ranked list of actionable tweaks from the full concentration
+    grading result.
+
+    Scans factor_loading, sector, effective_n, and tail_correlation sub-
+    results for flagged or below-threshold items, then outputs specific
+    recommended actions ordered by severity (most critical first).
+
+    Args:
+        concentration_result: complete output of run_concentration_grade()
+        theta:               Θ parameter dict
+
+    Returns:
+        list of dicts, each: {axis, sub_axis, severity, current_value,
+                              target_value, recommended_action, rationale}
+    """
+    tweaks = []
+    tol = theta["factor_tolerance_sigma"]
+
+    # --- factor loading ---
+    fl = concentration_result.get("factor_loading", {})
+    for name, fdata in fl.get("factors", {}).items():
+        if not fdata.get("flagged"):
+            continue
+        beta, policy_b, sigma = fdata["beta"], fdata["policy_beta"], fdata["sigma"]
+        dir_word, desc = _TWEAK_TEMPLATES.get(name, ("adjust", f"{name} factor loading"))
+        direction = "overweight" if beta > policy_b else "underweight"
+        tweaks.append({
+            "axis": "factor_loading",
+            "sub_axis": name,
+            "severity": "critical" if sigma >= 3.5 else ("high" if sigma >= 2.5 else "medium"),
+            "current_beta": beta,
+            "policy_beta": policy_b,
+            "sigma": sigma,
+            "recommended_action": f"{dir_word} {name} exposure: {desc}",
+            "rationale": f"{name} loading {direction} at {sigma:.1f}σ vs policy "
+                         f"({beta:+.3f} vs {policy_b:+.3f})",
+        })
+
+    # --- sector ---
+    sec = concentration_result.get("sector", {})
+    for sector_name, sdata in sec.get("sector_details", {}).items():
+        if not sdata.get("flagged"):
+            continue
+        weight, cap, ratio = sdata["weight"], sdata["cap"], sdata["ratio"]
+        tweaks.append({
+            "axis": "sector",
+            "sub_axis": sector_name,
+            "severity": "critical" if ratio >= 2.0 else ("high" if ratio >= 1.5 else "medium"),
+            "current_weight": weight,
+            "cap": cap,
+            "ratio": ratio,
+            "recommended_action": f"reduce {sector_name} from {weight:.0%} to ≤{cap:.0%}",
+            "rationale": f"{sector_name} at {weight:.0%} ({ratio:.1f}× the {cap:.0%} sector cap)",
+        })
+
+    # --- effective-N ---
+    en = concentration_result.get("effective_n", {})
+    n_eff, floor = en.get("effective_n", 0), en.get("floor", 0)
+    en_score = en.get("composite_score", 5)
+    if en_score < 3.0 and n_eff < floor:  # C or worse AND below floor
+        gap = max(floor - n_eff, 1)
+        tweaks.append({
+            "axis": "effective_n",
+            "sub_axis": None,
+            "severity": "critical" if en_score < 1.5 else ("high" if en_score < 2.5 else "medium"),
+            "current_n": round(n_eff, 1),
+            "floor": floor,
+            "recommended_action": f"diversify from {n_eff:.1f} to ≥{floor} effective positions",
+            "rationale": f"portfolio is as concentrated as {n_eff:.0f} equal-weight holdings "
+                         f"(target ≥{floor})",
+        })
+
+    # --- tail correlation ---
+    tc = concentration_result.get("tail_correlation", {})
+    for pair in tc.get("flagged_pairs", []):
+        t1, t2, corr_val = pair[0], pair[1], pair[2]
+        pair_label = f"{t1}–{t2}"
+        tweaks.append({
+            "axis": "tail_correlation",
+            "sub_axis": pair_label,
+            "severity": "medium",
+            "current_corr": corr_val,
+            "threshold": theta["tail_corr_threshold"],
+            "recommended_action": f"{t1} and {t2} co-move in tail events (ρ={corr_val:.2f}); "
+                                   "consider reducing one or replacing with an uncorrelated alternative",
+            "rationale": f"tail correlation {corr_val:.2f} exceeds {theta['tail_corr_threshold']} "
+                           "threshold on worst {theta['tail_pctile']}% of days",
+        })
+
+    tweaks.sort(key=lambda t: {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(t["severity"], 99))
+    return tweaks
+
+
+# ============================================================================
+
+def run_concentration_grade(holdings: Dict[str, float],
+                            theta: dict,
+                            factor_returns: Optional[pd.DataFrame] = None,
+                            closes: Optional[pd.DataFrame] = None,
+                            force_refresh: bool = False) -> Dict:
+    """
+    End-to-end concentration grading for a portfolio.
+    Phase 2.6: wires parser, returns, regression, policy-β, and grading.
+
+    holdings may be a dict of weights, or a string naming a stored
+    portfolio (ticker→shares, converted to weights via latest closes).
+    theta['policy_weights'] may also be a string naming a stored policy.
+    """
+    import portfolio as portfolio_mod
+    import portfolio_store
+
+    # Resolve stored portfolio / policy names
+    if isinstance(holdings, str):
+        entry = portfolio_store.get_portfolio(holdings)
+        if entry is None:
+            return {"composite_grade": "N/A", "error": f"portfolio '{holdings}' not found"}
+        holdings_name = holdings
+        holdings = entry  # ticker → shares; converted below
+        # Need closes to convert shares → weights
+        closes_tmp = data_fetcher.get_closes(list(entry.keys()), force_refresh=force_refresh)
+        holdings = portfolio_mod.shares_to_weights(entry, closes_tmp)
+        if not holdings:
+            return {"composite_grade": "N/A",
+                    "error": f"portfolio '{holdings_name}' has no price data — cannot convert shares to weights"}
+    if isinstance(theta.get("policy_weights"), str):
+        pname = theta["policy_weights"]
+        pentry = portfolio_store.get_policy(pname)
+        if pentry is None:
+            return {"composite_grade": "N/A", "error": f"policy '{pname}' not found"}
+        theta = dict(theta)
+        theta["policy_weights"] = pentry
+
+    if factor_returns is None:
+        factor_returns, _, _ = data_fetcher.build_factor_returns(force_refresh=force_refresh)
+    if factor_returns.empty:
+        return {"composite_grade": "N/A", "error": "no factor data — run refresh"}
+
+    all_tickers = list(holdings.keys()) + list(theta.get("policy_weights", {}).keys())
+    if closes is None:
+        closes = data_fetcher.get_closes(all_tickers, force_refresh=force_refresh)
+
+    # 1. Build portfolio returns from holdings
+    from portfolio import build_portfolio_returns as _build
+    port_rets = _build(holdings, closes=closes)
+    if port_rets.empty:
+        return {"composite_grade": "N/A", "error": "no portfolio return data"}
+
+    # 2. Regress
+    result = regression.regress(port_rets, factor_returns)
+    if result is None:
+        return {"composite_grade": "N/A", "error": "regression failed — insufficient aligned data"}
+
+    # 3. Policy β (compute or use cached in theta)
+    policy_weights = theta.get("policy_weights", {})
+    policy = compute_policy_beta(policy_weights, factor_returns=factor_returns,
+                                  closes=closes, force_refresh=force_refresh)
+    if not isinstance(policy, dict) or "error" in policy:
+        # Policy unavailable → grade against neutral [MKT=0.6, others=0]
+        policy = {
+            "beta": {"MKT": 0.6, "SMB": 0.0, "HML": 0.0, "MOM": 0.0, "DUR": 0.0},
+            "kind": "fallback-neutral",
+        }
+
+    # 4. Factor-loading grade
+    grade = grade_factor_loading(
+        loading_vector=result["beta"],
+        policy_beta=policy,
+        theta=theta,
+        standard_errors=result.get("se"),
+    )
+
+    # 5. Non-factor checks (Phase 3.2–3.4)
+    sector_result = checks.grade_sector_weights(holdings, theta)
+    eff_n_result  = checks.grade_effective_n(holdings, theta)
+    tail_result   = checks.grade_tail_correlation(holdings, theta, closes=closes,
+                                                   force_refresh=force_refresh)
+
+    # 6. Composite merger (Phase 3.5)
+    composite = merge_concentration_grade(
+        grade, sector_result, eff_n_result, tail_result, theta)
+
+    return {
+        "as_of": str(factor_returns.index[-1].date()) if not factor_returns.empty else None,
+        "n_obs": len(port_rets),
+        "regression": {
+            "alpha": round(result.get("alpha", 0), 6),
+            "r_squared": round(result.get("r_squared", 0), 4),
+            "n_obs": result.get("n_obs", 0),
+        },
+        "policy": {
+            "kind": policy.get("kind", "computed"),
+            "weights": theta.get("policy_weights", {}),
+            "policy_beta": policy.get("beta", {}),
+        },
+        "concentration": composite,
+        "tweaks": generate_tweaks({
+            "factor_loading": grade,
+            "sector": sector_result,
+            "effective_n": eff_n_result,
+            "tail_correlation": tail_result,
+        }, theta),
+        "factor_loading": grade,
+        "sector": sector_result,
+        "effective_n": eff_n_result,
+        "tail_correlation": tail_result,
+    }
