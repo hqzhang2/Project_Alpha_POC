@@ -207,6 +207,57 @@ class TestStyleDrift:
                [f["flagged"] for f in r2["factor_deviations"]]
 
 
+class TestDriftEdgeCases:
+    """Phase 2d refinement tests — Task 3 (junior)."""
+
+    def test_all_bond_portfolio_weight_drift(self):
+        """100% TLT → Fixed-Income 1.0 vs policy 0.40, Equity 0.0 vs 0.60 → both flagged."""
+        th = _theta(drift_band=0.20)
+        r = drift.check_weight_drift({"TLT": 1.0}, {"SPY": 0.60, "TLT": 0.40}, th)
+        items = {i["sector"]: i for i in r["items"]}
+        assert items["Fixed-Income"]["actual"] == pytest.approx(1.0, abs=1e-3)
+        assert items["Fixed-Income"]["flagged"] is True
+        assert items["Equity"]["actual"] == pytest.approx(0.0, abs=1e-3)
+        assert items["Equity"]["flagged"] is True
+
+    def test_zero_vol_risk_drift_clean(self):
+        """Constant returns → zero vol → vol_ratio ~1, no breaches → A."""
+        th = _theta()
+        dates = pd.bdate_range("2024-01-01", periods=300)
+        rets = pd.Series([0.001] * 300, index=dates)
+        r = drift.check_risk_drift(rets, th)
+        assert r["composite_grade"] == "A"
+        assert r["vol_ratio"] <= 1.5
+
+    def test_single_ticker_frontier_drift_fail_open(self):
+        """One ticker → <2 in universe → N/A (fail-open, no crash)."""
+        th = _theta()
+        closes = _make_closes(seed=9)
+        r = drift.check_frontier_drift(closes, {"A": 1.0}, {"A": 1.0}, th)
+        assert r["composite_grade"] == "N/A"
+        assert "error" in r
+
+    def test_run_drift_grade_deterministic(self):
+        """run_drift_grade twice on same input → identical output."""
+        th = _theta(policy_weights={"SPY": 0.6, "TLT": 0.4})
+        holdings = {"SPY": 0.30, "TLT": 0.70}
+        r1 = drift.run_drift_grade(holdings, th["policy_weights"], theta=th)
+        r2 = drift.run_drift_grade(holdings, th["policy_weights"], theta=th)
+        assert r1["composite_drift_grade"] == r2["composite_drift_grade"]
+        assert r1["composite_drift_score"] == r2["composite_drift_score"]
+        assert len(r1["tweaks"]) == len(r2["tweaks"])
+
+    def test_run_drift_grade_exposes_levels(self):
+        """Task 1: run_drift_grade output carries raw checker measurements."""
+        th = _theta(policy_weights={"SPY": 0.6, "TLT": 0.4})
+        holdings = {"SPY": 0.30, "TLT": 0.70}
+        r = drift.run_drift_grade(holdings, th["policy_weights"], theta=th)
+        assert "levels" in r
+        assert set(r["levels"].keys()) == {"weight", "risk", "style", "frontier"}
+        assert "items" in r["levels"]["weight"]
+        assert "trailing_vols" in r["levels"]["risk"]
+
+
 # =========================================================================
 # C4 — check_frontier_drift
 # =========================================================================

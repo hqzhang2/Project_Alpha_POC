@@ -750,4 +750,6 @@ def run_drift_grade(holdings_weights: Dict[str, float],
     merged["tweaks"] = generate_drift_tweaks(levels, theta)
     merged["as_of"] = str(closes.index[-1].date()) if closes is not None and not closes.empty else None
     merged["n_obs"] = int(len(portfolio_returns)) if portfolio_returns is not None else 0
+    # Raw checker measurements — surfaced to the dashboard for detail rows
+    merged["levels"] = levels
     return merged

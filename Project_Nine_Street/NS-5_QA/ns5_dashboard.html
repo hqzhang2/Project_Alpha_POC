@@ -90,6 +90,11 @@
     padding: 10px; font-family: 'SF Mono', Menlo, monospace; font-size: 12px;
     color: #e8e8f0; white-space: pre-wrap; word-break: break-all; margin-top: 4px;
   }
+  .drift-detail td { padding: 2px 8px 10px; border: none; }
+  .drift-detail-cell {
+    font-size: 11px; color: #8b949e; line-height: 1.6;
+    padding-left: 18px !important;
+  }
 </style>
 </head>
 <body>
@@ -376,18 +381,27 @@ async function grade() {
     const dr = data.drift;
     if (dr && dr.composite_drift_grade) {
       document.getElementById('driftGrade').textContent = dr.composite_drift_grade;
-      document.getElementById('driftScore').textContent =
-        'composite drift score: ' + dr.composite_drift_score + ' · ' + dr.severity;
+      document.getElementById('driftScore').innerHTML =
+        'composite drift score: ' + dr.composite_drift_score + ' · ' + sevPill(dr.severity);
       const dtb = document.querySelector('#driftTable tbody');
       dtb.innerHTML = '';
       ['weight', 'risk', 'style', 'frontier'].forEach(k => {
         const sg = dr.sub_grades[k];
+        const lvl = dr.levels ? dr.levels[k] : null;
         const tr = document.createElement('tr');
         tr.innerHTML = '<td>' + k + ' drift</td>' +
-                       '<td>' + pill(sg.grade) + '</td>' +
+                       '<td>' + sevPill(sg.severity) + '</td>' +
                        '<td>' + sg.score + '</td>' +
                        '<td>' + (sg.weight * 100).toFixed(0) + '%</td>';
         dtb.appendChild(tr);
+        // Detail row: raw measurements under each drift level
+        if (lvl) {
+          const detail = document.createElement('tr');
+          detail.className = 'drift-detail';
+          detail.innerHTML = '<td colspan="4" class="drift-detail-cell">' +
+            driftDetail(k, lvl) + '</td>';
+          dtb.appendChild(detail);
+        }
       });
       document.getElementById('driftGrade').parentElement.style.display = '';
       document.getElementById('driftTable').style.display = '';
@@ -397,17 +411,39 @@ async function grade() {
     }
     const tw = document.getElementById('tweaks');
     tw.innerHTML = '';
-    (data.tweaks || []).forEach(t => {
-      const div = document.createElement('div');
-      div.className = 'tweak';
-      var sub = t.sub_axis || t.level || t.factor || '';
-      div.innerHTML = '<span class="sev ' + t.severity + '">' + esc(t.severity) + '</span> ' +
-        esc(t.axis) + (sub ? ' / ' + esc(sub) : '') +
-        '<div class="action">' + esc(t.recommended_action) + '</div>' +
-        '<div class="why">' + esc(t.rationale) + '</div>';
-      tw.appendChild(div);
-    });
-    if (!data.tweaks || !data.tweaks.length) tw.innerHTML = '<div class="meta">No tweaks — portfolio is within policy bands.</div>';
+    var tweaks = data.tweaks || [];
+    if (!tweaks.length) {
+      tw.innerHTML = '<div class="meta">No tweaks — portfolio is within policy bands.</div>';
+    } else {
+      var SHOW = 8;  // collapse long lists
+      var makeTweakDiv = function(t) {
+        var div = document.createElement('div');
+        div.className = 'tweak';
+        var sub = t.sub_axis || t.level || t.factor || '';
+        div.innerHTML = '<span class="sev ' + t.severity + '">' + esc(t.severity) + '</span> ' +
+          esc(t.axis) + (sub ? ' / ' + esc(sub) : '') +
+          '<div class="action">' + esc(t.recommended_action) + '</div>' +
+          '<div class="why">' + esc(t.rationale) + '</div>';
+        return div;
+      };
+      tweaks.slice(0, SHOW).forEach(function(t) { tw.appendChild(makeTweakDiv(t)); });
+      if (tweaks.length > SHOW) {
+        var moreWrap = document.createElement('div');
+        moreWrap.id = 'moreTweaks';
+        moreWrap.style.display = 'none';
+        tweaks.slice(SHOW).forEach(function(t) { moreWrap.appendChild(makeTweakDiv(t)); });
+        tw.appendChild(moreWrap);
+        var moreBtn = document.createElement('button');
+        moreBtn.className = 'btn-secondary';
+        moreBtn.style.marginTop = '6px';
+        moreBtn.textContent = 'Show ' + (tweaks.length - SHOW) + ' more tweaks';
+        moreBtn.onclick = function() {
+          moreWrap.style.display = '';
+          moreBtn.style.display = 'none';
+        };
+        tw.appendChild(moreBtn);
+      }
+    }
     document.getElementById('resultCard').style.display = 'block';
     const meta = document.getElementById('meta');
     meta.textContent = 'as_of: ' + (data.as_of || 'n/a') + ' · n_obs: ' + (data.n_obs || 0) +
@@ -422,6 +458,47 @@ async function grade() {
 function pill(g) {
   var cls = String(g || 'N/A').replace(/[^A-Z]/g, '') || 'N-A';
   return '<span class="pill ' + cls + '">' + esc(g) + '</span>';
+}
+function sevPill(sev) {
+  // Severity → pill color: green/yellow/orange/red map to A/C/D/F classes
+  var map = {green: 'A', yellow: 'C', orange: 'D', red: 'F'};
+  var cls = map[sev] || 'N-A';
+  return '<span class="pill ' + cls + '">' + esc(sev || 'N/A') + '</span>';
+}
+function driftDetail(k, lvl) {
+  // Raw measurement summary per drift level (from checker output)
+  if (!lvl) return '';
+  var parts = [];
+  if (k === 'weight' && lvl.items) {
+    lvl.items.forEach(function(it) {
+      var mark = it.flagged ? '⚠' : '✓';
+      parts.push(mark + ' ' + it.sector + ': ' +
+        (it.actual * 100).toFixed(1) + '% vs ' + (it.policy * 100).toFixed(1) + '%');
+    });
+  } else if (k === 'risk') {
+    if (lvl.trailing_vols) {
+      var vols = Object.keys(lvl.trailing_vols).map(function(w) {
+        return w + ': ' + (lvl.trailing_vols[w] * 100).toFixed(1) + '%';
+      });
+      parts.push('trailing ' + vols.join(' / '));
+    }
+    if (lvl.long_run_vol) parts.push('long-run σ: ' + (lvl.long_run_vol * 100).toFixed(1) + '%');
+    if (lvl.var_95 != null) parts.push('VaR95: ' + (lvl.var_95 * 100).toFixed(2) + '%');
+    if (lvl.cvar_95 != null) parts.push('CVaR95: ' + (lvl.cvar_95 * 100).toFixed(2) + '%');
+  } else if (k === 'style' && lvl.factor_deviations) {
+    lvl.factor_deviations.forEach(function(f) {
+      var mark = f.flagged ? '⚠' : '✓';
+      parts.push(mark + ' ' + f.factor + ': β ' + f.current_beta + ' vs ' +
+        f.policy_beta + ' (' + f.sigma + 'σ)');
+    });
+    if (lvl.qqq_corr) parts.push('QQQ corr: ' + lvl.qqq_corr);
+  } else if (k === 'frontier') {
+    if (lvl.sharpe_long_run != null) parts.push('Sharpe: ' + lvl.sharpe_long_run + ' → ' + lvl.sharpe_trailing);
+    if (lvl.tangency_shift) parts.push('tangency shift: ' + (lvl.tangency_shift * 100).toFixed(0) + '%');
+    if (lvl.bond_corr != null) parts.push('stock-bond corr: ' + lvl.bond_corr);
+    if (lvl.bond_corr_sign_flipped) parts.push('⚠ bond corr sign flipped');
+  }
+  return parts.join(' · ');
 }
 async function loadFrontier() {
   var meta = document.getElementById('frontierMeta');

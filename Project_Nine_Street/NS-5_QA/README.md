@@ -147,9 +147,22 @@ green → yellow → orange → red. Drift tweaks are appended to the shared
 tweak list with `axis: "drift"`.
 
 Request both axes: `POST /api/grade` with `{"axes": ["concentration", "drift"]}`
-(default when omitted). Drift-specific Θ keys: `drift_band`, `risk_budget`,
-`style_tolerance`, `frontier_thresholds`, `drift_axis_weights`,
-`drift_severity_bounds` — see `theta.py`.
+(default when omitted). Drift-specific Θ keys — see `theta.py`:
+
+| Key | Default | What |
+|---|---|---|
+| `drift_band` | 0.20 | ±20% relative weight tolerance per asset class |
+| `risk_budget.target_vol` | 0.14 | Annualized σ* (policy risk budget) |
+| `risk_budget.var_95_limit` | −0.15 | Daily VaR(95%) limit |
+| `risk_budget.cvar_95_limit` | −0.22 | Daily CVaR(95%) limit |
+| `risk_budget.vol_spike_sigma` | 1.5 | Trailing vol > long-run × N → flag |
+| `style_tolerance.factor_sigma` | 1.5 | \|β − β*\| / se above this → flagged factor |
+| `style_tolerance.qqq_corr_threshold` | 0.90 | Correlation to QQQ above this → "this IS QQQ" |
+| `frontier_thresholds.sharpe_degradation` | 0.15 | Long-run Sharpe − trailing Sharpe above this → flag |
+| `frontier_thresholds.tangency_shift` | 0.15 | Max tangency weight diff → flag |
+| `frontier_thresholds.bond_corr_sign_flip` | true | Stock-bond corr sign flip → independent flag |
+| `drift_axis_weights` | 15/25/30/30 | weight/risk/style/frontier composite weights |
+| `drift_severity_bounds` | green→red | Score → severity mapping (descending) |
 
 ## Tests
 
