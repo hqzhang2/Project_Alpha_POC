@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Terminal - 52-Week Lows</title>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .nav a.active { background: #21262d; color: #e6edf3; }
+        
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
+        .toolbar .date-label { color: #8b949e; font-size: 13px; }
+        .toolbar input[type="date"] { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; }
+        .toolbar input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        .toolbar .status { color: #8b949e; font-size: 13px; margin-left: auto; }
+        select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 6px; border-radius: 4px; }
+
+        .yl-section { padding: 24px; }
+
+        .yl-container {
+            background: #161b22;
+            border-radius: 8px;
+            overflow: visible;
+            border: 1px solid #21262d;
+        }
+
+        .yl-table { width: 100%; border-collapse: collapse; font-size: 14px; position: relative; }
+        .yl-table th, .yl-table td {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 1px solid #21262d;
+        }
+        .yl-table th {
+            color: #8b949e;
+            text-transform: uppercase;
+            font-size: 11px;
+            cursor: pointer;
+            user-select: none;
+            background: #161b22;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            border-bottom: 1px solid #30363d;
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+        .yl-table th:hover { color: #e6edf3; }
+        .yl-table th.active { color: #f85149; }
+        .yl-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .yl-table thead .gradient-row td {
+            padding: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #f85149, #d9382b);
+            border: none;
+        }
+        .yl-table th .sort-arrow {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            opacity: 0.4;
+            transition: opacity 0.15s;
+            vertical-align: middle;
+            margin-left: 2px;
+        }
+        .yl-table th.active .sort-arrow { opacity: 1; }
+        .yl-table th .sort-arrow.asc::before {
+            content: '▲';
+            display: block;
+            font-size: 8px;
+            line-height: 1;
+            color: currentColor;
+        }
+        .yl-table th .sort-arrow.desc::before {
+            content: '▼';
+            display: block;
+            font-size: 8px;
+            line-height: 1;
+            color: currentColor;
+        }
+        .yl-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+        .yl-table tbody tr:hover { background: #21262d; }
+        .yl-table .ticker { font-weight: 700; color: #e6edf3; }
+        .yl-table .exch-nyse { color: #58a6ff; }
+        .yl-table .exch-nasdaq { color: #3fb950; }
+        .yl-table td { color: #c9d1d9; }
+        .yl-empty, .yl-error { color: #8b949e; padding: 16px; }
+        .yl-error { color: #f85149; }
+    </style>
+</head>
+<body>
+    <div class="header"><div class="nav"></div></div>
+
+    <div class="toolbar">
+        <h2><span style="color:#f85149">▼</span> 52-Week Lows</h2>
+        <span class="date-label">Session:</span>
+        <input type="date" id="ylDate" onchange="ylLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;cursor:pointer;width:150px;">
+        <span class="status" id="ylStatus"></span>
+    </div>
+
+    <div class="yl-section">
+        <div class="yl-container">
+            <div id="ylTableWrap">
+                <table class="yl-table" id="ylTable">
+                    <thead>
+                        <tr>
+                            <th data-k="ticker" onclick="ylSort('ticker')">Ticker<span class="sort-arrow"></span></th>
+                            <th data-k="company" onclick="ylSort('company')">Company<span class="sort-arrow"></span></th>
+                            <th data-k="sector" onclick="ylSort('sector')">Sector<span class="sort-arrow"></span></th>
+                            <th data-k="exchange" onclick="ylSort('exchange')">Exchange<span class="sort-arrow"></span></th>
+                            <th data-k="close" onclick="ylSort('close')">Price<span class="sort-arrow"></span></th>
+                            <th data-k="market_cap" onclick="ylSort('market_cap')">Market Cap (B)<span class="sort-arrow"></span></th>
+                            <th data-k="volume" onclick="ylSort('volume')">Volume<span class="sort-arrow"></span></th>
+                        </tr>
+                        <tr class="gradient-row"><td colspan="7"></td></tr>
+                    </thead>
+                    <tbody id="ylBody"></tbody>
+                </table>
+                <div class="yl-empty" id="ylEmpty" style="display:none;">No 52-week lows stored for this session.</div>
+                <div class="yl-error" id="ylError" style="display:none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ---- 52-Week Lows panel ----
+        let ylRows = [];
+        let ylSortKey = 'pct_from_low';
+        let ylSortDir = 1;
+
+        function ylFmtPrice(v) {
+            return (v == null) ? '--' : '$' + Number(v).toFixed(2);
+        }
+        function ylFmtMktCap(v) {
+            if (v == null) return '--';
+            return '$' + (v / 1e9).toFixed(2) + 'B';
+        }
+        function ylFmtVol(v) {
+            if (v == null) return '--';
+            if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+            if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+            if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+            return String(v);
+        }
+        function ylExchClass(ex) {
+            return ex === 'NASDAQ' ? 'exch-nasdaq' : 'exch-nyse';
+        }
+
+        async function ylLoad() {
+            const dateEl = document.getElementById('ylDate');
+            const statusEl = document.getElementById('ylStatus');
+            const errEl = document.getElementById('ylError');
+            const emptyEl = document.getElementById('ylEmpty');
+            errEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+            const date = dateEl.value || '';
+            let url = '/api/year-lows';
+            if (date) {
+                url = `/api/year-lows?date=${encodeURIComponent(date)}`;
+            }
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                // Filter: only stocks at 52W low (pct_from_low <= 0)
+                ylRows = (data.results || []).filter(r => r.pct_from_low != null && r.pct_from_low <= 0);
+                // If no results and we queried a specific date, try without date (server fallback to latest)
+                if (!ylRows.length && date) {
+                    const res2 = await fetch('/api/year-lows');
+                    const data2 = await res2.json();
+                    ylRows = (data2.results || []).filter(r => r.pct_from_low != null && r.pct_from_low <= 0);
+                    if (ylRows.length) {
+                        dateEl.value = data2.date;
+                        statusEl.textContent = ` ${data2.date || ''} · ${ylRows.length} names at 52W low`;
+                        ylRender();
+                        return;
+                    }
+                }
+                statusEl.textContent = ` ${data.date || ''} · ${ylRows.length} names at 52W low`;
+                if (!ylRows.length) emptyEl.style.display = 'block';
+                ylRender();
+            } catch (e) {
+                errEl.textContent = 'Failed to load 52-week lows: ' + e.message;
+                errEl.style.display = 'block';
+                console.error('year-lows error:', e);
+            }
+        }
+
+        function ylRender() {
+            const body = document.getElementById('ylBody');
+            const rows = ylRows.slice().sort((a, b) => {
+                const va = a[ylSortKey], vb = b[ylSortKey];
+                if (va == null) return 1;
+                if (vb == null) return -1;
+                if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * ylSortDir;
+                return String(va).localeCompare(String(vb)) * ylSortDir;
+            });
+            body.innerHTML = rows.map(r => {
+                return `<tr>
+                    <td class="ticker">${r.ticker || ''}</td>
+                    <td>${r.company || ''}</td>
+                    <td>${r.sector || ''}</td>
+                    <td class="${ylExchClass(r.exchange)}">${r.exchange || ''}</td>
+                    <td>${ylFmtPrice(r.close)}</td>
+                    <td>${ylFmtMktCap(r.market_cap)}</td>
+                    <td>${ylFmtVol(r.volume)}</td>
+                </tr>`;
+            }).join('');
+            document.querySelectorAll('.yl-table th').forEach(th => {
+                const isActive = th.dataset.k === ylSortKey;
+                th.classList.toggle('active', isActive);
+                const arrow = th.querySelector('.sort-arrow');
+                if (isActive) {
+                    arrow.classList.toggle('asc', ylSortDir === 1);
+                    arrow.classList.toggle('desc', ylSortDir === -1);
+                }
+            });
+        }
+
+        function ylSort(k) {
+            if (ylSortKey === k) { ylSortDir *= -1; }
+            else { ylSortKey = k; ylSortDir = 1; }
+            ylRender();
+        }
+
+        (async function ylInit() {
+            const dEl = document.getElementById('ylDate');
+            try {
+                const res = await fetch('/api/year-lows?action=calendar');
+                const data = await res.json();
+                if (data.dates && data.dates.length > 0) {
+                    dEl.value = data.dates[0];
+                    dEl.max = data.dates[0];
+                }
+            } catch (e) {
+                console.warn('Could not fetch calendar dates:', e);
+            }
+            if (dEl && !dEl.value) {
+                const today = new Date();
+                dEl.value = today.toISOString().slice(0, 10);
+            }
+            ylLoad();
+        })();
+    </script>
+</body>
+</html>

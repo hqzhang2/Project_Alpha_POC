@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feature Name | Alpha Terminal</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; margin: 0; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
+        .toolbar .date-label { color: #8b949e; font-size: 13px; }
+        .toolbar input[type="date"] { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; }
+        .toolbar .status { color: #8b949e; font-size: 13px; margin-left: auto; }
+
+        .section { padding: 24px; }
+        .container { background: #161b22; border-radius: 8px; overflow: visible; border: 1px solid #21262d; }
+
+        .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .table th, .table td { text-align: left; padding: 8px 12px; }
+        .table th { background: #21262d; color: #8b949e; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; user-select: none; white-space: nowrap; border-bottom: 1px solid #30363d; }
+        .table th:hover { color: #e6edf3; background: #30363d; }
+        .table td { color: #c9d1d9; border-bottom: 1px solid #21262d; }
+
+        .table thead { position: sticky; top: 0; z-index: 1; }
+        .table thead .gradient-row td { padding: 0; height: 3px; background: linear-gradient(90deg, #1f6feb, #58a6ff); }
+        .table tbody tr:hover { background: rgba(48,54,61,0.4); }
+        .table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+        .table tbody tr:nth-child(even):hover { background: rgba(48,54,61,0.5); }
+
+        .sort-arrow { display: inline-block; margin-left: 4px; font-size: 11px; color: #c9d1d9; }
+        .sort-arrow.asc::after { content: "▲"; color: #58a6ff; }
+        .sort-arrow.desc::after { content: "▼"; color: #58a6ff; }
+
+        .label { color: #8b949e; font-size: 13px; }
+        .badge { background: #238636; color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; }
+
+        input, select { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px; border-radius: 4px; font-size: 13px; }
+        select { padding: 8px 12px; }
+        .loading { text-align: center; color: #8b949e; padding: 20px; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="header"><div class="nav"></div></div>
+
+    <div class="toolbar">
+        <h2>📊 Feature Name</h2>
+        <span class="date-label">Session:</span>
+        <input type="date" id="date" onchange="load()">
+        <span class="status" id="status"></span>
+    </div>
+
+    <div class="section">
+        <div class="container">
+            <div id="tableWrap">
+                <table class="table" id="table">
+                    <thead>
+                        <tr>
+                            <th data-k="col1" onclick="sort('col1')">Column 1<span class="sort-arrow"></span></th>
+                            <th data-k="col2" onclick="sort('col2')">Column 2<span class="sort-arrow"></span></th>
+                            <th data-k="col3" onclick="sort('col3')">Column 3<span class="sort-arrow"></span></th>
+                        </tr>
+                        <tr class="gradient-row"><td colspan="3"></td></tr>
+                    </thead>
+                    <tbody id="body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let rows = [];
+        let sortKey = 'col1';
+        let sortDir = 1;
+
+        (async function init() {
+            const dEl = document.getElementById('date');
+            try {
+                const res = await fetch('/api/path?action=calendar');
+                const data = await res.json();
+                if (data.dates && data.dates.length > 0) {
+                    dEl.value = data.dates[0];
+                    dEl.max = data.dates[0];
+                }
+            } catch (e) { console.warn(e); }
+            if (!dEl.value) dEl.value = new Date().toISOString().slice(0,10);
+            load();
+        })();
+
+        async function load() {
+            // Fetch and render
+        }
+
+        function render() {
+            // Render rows into #body
+        }
+
+        function sort(k) {
+            if (sortKey === k) sortDir *= -1;
+            else { sortKey = k; sortDir = 1; }
+            document.querySelectorAll('.table th .sort-arrow').forEach(el => el.className = 'sort-arrow');
+            const th = document.querySelector(`.table th[data-k="${k}"] .sort-arrow`);
+            if (th) th.classList.add(sortDir === 1 ? 'asc' : 'desc');
+            render();
+        }
+    </script>
+</body>
+</html>
