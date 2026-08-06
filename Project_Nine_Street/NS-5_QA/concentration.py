@@ -21,6 +21,7 @@ import config
 import data_fetcher
 import regression
 import theta as theta_mod
+import checks
 
 
 # ============================================================================
@@ -192,7 +193,77 @@ def grade_factor_loading(loading_vector: Dict[str, float],
 
 
 # ============================================================================
-# Full concentration grading pipeline (Phase 2.6 wiring)
+# 3.5 Composite concentration grade merger (MONEY-PATH — frontier-owned)
+# ============================================================================
+
+def _score_to_letter(score: float, bounds: list) -> str:
+    for threshold, letter in bounds:
+        if score >= threshold:
+            return letter
+    return "F"
+
+
+def merge_concentration_grade(factor_result: Dict,
+                              sector_result: Dict,
+                              eff_n_result: Dict,
+                              tail_corr_result: Dict,
+                              theta: dict) -> Dict:
+    """
+    Merge the four sub-grades into a single concentration composite.
+
+    Weights: factor_loading 40%, sector 25%, effective_n 20%, tail_correlation 15%
+    (tunable via theta['concentration_axis_weights']).
+
+    Missing or errored sub-grades are weighted at 0 with an
+    INSUFFICIENT_DATA note — the composite is still computable from the
+    remaining axes (fail-open pattern, per house rule).
+
+    Returns:
+        {composite_concentration_grade, composite_concentration_score,
+         axis_weights, sub_grades: {name: {grade, score, weight}}}
+    """
+    weights = theta.get("concentration_axis_weights", {})
+    letter_bounds = theta["letter_score_bounds"]
+
+    sub_grades = {
+        "factor_loading": {"grade": "N/A", "score": 0.0, "weight": weights.get("factor_loading", 0)},
+        "sector":          {"grade": "N/A", "score": 0.0, "weight": weights.get("sector", 0)},
+        "effective_n":     {"grade": "N/A", "score": 0.0, "weight": weights.get("effective_n", 0)},
+        "tail_correlation":{"grade": "N/A", "score": 0.0, "weight": weights.get("tail_correlation", 0)},
+    }
+
+    # Populate from available sub-grades
+    for key, source in (("factor_loading", factor_result), ("sector", sector_result),
+                        ("effective_n", eff_n_result), ("tail_correlation", tail_corr_result)):
+        if isinstance(source, dict) and "composite_score" in source:
+            sub_grades[key]["grade"] = source.get("composite_grade", "N/A")
+            sub_grades[key]["score"] = float(source.get("composite_score", 0.0))
+        else:
+            # Missing axis: zero-weight it so it doesn't dilute the composite
+            sub_grades[key]["weight"] = 0.0
+
+    # Weighted composite — normalise if weights are missing/zero-sum
+    numerator = sum(sg["score"] * sg["weight"] for sg in sub_grades.values())
+    denom = sum(sg["weight"] for sg in sub_grades.values())
+    if denom <= 0:
+        return {"composite_concentration_grade": "N/A",
+                "composite_concentration_score": None,
+                "error": "all axis weights are zero",
+                "axis_weights": weights, "sub_grades": sub_grades}
+
+    composite_score = round(numerator / denom, 2)
+    composite_letter = _score_to_letter(composite_score, letter_bounds)
+
+    return {
+        "composite_concentration_grade": composite_letter,
+        "composite_concentration_score": composite_score,
+        "axis_weights": weights,
+        "sub_grades": sub_grades,
+    }
+
+
+# ============================================================================
+# Full concentration grading pipeline (Phase 2.6 + Phase 3.5 wiring)
 # ============================================================================
 
 def run_concentration_grade(holdings: Dict[str, float],
@@ -235,13 +306,23 @@ def run_concentration_grade(holdings: Dict[str, float],
             "kind": "fallback-neutral",
         }
 
-    # 4. Grade
+    # 4. Factor-loading grade
     grade = grade_factor_loading(
         loading_vector=result["beta"],
         policy_beta=policy,
         theta=theta,
         standard_errors=result.get("se"),
     )
+
+    # 5. Non-factor checks (Phase 3.2–3.4)
+    sector_result = checks.grade_sector_weights(holdings, theta)
+    eff_n_result  = checks.grade_effective_n(holdings, theta)
+    tail_result   = checks.grade_tail_correlation(holdings, theta, closes=closes,
+                                                   force_refresh=force_refresh)
+
+    # 6. Composite merger (Phase 3.5)
+    composite = merge_concentration_grade(
+        grade, sector_result, eff_n_result, tail_result, theta)
 
     return {
         "as_of": str(factor_returns.index[-1].date()) if not factor_returns.empty else None,
@@ -256,5 +337,9 @@ def run_concentration_grade(holdings: Dict[str, float],
             "weights": theta.get("policy_weights", {}),
             "policy_beta": policy.get("beta", {}),
         },
+        "concentration": composite,
         "factor_loading": grade,
+        "sector": sector_result,
+        "effective_n": eff_n_result,
+        "tail_correlation": tail_result,
     }
