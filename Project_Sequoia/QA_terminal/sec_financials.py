@@ -331,8 +331,13 @@ def extract_quarterly_data(us_gaap: Dict, tag: str, periods: int, unit: str = 'U
             duration_days = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(best_u['start'], '%Y-%m-%d')).days
             form_type = 'FY'
         else:
-            # Skip 6-month or 9-month cumulative data
-            continue
+            # 6m/9m cumulative spans — US cashflow 10-Qs are YTD-cumulative
+            # (Q2=~181d, Q3=~272d), so the standalone quarter at each span
+            # is C_n - C_{n-1}. Keep as 'C' for _delta_derive_quarters.
+            best = max(found_durations, key=lambda d: d['days'])
+            best_u = best['u']
+            duration_days = best['days']
+            form_type = 'C'
         
         results.append({
             'period': end_date,
@@ -418,11 +423,61 @@ def _derive_missing_year_end_quarters(income: List[Dict]) -> List[Dict]:
 # Period-flow metrics that delta-derive across a fiscal year. Point-in-time
 # items (shares outstanding) and ratios are intentionally excluded.
 _DERIVABLE_KEYS = [
+    # income statement
     'revenue', 'cost_of_revenue', 'gross_profit', 'rd_expense', 'sga_expense',
     'operating_expenses', 'operating_income', 'other_income',
     'income_before_tax', 'provision_for_tax', 'net_income',
     'eps_basic', 'eps_diluted', 'stock_comp', 'depreciation_and_amortization',
+    # cashflow statement (10-Qs are YTD-cumulative; delta-derived the same way)
+    'operating_cf', 'investing_cf', 'financing_cf', 'capex',
+    'purchases_securities', 'sales_securities', 'acquisitions', 'dividends',
+    'share_repurchases', 'debt_repayments', 'debt_issuances', 'interest_paid',
+    'taxes_paid', 'depreciation', 'amortization', 'stock_compensation',
+    'working_capital_change',
 ]
+
+
+def _delta_derive_quarters(rows: List[Dict]) -> List[Dict]:
+    """Delta-derive standalone quarters from YTD-cumulative cashflow spans.
+
+    US 10-Qs report cashflow YTD-cumulative (Q2 = ~181d, Q3 = ~272d): the
+    standalone quarter at each cumulative end date is C_n - C_{n-1}. Rows
+    are grouped into fiscal years by the implied start (end - days), the
+    chain is sorted by duration, and a derived 'Q' row is emitted at each
+    cumulative span where no real 90-day quarter exists. The fiscal-year
+    FY row is left for _derive_missing_year_end_quarters (Q4 = FY - 3Qs).
+    """
+    chain_rows = [r for r in rows if r.get('type') in ('Q', 'C')]
+    if not any(r.get('type') == 'C' for r in chain_rows):
+        return rows
+    real_q = {r['period'] for r in rows if r.get('type') == 'Q'}
+    fiscal = {}
+    for r in chain_rows:
+        try:
+            start = (datetime.strptime(r['period'], '%Y-%m-%d')
+                     - timedelta(days=r.get('days') or 0)).strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+        fiscal.setdefault(start, []).append(r)
+    out = list(rows)
+    for spans in fiscal.values():
+        spans.sort(key=lambda r: r.get('days', 0))
+        prev = {}
+        for r in spans:
+            if r['period'] in real_q:
+                prev = r
+                continue
+            derived = {'period': r['period'], 'type': 'Q', 'derived': True}
+            for k, v in r.items():
+                if k in ('period', 'type', 'days'):
+                    continue
+                pv = prev.get(k)
+                if pv is None or v is None:
+                    continue
+                derived[k] = round(v - pv, 4)
+            out.append(derived)
+            prev = r
+    return out
 
 
 def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> Dict:
@@ -456,7 +511,8 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
                 for d in data:
                     period = d['period']
                     if period not in income:
-                        income[period] = {'period': period, 'type': d['type']}
+                        income[period] = {'period': period, 'type': d['type'],
+                                          'days': d.get('days', 0)}
                     if metric not in income[period] or income[period][metric] is None:
                         income[period][metric] = d['value']
     
@@ -469,7 +525,8 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
                 for d in data:
                     period = d['period']
                     if period not in balance:
-                        balance[period] = {'period': period, 'type': d['type']}
+                        balance[period] = {'period': period, 'type': d['type'],
+                                           'days': d.get('days', 0)}
                     if metric not in balance[period] or balance[period][metric] is None:
                         balance[period][metric] = d['value']
     
@@ -478,7 +535,8 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
         for d in data:
             period = d['period']
             if period not in cashflow:
-                cashflow[period] = {'period': period, 'type': d['type']}
+                cashflow[period] = {'period': period, 'type': d['type'],
+                                    'days': d.get('days', 0)}
             cashflow[period][metric] = d['value']
     
     # Convert to lists and sort
@@ -490,6 +548,12 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
     # filings (AAPL FY2025 Q4) BEFORE the type filter drops FY rows.
     income_list = _derive_missing_year_end_quarters(income_list)
     income_list = sorted(income_list, key=lambda x: x['period'], reverse=True)
+
+    # Cashflow 10-Qs are YTD-cumulative: delta-derive Q2/Q3 from cumulative
+    # spans, then the fiscal-year-end quarter from the FY row.
+    cashflow_list = _delta_derive_quarters(cashflow_list)
+    cashflow_list = _derive_missing_year_end_quarters(cashflow_list)
+    cashflow_list = sorted(cashflow_list, key=lambda x: x['period'], reverse=True)
     
     # Calculate margins and per-share metrics
     for inc in income_list:

@@ -100,5 +100,63 @@ class TestDeriveMissingYearEndQuarters(unittest.TestCase):
         self.assertNotIn('revenue', d)  # absent from FY row -> not invented
 
 
+class TestDeltaDeriveQuarters(unittest.TestCase):
+    """YTD-cumulative cashflow (US 10-Q convention): Q2/Q3 from cumulative
+    deltas, Q4 from the FY row. Income-style standalone rows are no-ops."""
+
+    def _ytd_rows(self):
+        return [
+            {'period': '2024-12-28', 'type': 'Q', 'days': 90,
+             'operating_cf': 40e9, 'capex': -3e9},
+            {'period': '2025-03-29', 'type': 'C', 'days': 181,
+             'operating_cf': 50e9, 'capex': -5e9},
+            {'period': '2025-06-28', 'type': 'C', 'days': 272,
+             'operating_cf': 80e9, 'capex': -8e9},
+            {'period': '2025-09-27', 'type': 'FY', 'days': 363,
+             'operating_cf': 111.5e9, 'capex': -11e9},
+        ]
+
+    def test_delta_derives_q2_q3(self):
+        out = sf._delta_derive_quarters(self._ytd_rows())
+        derived = {r['period']: r for r in out if r.get('derived')}
+        self.assertEqual(set(derived), {'2025-03-29', '2025-06-28'})
+        self.assertEqual(derived['2025-03-29']['operating_cf'], 10e9)   # 50-40
+        self.assertEqual(derived['2025-06-28']['operating_cf'], 30e9)   # 80-50
+        self.assertEqual(derived['2025-03-29']['capex'], -2e9)          # -5--3
+        # FY row untouched by the delta pass
+        fy = [r for r in out if r['type'] == 'FY']
+        self.assertEqual(len(fy), 1)
+
+    def test_full_chain_derives_q4_from_fy(self):
+        out = sf._derive_missing_year_end_quarters(
+            sf._delta_derive_quarters(self._ytd_rows()))
+        q4 = [r for r in out if r['period'] == '2025-09-27' and r['type'] == 'Q']
+        self.assertEqual(len(q4), 1)
+        self.assertTrue(q4[0]['derived'])
+        # 111.5 - (40 + 10 + 30) = 31.5
+        self.assertAlmostEqual(q4[0]['operating_cf'], 31.5e9)
+        self.assertEqual(len([r for r in out if r['type'] == 'Q']), 4)
+
+    def test_no_c_rows_is_noop(self):
+        rows = [{'period': '2025-03-29', 'type': 'Q', 'days': 90,
+                 'operating_cf': 10e9}]
+        self.assertIs(sf._delta_derive_quarters(rows), rows)
+
+    def test_standalone_quarters_year_end_only(self):
+        # A filer with standalone Q1-Q3: delta pass no-ops, year-end still
+        # derives Q4 = FY - (Q1+Q2+Q3).
+        rows = [
+            {'period': '2024-12-28', 'type': 'Q', 'days': 91, 'operating_cf': 40e9},
+            {'period': '2025-03-29', 'type': 'Q', 'days': 91, 'operating_cf': 10e9},
+            {'period': '2025-06-28', 'type': 'Q', 'days': 91, 'operating_cf': 30e9},
+            {'period': '2025-09-27', 'type': 'FY', 'days': 363, 'operating_cf': 111.5e9},
+        ]
+        out = sf._derive_missing_year_end_quarters(
+            sf._delta_derive_quarters(rows))
+        q4 = [r for r in out if r['period'] == '2025-09-27' and r['type'] == 'Q']
+        self.assertTrue(q4[0]['derived'])
+        self.assertAlmostEqual(q4[0]['operating_cf'], 31.5e9)
+
+
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    unittest.main()
