@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""
+NS-5 Factor Model — configuration (single source of truth).
+
+All factor tickers, window sizes, and thresholds live here.
+Per v1 roadmap §1.2: no hardcoded factor tickers in logic code.
+"""
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+CACHE_DIR = DATA_DIR / "cache"
+TESTS_DIR = BASE_DIR / "tests"
+
+# ---------------------------------------------------------------------------
+# Factor model (v1 roadmap §8.2 — frontier-approved, do not change)
+# ---------------------------------------------------------------------------
+# Factor construction:
+#   MKT = SPY return - risk-free (^IRX annualized / 252)
+#   SMB = IWM return - SPY return            (small minus large)
+#   HML = VTV return - VUG return            (value minus growth)
+#   MOM = MTUM return - SPY return           (momentum spread)
+#   DUR = TLT return                          (long-duration exposure)
+FACTOR_TICKERS = {
+    "SPY": "MKT_LONG",       # market
+    "IWM": "SMB_LONG",       # small-cap
+    "VTV": "HML_LONG",       # value
+    "VUG": "HML_SHORT",      # growth
+    "MTUM": "MOM_LONG",      # momentum
+    "TLT": "DUR_LONG",       # long bond
+}
+RISK_FREE_TICKER = "^IRX"    # 13-week T-bill, annualized yield %
+
+FACTOR_DEFINITIONS = {
+    # name: (long_ticker, short_ticker_or_None, kind)
+    # kind: 'excess' = raw - rf_daily ; 'spread' = long - short ; 'raw' = long return
+    "MKT": ("SPY", None, "excess"),
+    "SMB": ("IWM", "SPY", "spread"),
+    "HML": ("VTV", "VUG", "spread"),
+    "MOM": ("MTUM", "SPY", "spread"),
+    "DUR": ("TLT", None, "raw"),
+}
+FACTOR_NAMES = list(FACTOR_DEFINITIONS.keys())  # ["MKT", "SMB", "HML", "MOM", "DUR"]
+
+# ---------------------------------------------------------------------------
+# Data windows (v1 roadmap — frontier-approved, do not change)
+# ---------------------------------------------------------------------------
+DATA_YEARS = 2                 # fetch 2 years of daily closes
+REGRESSION_WINDOW = 250        # rolling OLS window (trading days)
+REGRESSION_STEP = 21           # monthly step (~21 trading days)
+VOL_WINDOW_SHORT = 60          # short vol window (trading days)
+VOL_WINDOW_LONG = 250          # long vol window
+CORR_WINDOW = 120              # pairwise correlation window
+VOL_RATIO_THRESHOLD = 1.5      # 60d/250d vol ratio flag threshold
+CORR_SHIFT_THRESHOLD = 0.3     # |corr_60d - corr_250d| flag threshold
+MIN_PERIODS_PCT = 0.8          # rolling windows require >= 80% of window populated
+
+# Regression design matrix: intercept + 5 factors
+REGRESSORS = ["intercept"] + FACTOR_NAMES
+
+# ---------------------------------------------------------------------------
+# Yahoo fetch parameters
+# ---------------------------------------------------------------------------
+YF_PERIOD = "2y"
+YF_INTERVAL = "1d"
+YF_AUTO_ADJUST = True
+YF_PROGRESS = False
+
+# Cache TTL: refresh if the latest cached bar is older than this (weekend-safe)
+CACHE_MAX_AGE_DAYS = 3
