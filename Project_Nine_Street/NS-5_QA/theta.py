@@ -167,6 +167,50 @@ THETA_DEFAULTS = {
         (1, "B"),
         (2, "C"),
     ],
+
+    # ==================================================================
+    # Drift axis (v2) — time-series consumer of the same 5-factor model
+    # ==================================================================
+
+    # --- Weight drift ---
+    "drift_band": 0.20,                 # ±20% relative: |w − target| / target > band → flag
+
+    # --- Risk drift ---
+    "risk_budget": {
+        "target_vol": 0.14,             # annualized σ* (policy risk budget)
+        "var_95_limit": -0.15,          # daily VaR(95%) limit (%)
+        "cvar_95_limit": -0.22,         # daily CVaR(95%) limit (%)
+        "vol_spike_sigma": 1.5,         # trailing vol > long-run avg × Nσ → flag
+    },
+
+    # --- Style/factor drift ---
+    "style_tolerance": {
+        "factor_sigma": 1.5,            # |β_i − β*_i| / se_i > this → flagged
+        "qqq_corr_threshold": 0.90,     # corr to QQQ > this → "this IS QQQ" flag
+    },
+
+    # --- Frontier drift ---
+    "frontier_thresholds": {
+        "sharpe_degradation": 0.15,     # long-run Sharpe − trailing Sharpe > this → flag
+        "tangency_shift": 0.15,         # max weight diff in tangency mix → flag
+        "bond_corr_sign_flip": True,    # stock-bond sign flip → independent flag
+    },
+
+    # --- Composite drift grade weights ---
+    "drift_axis_weights": {
+        "weight_drift": 0.15,
+        "risk_drift": 0.25,
+        "style_drift": 0.30,
+        "frontier_drift": 0.30,
+    },
+
+    # --- Drift severity → score (lower = worse; descending thresholds) ---
+    "drift_severity_bounds": [
+        (5.0, "green"),     # clean — no action
+        (3.5, "yellow"),    # moderate — monitor
+        (2.0, "orange"),    # elevated — action needed
+        (0,   "red"),       # critical — re-plan trigger
+    ],
 }
 
 
