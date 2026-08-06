@@ -13,6 +13,27 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 PORT = 8000
 
+def _last_updated():
+    """Date of the last commit touching portal.py (repo-relative), with
+    file-mtime fallback — the label never needs a manual bump again."""
+    import datetime as _dt
+    import subprocess as _sp
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        r = _sp.run(["git", "-C", here, "log", "-1", "--format=%cs", "--",
+                     "Project_Nine_Street/portal.py"],
+                    capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    try:
+        return _dt.date.fromtimestamp(os.path.getmtime(__file__)).isoformat()
+    except Exception:
+        return "2026-08-06"
+
+LAST_UPDATED = _last_updated()
+
 # Strategy Configuration
 STRATEGIES = {
     'alpha': {'name': 'Alpha Terminal', 'path': 'dashboard.html', 'prod': 9098, 'qa': 9099},
@@ -20,6 +41,7 @@ STRATEGIES = {
     'ns2':   {'name': 'NS-2 (MAG7 HMM)', 'path': '', 'prod': 9228, 'qa': 9229},
     'ns3':   {'name': 'NS-3 (Sector Rotation)', 'path': 'ns3_dashboard.html', 'prod': 9236, 'qa': 9237},
     'ns4':   {'name': 'NS-4 (Ratio Trading)', 'path': 'ns4_dashboard.html', 'prod': 9240, 'qa': 9241},
+    'ns5':   {'name': 'NS-5 (Portfolio Grading)', 'path': 'ns5_dashboard.html', 'prod': 9250, 'qa': 9251},
 }
 
 # HTML Template with all braces escaped for Python .format()
@@ -153,13 +175,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
   <div class="topbar">
     <div class="topbar-left">
-      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v2.4.0 | Last Updated: 2026-08-03</div></div>
+      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v2.5.0 | Last Updated: {last_updated}</div></div>
       <div class="nav-tabs">
               <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')"><span class="status-indicator" id="status-alpha"></span>Alpha Terminal</button>
               <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')"><span class="status-indicator" id="status-ns1"></span>NS-1</button>
               <button class="nav-tab" data-strategy="ns2" onclick="switchStrategy('ns2')"><span class="status-indicator" id="status-ns2"></span>NS-2</button>
               <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')"><span class="status-indicator" id="status-ns3"></span>NS-3</button>
               <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')"><span class="status-indicator" id="status-ns4"></span>NS-4</button>
+              <button class="nav-tab" data-strategy="ns5" onclick="switchStrategy('ns5')"><span class="status-indicator" id="status-ns5"></span>NS-5</button>
             </div>
     </div>
     <div class="env-toggle">
@@ -222,7 +245,8 @@ const SERVICE_ENDPOINTS = {
   'ns1': '/health',
   'ns2': '/health',
   'ns3': '/health',
-  'ns4': '/health'
+  'ns4': '/health',
+  'ns5': '/health'
 };
 
 async function checkServiceHealth(key, port, path) {
@@ -239,7 +263,7 @@ async function checkServiceHealth(key, port, path) {
 }
 
 async function updateStatusIndicators() {
-  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4'];
+  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4', 'ns5'];
   for (const key of strategies) {
     const s = STRATS[key];
     if (!s) continue;
@@ -274,6 +298,7 @@ def build_html():
     # JSON's own braces are never touched.
     html = HTML_TEMPLATE.replace('{{', '{').replace('}}', '}')
     html = html.replace('{ts}', ts)
+    html = html.replace('{last_updated}', LAST_UPDATED)
     html = html.replace('{strategies_json}', strategies_json)
     return html
 

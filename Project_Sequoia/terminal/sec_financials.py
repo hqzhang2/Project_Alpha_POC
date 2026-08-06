@@ -4,10 +4,63 @@ Uses SEC XBRL API to get GAAP-compliant 10-Q and 10-K filings
 """
 import requests
 import json
+import os
+import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 HEADERS = {"User-Agent": "AlphaTerminal/1.0 research@example.com"}
+
+# SEC official ticker->CIK mapping (https://www.sec.gov/files/company_tickers.json).
+# Cached to data/ for a day; includes ADR tickers (BABA, TSM, BHP, ...).
+_TICKERS_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              'data', 'company_tickers.json')
+_TICKERS_CACHE_TTL = 24 * 3600
+
+
+def _load_ticker_map():
+    """{TICKER: '0000320193'} — official SEC mapping, cached daily.
+
+    Returns {} on total failure (network + no cache); callers fall back to
+    the full-text search or to the Yahoo path.
+    """
+    def parse(data):
+        out = {}
+        for v in data.values() if isinstance(data, dict) else []:
+            t = v.get('ticker')
+            if t:
+                out[str(t).upper()] = str(v.get('cik_str', '')).zfill(10)
+        return out
+
+    if os.path.exists(_TICKERS_CACHE):
+        try:
+            if time.time() - os.path.getmtime(_TICKERS_CACHE) < _TICKERS_CACHE_TTL:
+                with open(_TICKERS_CACHE) as f:
+                    return parse(json.load(f))
+        except Exception:
+            pass
+    try:
+        resp = requests.get('https://www.sec.gov/files/company_tickers.json',
+                            headers=HEADERS, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            try:
+                os.makedirs(os.path.dirname(_TICKERS_CACHE), exist_ok=True)
+                with open(_TICKERS_CACHE, 'w') as f:
+                    json.dump(data, f)
+            except Exception:
+                pass
+            return parse(data)
+    except Exception as e:
+        print(f"Error fetching company_tickers.json: {e}")
+    # Fall back to a stale cache if present
+    if os.path.exists(_TICKERS_CACHE):
+        try:
+            with open(_TICKERS_CACHE) as f:
+                return parse(json.load(f))
+        except Exception:
+            pass
+    return {}
 
 # XBRL Tags for key financial metrics (from actual 10-Q/10-K filings)
 INCOME_TAGS = {
@@ -124,8 +177,27 @@ def remove_from_watchlist(ticker):
         print(f"Error removing from watchlist: {e}")
 
 def get_cik(ticker: str) -> Optional[str]:
-    """Get CIK for a ticker symbol from SEC"""
-    url = f"https://efts.sec.gov/LATEST/search-index?q={ticker}&forms=10-Q,10-K&dateRange=custom&startdt=2020-01-01&enddt=2026-12-31"
+    """Get CIK for a ticker symbol from SEC.
+
+    Primary: official company_tickers.json mapping (cached daily — includes
+    ADR tickers). Fallback: full-text search across 10-Q/10-K/20-F/6-K
+    filings (foreign private issuers file 20-F/6-K, never 10-Q/10-K).
+    """
+    ticker = (ticker or '').strip().upper()
+    if not ticker:
+        return None
+    tm = _load_ticker_map()
+    cik = tm.get(ticker)
+    if cik:
+        return cik
+    return _get_cik_search(ticker)
+
+
+def _get_cik_search(ticker: str) -> Optional[str]:
+    """Legacy fallback: SEC full-text search for the ticker symbol."""
+    url = (f"https://efts.sec.gov/LATEST/search-index?q={ticker}"
+           f"&forms=10-Q,10-K,20-F,6-K&dateRange=custom"
+           f"&startdt=2020-01-01&enddt=2026-12-31")
     try:
         resp = requests.get(url, headers=HEADERS, timeout=10)
         if resp.status_code == 200:
@@ -259,8 +331,13 @@ def extract_quarterly_data(us_gaap: Dict, tag: str, periods: int, unit: str = 'U
             duration_days = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(best_u['start'], '%Y-%m-%d')).days
             form_type = 'FY'
         else:
-            # Skip 6-month or 9-month cumulative data
-            continue
+            # 6m/9m cumulative spans — US cashflow 10-Qs are YTD-cumulative
+            # (Q2=~181d, Q3=~272d), so the standalone quarter at each span
+            # is C_n - C_{n-1}. Keep as 'C' for _delta_derive_quarters.
+            best = max(found_durations, key=lambda d: d['days'])
+            best_u = best['u']
+            duration_days = best['days']
+            form_type = 'C'
         
         results.append({
             'period': end_date,
@@ -279,54 +356,129 @@ def extract_quarterly_data(us_gaap: Dict, tag: str, periods: int, unit: str = 'U
             
     return final_results[:periods]
 
-def calculate_graham_metrics(income: List[Dict], balance: List[Dict], cashflow: List[Dict]) -> Dict:
-    """Calculate valuation metrics based on Intelligent Investor principles"""
-    m = {}
-    if not income or not balance:
-        return m
-    
-    inc = income[0]
-    bs = balance[0]
-    
-    # Fundamental Ratios
-    ca = bs.get('current_assets') or 0
-    cl = bs.get('current_liabilities') or 0
-    equity = bs.get('total_equity') or 0
-    total_liab = bs.get('total_liabilities') or 0
-    
-    m['current_ratio'] = round(ca / cl, 2) if cl else 0
-    m['debt_to_equity'] = round(total_liab / equity, 2) if equity else 0
-    
-    eps = inc.get('eps_diluted') or 0
-    # BVPS = Total Equity / Diluted Shares
-    shares = inc.get('diluted_shares') or bs.get('shares_outstanding') or 1
-    bvps = equity / shares
-    
-    # Graham Number = sqrt(22.5 * EPS * BVPS)
-    if eps > 0 and bvps > 0:
-        m['graham_number'] = round((22.5 * eps * bvps) ** 0.5, 2)
-    else:
-        m['graham_number'] = None
+def _get_stock_info(ticker: str) -> Dict:
+    """Minimal market info (price, shares, market cap) for valuation metrics."""
+    try:
+        import yfinance as yf
+        i = yf.Ticker(ticker).info
+        return {
+            'name': i.get('shortName', ticker),
+            'price': i.get('currentPrice') or i.get('regularMarketPrice'),
+            'market_cap': i.get('marketCap'),
+            'shares_outstanding': i.get('sharesOutstanding'),
+        }
+    except Exception as e:
+        print(f"Error fetching stock info for {ticker}: {e}")
+        return {'name': ticker}
 
-    # Scoring (0-10)
-    score = 0
-    if m['current_ratio'] >= 2.0: score += 2
-    elif m['current_ratio'] >= 1.5: score += 1
-    
-    if m['debt_to_equity'] < 0.5: score += 2
-    elif m['debt_to_equity'] < 1.0: score += 1
-    
-    net_margin = inc.get('net_margin_pct') or 0
-    if net_margin > 15: score += 2
-    elif net_margin > 10: score += 1
-    
-    m['valuation_score'] = score
-    if score >= 5: m['rating'] = '⭐⭐⭐ Strong Buy'
-    elif score >= 3: m['rating'] = '⭐⭐ Buy'
-    elif score >= 1: m['rating'] = '⭐ Hold'
-    else: m['rating'] = '⚠️ Speculative'
-    
-    return m
+
+def calculate_graham_metrics(income: List[Dict], balance: List[Dict],
+                             cashflow: List[Dict], stock_info: Dict = None,
+                             ticker: str = None) -> Dict:
+    """Valuation metrics based on Intelligent Investor principles.
+
+    Delegates to fundamentals.py — the single source of truth shared with
+    the Yahoo fallback path. Definitions (per Graham):
+      - D/E uses short+long-term debt / equity (not total liabilities)
+      - Graham Number uses TTM EPS (sum of last 4 quarters / last FY)
+      - per-share metrics are ADR-ratio adjusted for foreign listings
+    """
+    import fundamentals
+    return fundamentals.calculate_graham_metrics(
+        income, balance, cashflow, stock_info or {}, ticker)
+
+def _derive_missing_year_end_quarters(income: List[Dict]) -> List[Dict]:
+    """Delta-derive fiscal-year-end quarters missing as standalone 90-day
+    filings (e.g. AAPL FY2025 Q4 exists in companyfacts only as a 363-day
+    10-K fact — no 90-day unit, so the Q filter would drop it).
+
+    For each FY row whose end date has NO 'Q' row: Q4 = FY − sum(that FY's
+    three most recent quarters). Emitted as a 'Q' row so both the quarterly
+    display and TTM math get the correct window. No-op when data is complete
+    or fewer than 3 prior quarters exist.
+    """
+    q_rows = sorted([r for r in income if r.get('type') == 'Q'],
+                    key=lambda r: r['period'], reverse=True)
+    q_ends = {r['period'] for r in q_rows}
+    out = list(income)
+    for fy in [r for r in income if r.get('type') == 'FY']:
+        fy_end = fy['period']
+        if fy_end in q_ends:
+            continue
+        prior = [r for r in q_rows if r['period'] < fy_end][:3]
+        if len(prior) < 3:
+            continue
+        row = {'period': fy_end, 'type': 'Q', 'derived': True}
+        for key in _DERIVABLE_KEYS:
+            fv = fy.get(key)
+            if fv is None:
+                continue
+            qsum = sum((p.get(key) or 0) for p in prior)
+            if qsum or fv:
+                row[key] = round(fv - qsum, 4)
+        out.append(row)
+    return out
+
+
+# Period-flow metrics that delta-derive across a fiscal year. Point-in-time
+# items (shares outstanding) and ratios are intentionally excluded.
+_DERIVABLE_KEYS = [
+    # income statement
+    'revenue', 'cost_of_revenue', 'gross_profit', 'rd_expense', 'sga_expense',
+    'operating_expenses', 'operating_income', 'other_income',
+    'income_before_tax', 'provision_for_tax', 'net_income',
+    'eps_basic', 'eps_diluted', 'stock_comp', 'depreciation_and_amortization',
+    # cashflow statement (10-Qs are YTD-cumulative; delta-derived the same way)
+    'operating_cf', 'investing_cf', 'financing_cf', 'capex',
+    'purchases_securities', 'sales_securities', 'acquisitions', 'dividends',
+    'share_repurchases', 'debt_repayments', 'debt_issuances', 'interest_paid',
+    'taxes_paid', 'depreciation', 'amortization', 'stock_compensation',
+    'working_capital_change',
+]
+
+
+def _delta_derive_quarters(rows: List[Dict]) -> List[Dict]:
+    """Delta-derive standalone quarters from YTD-cumulative cashflow spans.
+
+    US 10-Qs report cashflow YTD-cumulative (Q2 = ~181d, Q3 = ~272d): the
+    standalone quarter at each cumulative end date is C_n - C_{n-1}. Rows
+    are grouped into fiscal years by the implied start (end - days), the
+    chain is sorted by duration, and a derived 'Q' row is emitted at each
+    cumulative span where no real 90-day quarter exists. The fiscal-year
+    FY row is left for _derive_missing_year_end_quarters (Q4 = FY - 3Qs).
+    """
+    chain_rows = [r for r in rows if r.get('type') in ('Q', 'C')]
+    if not any(r.get('type') == 'C' for r in chain_rows):
+        return rows
+    real_q = {r['period'] for r in rows if r.get('type') == 'Q'}
+    fiscal = {}
+    for r in chain_rows:
+        try:
+            start = (datetime.strptime(r['period'], '%Y-%m-%d')
+                     - timedelta(days=r.get('days') or 0)).strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+        fiscal.setdefault(start, []).append(r)
+    out = list(rows)
+    for spans in fiscal.values():
+        spans.sort(key=lambda r: r.get('days', 0))
+        prev = {}
+        for r in spans:
+            if r['period'] in real_q:
+                prev = r
+                continue
+            derived = {'period': r['period'], 'type': 'Q', 'derived': True}
+            for k, v in r.items():
+                if k in ('period', 'type', 'days'):
+                    continue
+                pv = prev.get(k)
+                if pv is None or v is None:
+                    continue
+                derived[k] = round(v - pv, 4)
+            out.append(derived)
+            prev = r
+    return out
+
 
 def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> Dict:
     """Main function to fetch financials for a ticker from SEC EDGAR"""
@@ -359,7 +511,8 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
                 for d in data:
                     period = d['period']
                     if period not in income:
-                        income[period] = {'period': period, 'type': d['type']}
+                        income[period] = {'period': period, 'type': d['type'],
+                                          'days': d.get('days', 0)}
                     if metric not in income[period] or income[period][metric] is None:
                         income[period][metric] = d['value']
     
@@ -372,7 +525,8 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
                 for d in data:
                     period = d['period']
                     if period not in balance:
-                        balance[period] = {'period': period, 'type': d['type']}
+                        balance[period] = {'period': period, 'type': d['type'],
+                                           'days': d.get('days', 0)}
                     if metric not in balance[period] or balance[period][metric] is None:
                         balance[period][metric] = d['value']
     
@@ -381,13 +535,25 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
         for d in data:
             period = d['period']
             if period not in cashflow:
-                cashflow[period] = {'period': period, 'type': d['type']}
+                cashflow[period] = {'period': period, 'type': d['type'],
+                                    'days': d.get('days', 0)}
             cashflow[period][metric] = d['value']
     
     # Convert to lists and sort
     income_list = sorted(income.values(), key=lambda x: x['period'], reverse=True)
     balance_list = sorted(balance.values(), key=lambda x: x['period'], reverse=True)
     cashflow_list = sorted(cashflow.values(), key=lambda x: x['period'], reverse=True)
+
+    # Delta-derive fiscal-year-end quarters missing as standalone 90-day
+    # filings (AAPL FY2025 Q4) BEFORE the type filter drops FY rows.
+    income_list = _derive_missing_year_end_quarters(income_list)
+    income_list = sorted(income_list, key=lambda x: x['period'], reverse=True)
+
+    # Cashflow 10-Qs are YTD-cumulative: delta-derive Q2/Q3 from cumulative
+    # spans, then the fiscal-year-end quarter from the FY row.
+    cashflow_list = _delta_derive_quarters(cashflow_list)
+    cashflow_list = _derive_missing_year_end_quarters(cashflow_list)
+    cashflow_list = sorted(cashflow_list, key=lambda x: x['period'], reverse=True)
     
     # Calculate margins and per-share metrics
     for inc in income_list:
@@ -452,7 +618,9 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
         cashflow_list = cashflow_list[:periods]
     
     # Valuation Metrics
-    metrics = calculate_graham_metrics(income_list, balance_list, cashflow_list)
+    info = _get_stock_info(ticker)
+    metrics = calculate_graham_metrics(income_list, balance_list,
+                                       cashflow_list, info, ticker)
 
     return {
         'ticker': ticker.upper(),
@@ -462,7 +630,8 @@ def fetch_financials(ticker: str, periods: int = 8, period_type: str = 'Q') -> D
         'income': income_list,
         'balance': balance_list,
         'cashflow': cashflow_list,
-        'metrics': metrics
+        'metrics': metrics,
+        'info': info,
     }
 
 if __name__ == '__main__':
