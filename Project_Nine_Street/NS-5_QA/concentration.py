@@ -386,7 +386,35 @@ def run_concentration_grade(holdings: Dict[str, float],
     """
     End-to-end concentration grading for a portfolio.
     Phase 2.6: wires parser, returns, regression, policy-β, and grading.
+
+    holdings may be a dict of weights, or a string naming a stored
+    portfolio (ticker→shares, converted to weights via latest closes).
+    theta['policy_weights'] may also be a string naming a stored policy.
     """
+    import portfolio as portfolio_mod
+    import portfolio_store
+
+    # Resolve stored portfolio / policy names
+    if isinstance(holdings, str):
+        entry = portfolio_store.get_portfolio(holdings)
+        if entry is None:
+            return {"composite_grade": "N/A", "error": f"portfolio '{holdings}' not found"}
+        holdings_name = holdings
+        holdings = entry  # ticker → shares; converted below
+        # Need closes to convert shares → weights
+        closes_tmp = data_fetcher.get_closes(list(entry.keys()), force_refresh=force_refresh)
+        holdings = portfolio_mod.shares_to_weights(entry, closes_tmp)
+        if not holdings:
+            return {"composite_grade": "N/A",
+                    "error": f"portfolio '{holdings_name}' has no price data — cannot convert shares to weights"}
+    if isinstance(theta.get("policy_weights"), str):
+        pname = theta["policy_weights"]
+        pentry = portfolio_store.get_policy(pname)
+        if pentry is None:
+            return {"composite_grade": "N/A", "error": f"policy '{pname}' not found"}
+        theta = dict(theta)
+        theta["policy_weights"] = pentry
+
     if factor_returns is None:
         factor_returns, _, _ = data_fetcher.build_factor_returns(force_refresh=force_refresh)
     if factor_returns.empty:

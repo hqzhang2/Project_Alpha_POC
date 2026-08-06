@@ -23,6 +23,7 @@ import data_fetcher
 import environment
 import frontier
 import portfolio
+import portfolio_store
 import theta as theta_mod
 
 PORT = int(os.environ.get("PORT", 9251))
@@ -82,7 +83,26 @@ DEFAULT_FRONTIER_POLICY = {"SPY": 0.60, "TLT": 0.40}
 
 
 def _frontier_response(holdings=None, policy=None, force_refresh=False):
-    """Efficient frontier + portfolio/policy positions for a holdings dict."""
+    """Efficient frontier + portfolio/policy positions for a holdings dict.
+
+    holdings/policy may be dicts (weights), or strings naming a stored
+    portfolio (ticker→shares, converted to weights) / stored policy.
+    """
+    import portfolio as portfolio_mod
+    import portfolio_store
+
+    if isinstance(holdings, str):
+        entry = portfolio_store.get_portfolio(holdings)
+        if entry is None:
+            return {"error": f"portfolio '{holdings}' not found"}
+        closes_tmp = data_fetcher.get_closes(list(entry.keys()), force_refresh=force_refresh)
+        holdings = portfolio_mod.shares_to_weights(entry, closes_tmp)
+    if isinstance(policy, str):
+        entry = portfolio_store.get_policy(policy)
+        if entry is None:
+            return {"error": f"policy '{policy}' not found"}
+        policy = entry
+
     holdings = holdings or DEFAULT_FRONTIER_HOLDINGS
     policy = policy or DEFAULT_FRONTIER_POLICY
 
@@ -116,6 +136,93 @@ def _frontier_response(holdings=None, policy=None, force_refresh=False):
         "n_obs": pos_portfolio.get("n_obs", 0) if isinstance(pos_portfolio, dict) else 0,
     }
 
+
+# ---------------------------------------------------------------------------
+# Portfolio / policy CRUD helpers (called from Handler)
+# ---------------------------------------------------------------------------
+
+def _portfolios_get(path):
+    """GET /api/portfolios           → {portfolios: [names]}
+       GET /api/portfolios?name=X    → {name, holdings: {ticker: shares}}"""
+    from urllib.parse import parse_qs, urlparse
+    q = parse_qs(urlparse(path).query)
+    name = q.get("name", [None])[0]
+    if name is None:
+        return {"portfolios": portfolio_store.list_portfolios()}
+    entry = portfolio_store.get_portfolio(name)
+    if entry is None:
+        return {"error": f"portfolio '{name}' not found"}, 404
+    return {"name": name, "holdings": entry}
+
+
+def _policies_get(path):
+    """GET /api/policies           → {policies: [names]}
+       GET /api/policies?name=X    → {name, weights: {ticker: weight}}"""
+    from urllib.parse import parse_qs, urlparse
+    q = parse_qs(urlparse(path).query)
+    name = q.get("name", [None])[0]
+    if name is None:
+        return {"policies": portfolio_store.list_policies()}
+    entry = portfolio_store.get_policy(name)
+    if entry is None:
+        return {"error": f"policy '{name}' not found"}, 404
+    return {"name": name, "weights": entry}
+
+
+def _portfolios_post(body):
+    """POST /api/portfolios  {name, holdings: {ticker: shares}, rename_from?}
+       Create or update. rename_from deletes the old name (rename)."""
+    name = body.get("name")
+    holdings = body.get("holdings")
+    if not name or not holdings:
+        return {"error": "name and holdings (dict of ticker→shares) required"}, 400
+    try:
+        if body.get("rename_from") and body["rename_from"] != name:
+            portfolio_store.delete_portfolio(body["rename_from"])
+        saved = portfolio_store.upsert_portfolio(name, holdings)
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+    return {"ok": True, **saved}
+
+
+def _policies_post(body):
+    """POST /api/policies  {name, weights: {ticker: weight}}"""
+    name = body.get("name")
+    weights = body.get("weights")
+    if not name or not weights:
+        return {"error": "name and weights (dict of ticker→weight) required"}, 400
+    try:
+        saved = portfolio_store.upsert_policy(name, weights)
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+    return {"ok": True, **saved}
+
+
+def _portfolios_delete(path):
+    """DELETE /api/portfolios?name=X"""
+    from urllib.parse import parse_qs, urlparse
+    q = parse_qs(urlparse(path).query)
+    name = q.get("name", [None])[0]
+    if not name:
+        return {"error": "name query param required"}, 400
+    deleted = portfolio_store.delete_portfolio(name)
+    return {"ok": True, "deleted": deleted, "name": name}
+
+
+def _policies_delete(path):
+    """DELETE /api/policies?name=X"""
+    from urllib.parse import parse_qs, urlparse
+    q = parse_qs(urlparse(path).query)
+    name = q.get("name", [None])[0]
+    if not name:
+        return {"error": "name query param required"}, 400
+    deleted = portfolio_store.delete_policy(name)
+    return {"ok": True, "deleted": deleted, "name": name}
+
+
+# ---------------------------------------------------------------------------
+# HTTP handler
+# ---------------------------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, status=200):
@@ -172,11 +279,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = _frontier_response(holdings, policy)
                 self._json(result)
             elif self.path.startswith("/api/grade"):
-                self._json({"usage": "POST /api/grade JSON: {holdings: {TICKER: weight}, "
-                                      "policy_weights: {TICKER: weight}}",
-                            "example": {"holdings": {"AAPL": 0.14, "MSFT": 0.12, "NVDA": 0.08,
-                                                      "TLT": 0.30, "JPM": 0.05},
-                                        "policy_weights": {"SPY": 0.60, "TLT": 0.40}}})
+                self._json({"usage": "POST /api/grade JSON: {holdings: {TICKER: weight} | 'portfolio_name', "
+                                      "policy_weights: {TICKER: weight} | 'policy_name'}",
+                            "example": {"holdings": "Tech Heavy",
+                                        "policy_weights": "60/40 SPY/TLT"}})
+            elif self.path.startswith("/api/portfolios"):
+                self._json(_portfolios_get(self.path))
+            elif self.path.startswith("/api/policies"):
+                self._json(_policies_get(self.path))
             else:
                 self._json({"error": "not found"}, 404)
         except Exception as exc:
@@ -185,11 +295,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length == 0:
+                self._json({"error": "empty body"}, 400); return
+            body = json.loads(self.rfile.read(length))
             if self.path.startswith("/api/grade"):
-                length = int(self.headers.get("Content-Length", 0))
-                if length == 0:
-                    self._json({"error": "empty body"}, 400); return
-                body = json.loads(self.rfile.read(length))
                 holdings = body.get("holdings", {})
                 if not holdings:
                     self._json({"error": "missing holdings"}, 400); return
@@ -205,13 +315,21 @@ class Handler(BaseHTTPRequestHandler):
                     holdings, theta, factor_returns=factors)
                 self._json(result)
             elif self.path.startswith("/api/frontier"):
-                length = int(self.headers.get("Content-Length", 0))
-                if length == 0:
-                    self._json({"error": "empty body"}, 400); return
-                body = json.loads(self.rfile.read(length))
                 result = _frontier_response(body.get("holdings"),
                                             body.get("policy_weights"))
                 self._json(result)
+            elif self.path.startswith("/api/portfolios"):
+                result = _portfolios_post(body)
+                if isinstance(result, tuple):
+                    self._json(result[0], result[1])
+                else:
+                    self._json(result)
+            elif self.path.startswith("/api/policies"):
+                result = _policies_post(body)
+                if isinstance(result, tuple):
+                    self._json(result[0], result[1])
+                else:
+                    self._json(result)
             else:
                 self._json({"error": "not found"}, 404)
         except json.JSONDecodeError as exc:
@@ -220,11 +338,32 @@ class Handler(BaseHTTPRequestHandler):
             log.exception("POST handler error")
             self._json({"error": str(exc)}, 500)
 
+    def do_DELETE(self):
+        try:
+            if self.path.startswith("/api/portfolios"):
+                result = _portfolios_delete(self.path)
+                if isinstance(result, tuple):
+                    self._json(result[0], result[1])
+                else:
+                    self._json(result)
+            elif self.path.startswith("/api/policies"):
+                result = _policies_delete(self.path)
+                if isinstance(result, tuple):
+                    self._json(result[0], result[1])
+                else:
+                    self._json(result)
+            else:
+                self._json({"error": "not found"}, 404)
+        except Exception as exc:
+            log.exception("DELETE handler error")
+            self._json({"error": str(exc)}, 500)
+
     def log_message(self, fmt, *args):
         log.info("%s - %s", self.address_string(), fmt % args)
 
 
 def main():
+    portfolio_store.seed_if_missing()
     log.info("NS-5 QA server starting on port %d (env=%s)", PORT, ENV)
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     try:

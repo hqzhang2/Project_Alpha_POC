@@ -121,3 +121,25 @@ def build_portfolio_returns(
     port_ret = (returns[available] @ weights)
     port_ret = port_ret.where(np.isfinite(port_ret)).dropna()
     return port_ret
+
+
+def shares_to_weights(holdings_shares: Dict[str, float],
+                      closes: pd.DataFrame) -> Dict[str, float]:
+    """
+    Convert {ticker: shares} to {ticker: weight} using latest close prices.
+
+    weight_i = shares_i * price_i / Σ(shares_j * price_j)
+    Tickers without price data are dropped (weight zero).
+    """
+    if closes is None or closes.empty or not holdings_shares:
+        return {}
+    latest = closes.iloc[-1]
+    values = {}
+    for tk, shares in holdings_shares.items():
+        tk = tk.strip().upper()
+        if tk in latest.index and pd.notna(latest[tk]) and latest[tk] > 0:
+            values[tk] = float(shares) * float(latest[tk])
+    total = sum(values.values())
+    if total <= 0:
+        return {}
+    return {tk: v / total for tk, v in values.items()}

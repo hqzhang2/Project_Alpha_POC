@@ -58,6 +58,38 @@
   .err { color: #ff6b6b; font-size: 12px; margin-top: 10px; white-space: pre-wrap; }
   .meta { font-size: 11px; color: #484f58; margin-top: 12px; }
   .example { font-size: 11px; color: #58a6ff; cursor: pointer; margin-top: 6px; }
+  select, input[type=text], input[type=number] {
+    background: #0d1117; color: #e8e8f0; border: 1px solid #30363d;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
+  select { width: 100%; margin-bottom: 10px; }
+  .row-actions { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .row-actions input[type=text] { flex: 1; }
+  .icon-btn {
+    background: #21262d; border: 1px solid #30363d; color: #e8e8f0;
+    width: 28px; height: 28px; border-radius: 6px; font-size: 16px; font-weight: 700;
+    cursor: pointer; line-height: 1; padding: 0; margin: 0;
+  }
+  .icon-btn:hover { border-color: #4ade80; color: #4ade80; }
+  .icon-btn.danger:hover { border-color: #f85149; color: #f85149; }
+  .btn-row { display: flex; gap: 10px; margin-top: 12px; }
+  .btn-row button { flex: 1; }
+  .btn-cancel { background: #21262d; border-color: #30363d; color: #e8e8f0; }
+  .btn-cancel:hover { background: #30363d; }
+  .btn-danger { background: #5f1e1e; border-color: #f85149; color: #ff8b8b; }
+  .btn-danger:hover { background: #7a1f1f; }
+  .table-editor { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  .table-editor th, .table-editor td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #1e1e2e; }
+  .table-editor th { color: #8888a0; font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  .table-editor input { width: 100%; padding: 4px 6px; font-size: 13px; }
+  .table-editor td.shares input { text-align: right; }
+  .table-editor td.del { width: 30px; text-align: center; }
+  .table-editor td.del button { margin: 0; width: 22px; height: 22px; font-size: 13px; }
+  .policy-detail {
+    background: #0d1117; border: 1px solid #1e1e2e; border-radius: 6px;
+    padding: 10px; font-family: 'SF Mono', Menlo, monospace; font-size: 12px;
+    color: #e8e8f0; white-space: pre-wrap; word-break: break-all; margin-top: 4px;
+  }
 </style>
 </head>
 <body>
@@ -67,15 +99,34 @@
   <div class="grid">
     <div class="card">
       <h3>Portfolio</h3>
-      <label>Holdings (JSON: ticker → weight)</label>
-      <textarea id="holdings">{"AAPL": 0.14, "MSFT": 0.12, "NVDA": 0.08, "GOOGL": 0.07,
- "AMZN": 0.06, "META": 0.05, "TSLA": 0.04,
- "JPM": 0.05, "UNH": 0.04, "XOM": 0.05, "TLT": 0.30}</textarea>
-      <label>Policy weights (JSON: ticker → weight)</label>
-      <textarea id="policy">{"SPY": 0.60, "TLT": 0.40}</textarea>
-      <button id="gradeBtn" onclick="grade()">Grade Portfolio</button>
+      <label>Select portfolio</label>
+      <select id="portfolioSelect" onchange="onPortfolioSelect()"></select>
+      <label>Portfolio name <span style="color:#f85149">*</span></label>
+      <div class="row-actions">
+        <input type="text" id="portfolioName" placeholder="Portfolio name (required)">
+        <button class="icon-btn" title="Add row" onclick="addRow()">+</button>
+        <button class="icon-btn danger" title="Remove last row" onclick="removeRow()">−</button>
+      </div>
+      <table class="table-editor">
+        <thead><tr><th>Ticker</th><th>Shares</th><th></th></tr></thead>
+        <tbody id="holdingsBody"></tbody>
+      </table>
+      <div class="btn-row">
+        <button class="btn-cancel" onclick="cancelEdit()">Cancel</button>
+        <button onclick="savePortfolio()">Save</button>
+      </div>
+      <button class="btn-danger" style="width:100%" onclick="deletePortfolio()">Delete Portfolio</button>
       <div class="err" id="err"></div>
       <div class="meta" id="meta"></div>
+    </div>
+
+    <div class="card" style="max-width:480px">
+      <h3>Policy</h3>
+      <label>Select policy</label>
+      <select id="policySelect" onchange="onPolicySelect()"></select>
+      <div class="policy-detail" id="policyDetail">Select a policy…</div>
+      <button id="gradeBtn" onclick="grade()">Grade Portfolio</button>
+      <div class="meta">Policy used as the grading target (policy loading vector β*).</div>
     </div>
 
     <div class="card" id="resultCard" style="display:none">
@@ -103,50 +154,219 @@
 <script>
 let frontierChart = null;
 
+// ---------------------------------------------------------------------------
+// Portfolio editor state
+// ---------------------------------------------------------------------------
+let portfolios = [];          // [names]
+let policies = [];            // [names]
+let currentPortfolio = null;  // name of loaded portfolio (or null if new)
+let rows = [];                // [{ticker, shares}] editor state
+
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-function pill(g) {
-  var cls = String(g || 'N/A').replace(/[^A-Z]/g, '') || 'N-A';
-  return '<span class="pill ' + cls + '">' + esc(g) + '</span>';
+
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
 }
+
+// ---------------------------------------------------------------------------
+// Portfolio CRUD
+// ---------------------------------------------------------------------------
+
+async function refreshLists() {
+  const p = await api('/api/portfolios');
+  const pol = await api('/api/policies');
+  portfolios = p.portfolios || [];
+  policies = pol.policies || [];
+  const sel = document.getElementById('portfolioSelect');
+  sel.innerHTML = '';
+  portfolios.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n; opt.textContent = n;
+    sel.appendChild(opt);
+  });
+  const polSel = document.getElementById('policySelect');
+  polSel.innerHTML = '';
+  policies.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n; opt.textContent = n;
+    polSel.appendChild(opt);
+  });
+  if (portfolios.length) {
+    sel.value = currentPortfolio || portfolios[0];
+    currentPortfolio = sel.value;
+    await loadPortfolio(currentPortfolio);
+  } else {
+    currentPortfolio = null;
+    rows = [{ticker: '', shares: ''}];
+    document.getElementById('portfolioName').value = '';
+    renderRows();
+  }
+  if (policies.length) {
+    polSel.value = policies[0];
+    await showPolicy(policies[0]);
+  }
+}
+
+async function loadPortfolio(name) {
+  const d = await api('/api/portfolios?name=' + encodeURIComponent(name));
+  document.getElementById('portfolioName').value = d.name;
+  rows = Object.entries(d.holdings || {}).map(([ticker, shares]) => ({ticker, shares}));
+  if (!rows.length) rows = [{ticker: '', shares: ''}];
+  renderRows();
+}
+
+function renderRows() {
+  const tb = document.getElementById('holdingsBody');
+  tb.innerHTML = '';
+  rows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input type="text" value="' + esc(r.ticker) + '" placeholder="TICKER" ' +
+        'oninput="rows[' + i + '].ticker=this.value.toUpperCase()"></td>' +
+      '<td class="shares"><input type="number" min="0" step="any" value="' + esc(r.shares) + '" ' +
+        'placeholder="0" oninput="rows[' + i + '].shares=this.value"></td>' +
+      '<td class="del"><button class="icon-btn danger" title="Remove row" onclick="removeRowAt(' + i + ')">×</button></td>';
+    tb.appendChild(tr);
+  });
+}
+
+function addRow() {
+  rows.push({ticker: '', shares: ''});
+  renderRows();
+}
+
+function removeRow() {
+  if (!rows.length) return;
+  rows.pop();
+  renderRows();
+}
+
+function removeRowAt(i) {
+  rows.splice(i, 1);
+  renderRows();
+}
+
+function collectRows() {
+  return rows
+    .filter(r => (r.ticker || '').trim() && r.shares !== '' && Number(r.shares) > 0)
+    .map(r => ({ticker: r.ticker.trim().toUpperCase(), shares: Number(r.shares)}));
+}
+
+async function savePortfolio() {
+  const name = document.getElementById('portfolioName').value.trim();
+  if (!name) { document.getElementById('err').textContent = 'Portfolio name is required.'; return; }
+  const holdings = collectRows();
+  if (!holdings.length) { document.getElementById('err').textContent = 'Add at least one ticker with positive shares.'; return; }
+  const h = {};
+  holdings.forEach(r => { h[r.ticker] = r.shares; });
+  if (!confirm('Save portfolio "' + name + '"?')) return;
+  try {
+    await api('/api/portfolios', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, holdings: h, rename_from: currentPortfolio})
+    });
+    currentPortfolio = name;
+    document.getElementById('err').textContent = '';
+    await refreshLists();
+  } catch (e) {
+    document.getElementById('err').textContent = 'Save failed: ' + e.message;
+  }
+}
+
+async function cancelEdit() {
+  if (!confirm('Discard unsaved changes?')) return;
+  document.getElementById('err').textContent = '';
+  if (currentPortfolio) await loadPortfolio(currentPortfolio);
+  else { rows = [{ticker: '', shares: ''}]; renderRows(); }
+}
+
+async function deletePortfolio() {
+  if (!currentPortfolio) return;
+  if (!confirm('Delete portfolio "' + currentPortfolio + '"?')) return;
+  await api('/api/portfolios?name=' + encodeURIComponent(currentPortfolio), {method: 'DELETE'});
+  currentPortfolio = null;
+  await refreshLists();
+}
+
+async function onPortfolioSelect() {
+  const sel = document.getElementById('portfolioSelect');
+  if (!sel.value) { currentPortfolio = null; rows = [{ticker:'',shares:''}]; renderRows(); return; }
+  await loadPortfolio(sel.value);
+  currentPortfolio = sel.value;
+}
+
+// ---------------------------------------------------------------------------
+// Policy
+// ---------------------------------------------------------------------------
+
+async function showPolicy(name) {
+  const d = await api('/api/policies?name=' + encodeURIComponent(name));
+  document.getElementById('policyDetail').textContent = JSON.stringify(d.weights, null, 2);
+}
+
+async function onPolicySelect() {
+  const sel = document.getElementById('policySelect');
+  if (sel.value) await showPolicy(sel.value);
+}
+
+// ---------------------------------------------------------------------------
+// Grading + frontier (use stored portfolio/policy names)
+// ---------------------------------------------------------------------------
+
+function selectedPortfolioName() {
+  const sel = document.getElementById('portfolioSelect');
+  return sel.value || null;
+}
+
+function selectedPolicyName() {
+  const sel = document.getElementById('policySelect');
+  return sel.value || null;
+}
+
 async function grade() {
-  var btn = document.getElementById('gradeBtn');
+  const btn = document.getElementById('gradeBtn');
   btn.disabled = true;
   document.getElementById('err').textContent = '';
   try {
-    var holdings = JSON.parse(document.getElementById('holdings').value);
-    var policy = JSON.parse(document.getElementById('policy').value);
-    var res = await fetch('/api/grade', {
+    const pname = selectedPortfolioName();
+    const polname = selectedPolicyName();
+    if (!pname) throw new Error('Select a portfolio first.');
+    if (!polname) throw new Error('Select a policy first.');
+    const res = await fetch('/api/grade', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({holdings: holdings, policy_weights: policy})
+      body: JSON.stringify({holdings: pname, policy_weights: polname})
     });
-    var data = await res.json();
+    const data = await res.json();
     if (!res.ok || data.error) {
       document.getElementById('err').textContent = (data.error || ('HTTP ' + res.status));
       return;
     }
-    var c = data.concentration;
+    const c = data.concentration;
     document.getElementById('compGrade').textContent = c.composite_concentration_grade;
     document.getElementById('compScore').textContent =
       'composite concentration score: ' + c.composite_concentration_score;
-    var tb = document.querySelector('#axesTable tbody');
+    const tb = document.querySelector('#axesTable tbody');
     tb.innerHTML = '';
-    var order = ['factor_loading', 'sector', 'effective_n', 'tail_correlation'];
-    order.forEach(function(k) {
-      var sg = c.sub_grades[k];
-      var tr = document.createElement('tr');
+    ['factor_loading', 'sector', 'effective_n', 'tail_correlation'].forEach(k => {
+      const sg = c.sub_grades[k];
+      const tr = document.createElement('tr');
       tr.innerHTML = '<td>' + k.replace('_', ' ') + '</td>' +
                      '<td>' + pill(sg.grade) + '</td>' +
                      '<td>' + sg.score + '</td>' +
                      '<td>' + (sg.weight * 100).toFixed(0) + '%</td>';
       tb.appendChild(tr);
     });
-    var tw = document.getElementById('tweaks');
+    const tw = document.getElementById('tweaks');
     tw.innerHTML = '';
-    (data.tweaks || []).forEach(function(t) {
-      var div = document.createElement('div');
+    (data.tweaks || []).forEach(t => {
+      const div = document.createElement('div');
       div.className = 'tweak';
       div.innerHTML = '<span class="sev ' + t.severity + '">' + esc(t.severity) + '</span> ' +
         esc(t.axis) + (t.sub_axis ? ' / ' + esc(t.sub_axis) : '') +
@@ -156,24 +376,30 @@ async function grade() {
     });
     if (!data.tweaks || !data.tweaks.length) tw.innerHTML = '<div class="meta">No tweaks — portfolio is within policy bands.</div>';
     document.getElementById('resultCard').style.display = 'block';
-    var meta = document.getElementById('meta');
+    const meta = document.getElementById('meta');
     meta.textContent = 'as_of: ' + (data.as_of || 'n/a') + ' · n_obs: ' + (data.n_obs || 0) +
       ' · r²: ' + (data.regression ? data.regression.r_squared : 'n/a');
+    await loadFrontier();  // refresh frontier with current portfolio/policy
   } catch (e) {
     document.getElementById('err').textContent = 'Failed: ' + e.message;
   } finally {
     btn.disabled = false;
   }
 }
+function pill(g) {
+  var cls = String(g || 'N/A').replace(/[^A-Z]/g, '') || 'N-A';
+  return '<span class="pill ' + cls + '">' + esc(g) + '</span>';
+}
 async function loadFrontier() {
   var meta = document.getElementById('frontierMeta');
   try {
-    var holdings = JSON.parse(document.getElementById('holdings').value);
-    var policy = JSON.parse(document.getElementById('policy').value);
+    var pname = selectedPortfolioName();
+    var polname = selectedPolicyName();
+    if (!pname || !polname) { meta.textContent = 'frontier: select portfolio and policy'; return; }
     var res = await fetch('/api/frontier', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({holdings: holdings, policy_weights: policy})
+      body: JSON.stringify({holdings: pname, policy_weights: polname})
     });
     var d = await res.json();
     if (!res.ok || d.error) { meta.textContent = 'frontier: ' + (d.error || ('HTTP ' + res.status)); return; }
@@ -247,8 +473,8 @@ async function loadFrontier() {
   }
 }
 
-// Initial load — frontier + dashboard
-loadFrontier();
+// Initial load — portfolios, policies, frontier, dashboard
+refreshLists().then(function() { loadFrontier(); });
 </script>
 </body>
 </html>
