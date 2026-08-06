@@ -81,11 +81,13 @@ def test_today_est_str_format():
 
 # --------------------------------------------------------------------------- #
 # scan_year_highs sources from finviz (Overview) + enriches via yfinance.
-# Mock both so no network.
+# Mock both so no network. Current architecture (R1): year_highs is a thin
+# wrapper over snapshot.py — the FINVIZ_AVAILABLE/Overview flags live on the
+# SNAPSHOT module, and the enrich hook is year_highs.enrich_yfinance.
 # --------------------------------------------------------------------------- #
 def test_scan_year_highs_filters_below_threshold(monkeypatch):
     import year_highs as yh
-    import types
+    import snapshot
     import pandas as pd
 
     class FakeOverview:
@@ -101,16 +103,18 @@ def test_scan_year_highs_filters_below_threshold(monkeypatch):
                 ])
             return pd.DataFrame()
 
-    monkeypatch.setattr(yh, "Overview", FakeOverview)
-    monkeypatch.setattr(yh, "FINVIZ_AVAILABLE", True)
+    monkeypatch.setattr(snapshot, "Overview", FakeOverview)
+    monkeypatch.setattr(snapshot, "FINVIZ_AVAILABLE", True)
 
     # Enrichment returns -5% -> stock is below threshold -> excluded
-    monkeypatch.setattr(yh, "_enrich_pct_off", lambda ticker, price: (-5.0, 100.0))
+    monkeypatch.setattr(yh, "enrich_yfinance",
+                        lambda ticker, price, window=252, agg="max": (-5.0, 100.0))
     rows = yh.scan_year_highs()
     assert rows == [], "ticker 5% below 52w high must be excluded"
 
     # Enrichment returns 0% (at the high) -> included, NASDAQ from finviz
-    monkeypatch.setattr(yh, "_enrich_pct_off", lambda ticker, price: (0.0, 100.0))
+    monkeypatch.setattr(yh, "enrich_yfinance",
+                        lambda ticker, price, window=252, agg="max": (0.0, 100.0))
     rows2 = yh.scan_year_highs()
     assert len(rows2) == 1
     assert rows2[0]["ticker"] == "FAKE"
@@ -120,10 +124,10 @@ def test_scan_year_highs_filters_below_threshold(monkeypatch):
 
 def test_scan_year_highs_finviz_unavailable(monkeypatch):
     """If finvizfinance is missing, scan returns [] gracefully (no crash)."""
-    import year_highs as yh
-    monkeypatch.setattr(yh, "FINVIZ_AVAILABLE", False)
-    monkeypatch.setattr(yh, "Overview", None)
-    rows = yh.scan_year_highs()
+    import snapshot
+    monkeypatch.setattr(snapshot, "FINVIZ_AVAILABLE", False)
+    monkeypatch.setattr(snapshot, "Overview", None)
+    rows = snapshot.scan_candidates("New High")
     assert rows == []
 
 
@@ -137,6 +141,10 @@ def server(tmp_path, monkeypatch):
     import importlib
     import server as srv
     importlib.reload(srv)  # ensure fresh module with patched db.DB_PATH
+    # The live server discovers module routes in AlphaTerminalServer.start();
+    # this fixture bypasses start(), so discover explicitly (else /api/year-*
+    # 404s with "API not found").
+    srv.Handler._discover_module_routes()
     httpd = srv.HTTPServer(("127.0.0.1", 0), srv.Handler)
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()

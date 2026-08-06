@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ninestreet.ns5.qa</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>sleep 2; exec env -u PYTHONPATH PORT=9251 /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3 /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-5_QA/qa_server.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PORT</key>
+        <string>9251</string>
+        <key>PYTHONPATH</key>
+        <string></string>
+        <key>ENV</key>
+        <string>QA</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-5_QA</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/chuck/Project_Alpha_POC/Project_Nine_Street/logs/ns5_qa.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/chuck/Project_Alpha_POC/Project_Nine_Street/logs/ns5_qa.err.log</string>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

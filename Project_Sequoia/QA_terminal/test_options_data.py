@@ -2,9 +2,49 @@
 Hermetic tests for the option data layer (options_data.py).
 No live network: options/yfinance modules are faked via sys.modules.
 """
+
 import sys
 import pandas as pd
 import pytest
+
+
+# --- sys.modules swap registry -------------------------------------------
+# The old code did `sys.modules["yfinance"] = FakeYF()` with no restoration,
+# so the fake stayed installed for the WHOLE suite. Every later string-based
+# @patch('yfinance.Ticker') then patched the fake while already-imported
+# modules (yahoo_financials.yf, quotes.yf, ...) kept the REAL yfinance object
+# -> real network calls leaked through (test isolation bug, found 2026-08-03
+# via test_yahoo_financials + test_quotes_options failures in the full run).
+_MODULE_SWAPS = []
+
+
+def _swap_module(name, fake):
+    _MODULE_SWAPS.append((name, sys.modules.get(name)))
+    sys.modules[name] = fake
+
+
+@pytest.fixture(autouse=True)
+def _restore_module_swaps():
+    """Restore every sys.modules swap after each test in this file.
+
+    A test may swap the same name twice (e.g. test_next_earnings_none_when_
+    missing_or_broken installs FakeYF twice) — the registry then holds
+    (real, fake#1) for one name. Restore the FIRST-seen (original) value
+    only; restoring FIFO would end on the intermediate fake (isolation bug
+    found 2026-08-03: FakeYF stayed installed, breaking later string-based
+    @patch('yfinance.Ticker') in test_quotes_options / test_yahoo_financials).
+    """
+    yield
+    seen = set()
+    for name, orig in _MODULE_SWAPS:
+        if name in seen:
+            continue  # keep the first-seen original
+        seen.add(name)
+        if orig is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = orig
+    _MODULE_SWAPS.clear()
 
 
 def _install_fake_options():
@@ -16,7 +56,7 @@ def _install_fake_options():
             return {"ticker": ticker.upper(), "expiry": expiry,
                     "spot": 100.0, "calls": [], "puts": []}
 
-    sys.modules["options"] = FakeOptions()
+    _swap_module("options", FakeOptions())
     return FakeOptions
 
 
@@ -29,7 +69,7 @@ def _install_fake_yfinance(calendar_frame=None):
         def Ticker(self, t):
             return FakeTicker(t)
 
-    sys.modules["yfinance"] = FakeYF()
+    _swap_module("yfinance", FakeYF())
     return FakeYF
 
 

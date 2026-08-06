@@ -117,7 +117,11 @@ def store_year_highs(date_str, rows):
             VALUES
                 (:date, :ticker, :exchange, :sector, :company, :close, :high_52w, :pct_off, :volume, :market_cap)
             """,
-            [{**{"date": date_str}, **r} for r in rows],
+            # company/market_cap are nullable and may be absent from caller
+            # rows (test fixtures, partial builds) — default them so the
+            # named-param binding never errors (was "binding 5" ProgrammingError).
+            [{**{"date": date_str, "company": "", "market_cap": None}, **r}
+             for r in rows],
         )
         conn.commit()
         return len(rows)
@@ -175,7 +179,8 @@ def store_year_lows(date_str, rows):
             VALUES
                 (:date, :ticker, :exchange, :sector, :company, :close, :low_52w, :pct_from_low, :volume, :market_cap)
             """,
-            [{**{"date": date_str}, **r} for r in rows],
+            [{**{"date": date_str, "company": "", "market_cap": None}, **r}
+             for r in rows],
         )
         conn.commit()
         return len(rows)
