@@ -13,6 +13,27 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 PORT = 8000
 
+def _last_updated():
+    """Date of the last commit touching portal.py (repo-relative), with
+    file-mtime fallback — the label never needs a manual bump again."""
+    import datetime as _dt
+    import subprocess as _sp
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        r = _sp.run(["git", "-C", here, "log", "-1", "--format=%cs", "--",
+                     "Project_Nine_Street/portal.py"],
+                    capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    try:
+        return _dt.date.fromtimestamp(os.path.getmtime(__file__)).isoformat()
+    except Exception:
+        return "2026-08-06"
+
+LAST_UPDATED = _last_updated()
+
 # Strategy Configuration
 STRATEGIES = {
     'alpha': {'name': 'Alpha Terminal', 'path': 'dashboard.html', 'prod': 9098, 'qa': 9099},
@@ -153,7 +174,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
   <div class="topbar">
     <div class="topbar-left">
-      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v2.5.0 | Last Updated: 2026-08-06</div></div>
+      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v2.5.0 | Last Updated: {last_updated}</div></div>
       <div class="nav-tabs">
               <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')"><span class="status-indicator" id="status-alpha"></span>Alpha Terminal</button>
               <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')"><span class="status-indicator" id="status-ns1"></span>NS-1</button>
@@ -274,6 +295,7 @@ def build_html():
     # JSON's own braces are never touched.
     html = HTML_TEMPLATE.replace('{{', '{').replace('}}', '}')
     html = html.replace('{ts}', ts)
+    html = html.replace('{last_updated}', LAST_UPDATED)
     html = html.replace('{strategies_json}', strategies_json)
     return html
 
