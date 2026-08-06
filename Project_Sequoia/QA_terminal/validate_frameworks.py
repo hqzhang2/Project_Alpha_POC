@@ -152,13 +152,17 @@ def rebalance_dates(start, end):
 
 def run_study(start, end, costs=True):
     dates = rebalance_dates(start, end)
-    tickers = sorted({r[0] for r in fh._conn().execute(
-        "SELECT DISTINCT ticker FROM annual")})
+    import sp500_history
+    sp_hist = sp500_history.fetch_and_cache()   # survivorship-aware universe
     methods = ["graham", "greenblatt", "lynch", "buffett"]
     # per-fold results: method -> {rets, base, n}
     folds = []
     for i, r in enumerate(dates[:-1]):
         nxt = dates[i + 1]
+        # point-in-time universe: store tickers that were S&P members at r
+        tickers = sorted({row[0] for row in fh._conn().execute(
+            "SELECT DISTINCT ticker FROM annual")}
+            & sp500_history.members_on(r, sp_hist))
         verdicts = {m: [] for m in methods}     # ticker -> bool
         base_rets = []
         peers = {"ey": [], "roc": []}
@@ -323,10 +327,11 @@ if __name__ == "__main__":
             if per_fold[k]:
                 buckets[k]["fold_mean"].append(sum(per_fold[k]) / len(per_fold[k]))
 
-    lines = ["# Framework Cross-Reference Study (walk-forward OOS)",
+    lines = ["# Framework Cross-Reference Study v2 (walk-forward OOS, survivorship-aware)",
              "",
              f"- Window: {args.start}-04-01 .. {args.end}-04-01, annual rebalance",
-             f"- Universe: {len(tickers)} tickers in store (current S&P 500 — survivorship bias caveat)",
+             f"- Universe: point-in-time S&P 500 membership (Wikipedia changes "
+             f"table) ∩ fundamentals store — {len(tickers)} tickers in store",
              f"- Costs: {'10bp/side (20bp/yr)' if not args.no_costs else 'none (gross)'}",
              f"- Data: SEC XBRL as-originally-reported annual facts, filed-date point-in-time",
              f"- Risk: annual strategy series = fold-level mean returns "
@@ -371,14 +376,15 @@ if __name__ == "__main__":
         lines.append(f"| {k} | {n} | {_pct(mean)} | {_pct(hit, 0)} | "
                      f"{_pct(vol)} | {sharpe:.2f} | {_pct(_max_dd(b['fold_mean']))} |")
     lines += ["", "## Caveats", "",
-              "- Survivorship bias: current S&P 500 constituents only; delisted "
-              "names absent (absolute returns inflated; excess-vs-base partially hedged). "
-              "SPY column is the index return for calibration.",
+              "- Survivorship: universe = point-in-time S&P membership "
+              "reconstructed from Wikipedia's selected-changes table (current "
+              "tickers only — renames not retro-mapped; non-index delistings "
+              "under-represented). SPY column is the index return for calibration.",
               "- Equal-weight baskets, annual rebalance at Apr-01 (captures "
               "Dec-FYE 10-Ks). As-originally-reported facts (no restatements).",
               "- Costs: flat 20bp/yr (full annual turnover approximation).",
               "- Risk series = 10 annual points (fold means); Sharpe/MaxDD are "
-              "coarse. 4-pass bucket n=20 — not statistically significant.",
+              "coarse. 4-pass bucket n small — not statistically significant.",
               "- Graham PASS = score >= 6; Greenblatt = top-20% combined EBIT/EV "
               "+ ROC rank (EBIT > 0 only); Lynch = 0 < PEG < 1 (5y EPS CAGR); "
               "Buffett = ROE>=15% + FCF/NI>=0.8 + D/E<0.5."]
