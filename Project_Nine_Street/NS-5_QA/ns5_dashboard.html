@@ -413,6 +413,10 @@ async function loadFrontier() {
       ? [{x: d.portfolio.vol, y: d.portfolio.ret, label: 'Portfolio'}] : [];
     var pol = d.policy && d.policy.vol != null
       ? [{x: d.policy.vol, y: d.policy.ret, label: 'Policy'}] : [];
+    // Benchmark anchors: SPY / QQQ (white squares)
+    var benchmarks = (d.benchmarks || []).map(function(b) {
+      return {x: b.vol, y: b.ret, label: b.ticker};
+    });
 
     var frontierPts = (d.frontier || []).map(function(p) { return {x: p.vol, y: p.ret}; });
 
@@ -428,6 +432,9 @@ async function loadFrontier() {
            pointHoverRadius: 6},
           {label: 'GMV', data: gmv, backgroundColor: '#f0883e', pointRadius: 7,
            pointStyle: 'rectRot'},
+          {label: 'Benchmarks', data: benchmarks, backgroundColor: '#e8e8f0',
+           borderColor: '#e8e8f0', pointRadius: 7, pointStyle: 'rect',
+           pointHoverRadius: 9},
           {label: 'Portfolio', data: port, backgroundColor: '#4ade80', pointRadius: 9,
            pointStyle: 'triangle'},
           {label: 'Policy', data: pol, backgroundColor: '#f0b429', pointRadius: 8,
@@ -448,6 +455,9 @@ async function loadFrontier() {
                 if (c.datasetIndex === 0) { tag = ' frontier'; }
                 else if (c.datasetIndex === 1) {
                   var a = d.assets[c.dataIndex]; tag = ' ' + (a && a.ticker ? a.ticker : '');
+                }
+                else if (c.datasetIndex === 3) {
+                  var b = d.benchmarks[c.dataIndex]; tag = ' ' + (b && b.ticker ? b.ticker : '');
                 }
                 return lbl + tag + ': vol ' + (pt.x * 100).toFixed(1) + '% / ret ' +
                        (pt.y * 100).toFixed(1) + '%';

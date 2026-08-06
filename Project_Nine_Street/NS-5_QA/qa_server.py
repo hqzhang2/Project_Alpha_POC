@@ -106,8 +106,13 @@ def _frontier_response(holdings=None, policy=None, force_refresh=False):
     holdings = holdings or DEFAULT_FRONTIER_HOLDINGS
     policy = policy or DEFAULT_FRONTIER_POLICY
 
+    # Benchmark anchors (SPY/QQQ) always fetched so they render even when
+    # not in the holdings universe — computed as single-asset positions on
+    # the same Ledoit-Wolf covariance basis.
+    BENCHMARKS = ("SPY", "QQQ")
     universe = list(holdings.keys()) + list(policy.keys())
-    closes = data_fetcher.get_closes(universe, force_refresh=force_refresh)
+    all_tickers = list(dict.fromkeys(universe + list(BENCHMARKS)))
+    closes = data_fetcher.get_closes(all_tickers, force_refresh=force_refresh)
     if closes.empty:
         return {"error": "no price data for universe"}
 
@@ -124,6 +129,15 @@ def _frontier_response(holdings=None, policy=None, force_refresh=False):
         if tk in fc["mu"] and tk in fc["sigma"]:
             assets.append({"ticker": tk, "ret": fc["mu"][tk], "vol": fc["sigma"][tk]})
 
+    # Benchmark anchors as single-asset positions (same cov basis).
+    # Pass only the benchmark ticker so covariance is computed over its own
+    # clean series — all_tickers includes holdings with misaligned histories.
+    benchmarks = []
+    for tk in BENCHMARKS:
+        pos = frontier.position_on_frontier({tk: 1.0}, closes, [tk])
+        if "error" not in pos and pos.get("vol") is not None:
+            benchmarks.append({"ticker": tk, "ret": pos["ret"], "vol": pos["vol"]})
+
     return {
         "as_of": str(closes.index[-1].date()) if not closes.empty else None,
         "universe": fc["tickers"],
@@ -131,6 +145,7 @@ def _frontier_response(holdings=None, policy=None, force_refresh=False):
         "gmv": fc["gmv"],
         "max_ret": fc["max_ret"],
         "assets": assets,
+        "benchmarks": benchmarks,
         "portfolio": pos_portfolio,
         "policy": pos_policy,
         "n_obs": pos_portfolio.get("n_obs", 0) if isinstance(pos_portfolio, dict) else 0,
