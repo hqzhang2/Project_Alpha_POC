@@ -33,6 +33,8 @@ Project_Nine_Street/NS-5_QA/data/factor_meta.json
 # NS-5 portfolio/policy stores (user data, file-backed)
 Project_Nine_Street/NS-5_QA/data/portfolios.json
 Project_Nine_Street/NS-5_QA/data/policies.json
+# NS-5 PROD runtime data (per-env store, module-relative)
+Project_Nine_Street/NS-5_PROD/data/
 *.log
 
 # --- Private / security files (NEVER commit) ---
