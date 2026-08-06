@@ -63,6 +63,33 @@ ANNUAL_TAGS = {
     'capex': ['PaymentsToAcquirePropertyPlantAndEquipment'],
 }
 
+# IFRS (ifrs-full) tag map — TSM/BHP (20-F foreign private issuers) file
+# under IFRS. Same metric keys; first-found-wins after us-gaap.
+IFRS_ANNUAL_TAGS = {
+    'revenue': ['Revenue', 'RevenueFromContractsWithCustomers'],
+    'gross_profit': ['GrossProfit'],
+    'operating_income': ['ProfitLossFromOperatingActivities'],
+    'net_income': ['ProfitLossAttributableToOwnersOfParent', 'ProfitLoss'],
+    'eps_diluted': ['DilutedEarningsLossPerShare', 'BasicEarningsLossPerShare'],
+    'current_assets': ['CurrentAssets'],
+    'current_liabilities': ['CurrentLiabilities'],
+    'total_liabilities': ['Liabilities'],
+    'short_term_debt': ['ShorttermBorrowings', 'CurrentPortionOfLongtermBorrowings',
+                        'OtherCurrentBorrowingsAndCurrentPortionOfOtherNoncurrentBorrowings'],
+    'long_term_debt': ['LongtermBorrowings', 'NoncurrentPortionOfOtherNoncurrentBorrowings',
+                       'Borrowings', 'OtherBorrowings'],
+    'total_equity': ['EquityAttributableToOwnersOfParent', 'Equity'],
+    'shares_outstanding': ['AdjustedWeightedAverageShares',
+                           'WeightedAverageNumberOfOrdinarySharesOutstanding'],
+    'cash': ['CashAndCashEquivalents'],
+    'marketable_securities': [],
+    'ppe': ['PropertyPlantAndEquipment'],
+    'operating_cf': ['CashFlowsFromUsedInOperatingActivities'],
+    'capex': ['AdditionsOtherThanThroughBusinessCombinationsPropertyPlantAndEquipment',
+              'PurchaseOfPropertyPlantAndEquipment',
+              'PaymentsForPropertyPlantAndEquipment'],
+}
+
 FLOW_KEYS = {'revenue', 'gross_profit', 'operating_income', 'net_income',
              'eps_diluted', 'operating_cf', 'capex'}   # ~365-day durations
 INSTANT_KEYS = set(ANNUAL_TAGS) - FLOW_KEYS              # balance date instants
@@ -145,7 +172,11 @@ def _annual_facts(us_gaap, tag):
         return []
     units = us_gaap[tag].get("units", {})
     out = {}
-    for unit_facts in units.values():
+    # Prefer USD-denominated units (SEC provides USD conversions for foreign
+    # issuers: TSM Revenue has TWD+USD, EPS has TWD/shares+USD/shares) —
+    # otherwise the first-listed unit (often home currency) wins ties.
+    unit_keys = sorted(units.keys(), key=lambda k: 0 if "USD" in k else 1)
+    for unit_facts in [units[k] for k in unit_keys]:
         for u in unit_facts:
             form = u.get("form", "")
             if "10-K" not in form and "20-F" not in form:
@@ -170,18 +201,24 @@ def _annual_facts(us_gaap, tag):
 
 
 def extract_ticker(cik):
-    """{period_end: {'filed': ..., metric: val}} from companyfacts (annual)."""
+    """{period_end: {'filed': ..., metric: val}} from companyfacts (annual).
+
+    us-gaap first, ifrs-full fallback (TSM/BHP are 20-F IFRS filers).
+    First-found tag wins per metric; first-found taxonomy wins per period.
+    """
     facts = _fetch_companyfacts(cik)
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    ifrs = facts.get("facts", {}).get("ifrs-full", {})
     rows = {}
-    for metric, tags in ANNUAL_TAGS.items():
-        for tag in tags:
-            for end, filed, val in _annual_facts(us_gaap, tag):
-                row = rows.setdefault(end, {"filed": filed})
-                if filed > row.get("filed", ""):
-                    row["filed"] = filed
-                if metric not in row:
-                    row[metric] = val
+    for taxo, tag_map in ((us_gaap, ANNUAL_TAGS), (ifrs, IFRS_ANNUAL_TAGS)):
+        for metric, tags in tag_map.items():
+            for tag in tags:
+                for end, filed, val in _annual_facts(taxo, tag):
+                    row = rows.setdefault(end, {"filed": filed})
+                    if filed > row.get("filed", ""):
+                        row["filed"] = filed
+                    if metric not in row:
+                        row[metric] = val
     return rows
 
 

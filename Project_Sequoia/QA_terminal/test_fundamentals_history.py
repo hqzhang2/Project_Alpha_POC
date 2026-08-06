@@ -98,6 +98,43 @@ class TestExtractTicker(unittest.TestCase):
         self.assertEqual(r["eps_diluted"], 7.46)
         self.assertEqual(r["filed"], "2025-11-01")
 
+    def test_usd_unit_preferred(self):
+        # TSM-like: Revenue has TWD + USD units, TWD listed first — the USD
+        # value must win (same end/filed tie), else the store holds TWD.
+        ug = {"Revenue": {"units": {
+            "TWD": [_fact("2025-12-31", "2026-02-15", 2800e9,
+                          form="20-F", start="2025-01-01")],
+            "USD": [_fact("2025-12-31", "2026-02-15", 90e9,
+                          form="20-F", start="2025-01-01")]}}}
+        got = fh._annual_facts(ug, "Revenue")
+        self.assertEqual(got[0][2], 90e9)
+
+    @patch.object(fh, "_fetch_companyfacts")
+    def test_ifrs_fallback_extracts(self, mock_fetch):
+        # TSM/BHP-like: us-gaap empty, ifrs-full only, USD units
+        ifrs = {
+            "Revenue": {"units": {"USD": [
+                _fact("2025-12-31", "2026-02-15", 90e9,
+                      form="20-F", start="2025-01-01")]}},
+            "ProfitLossAttributableToOwnersOfParent": {"units": {"USD": [
+                _fact("2025-12-31", "2026-02-15", 30e9,
+                      form="20-F", start="2025-01-01")]}},
+            "DilutedEarningsLossPerShare": {"units": {"USD/shares": [
+                _fact("2025-12-31", "2026-02-15", 1.6,
+                      form="20-F", start="2025-01-01")]}},
+            "EquityAttributableToOwnersOfParent": {"units": {"USD": [
+                _fact("2025-12-31", "2026-02-15", 120e9, form="20-F")]}},
+        }
+        mock_fetch.return_value = {"facts": {"us-gaap": {},
+                                             "ifrs-full": ifrs}}
+        rows = fh.extract_ticker("0001046179")
+        r = rows["2025-12-31"]
+        self.assertEqual(r["revenue"], 90e9)
+        self.assertEqual(r["net_income"], 30e9)
+        self.assertEqual(r["eps_diluted"], 1.6)
+        self.assertEqual(r["total_equity"], 120e9)
+        self.assertEqual(r["filed"], "2026-02-15")
+
 
 class TestStoreAndQuery(unittest.TestCase):
     def setUp(self):
