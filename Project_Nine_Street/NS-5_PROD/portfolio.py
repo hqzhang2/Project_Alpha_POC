@@ -137,6 +137,9 @@ def shares_to_weights(holdings_shares: Dict[str, float],
     values = {}
     for tk, shares in holdings_shares.items():
         tk = tk.strip().upper()
+        # v2 positions stored as {shares, account, lots} — extract shares
+        if isinstance(shares, dict):
+            shares = shares.get("shares", 0)
         if tk in latest.index and pd.notna(latest[tk]) and latest[tk] > 0:
             values[tk] = float(shares) * float(latest[tk])
     total = sum(values.values())
