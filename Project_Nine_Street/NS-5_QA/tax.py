@@ -294,3 +294,324 @@ def generate_tax_tweaks(levels: Dict[str, Dict], theta: dict) -> List[Dict]:
         })
 
     return tweaks
+
+
+# =============================================================================
+# C3-C5 — Checker functions (deterministic math, cheap-model work)
+# Input: v2 positions {ticker: {shares, account, lots}} + yields + current prices
+# Output: dicts consumable by the grade_* functions + generate_tax_tweaks
+# =============================================================================
+
+def check_tlh_harvest(positions, current_prices, theta: dict) -> Dict:
+    """
+    C3 — TLH harvest candidates.
+    Per lot: unrealized_pnl = (current_price - cost_per_share) x lot_shares.
+    Loss lots are candidates; holding period (365d) -> ST vs LT rate.
+    Wash-sale v1: flag when a same-ticker lot was bought within +/-window of
+    the loss lot date (flag-all-pairs for PM review — no identity classifier).
+    """
+    tax = theta.get("tax", {})
+    if not tax:
+        return {"composite_grade": "N/A", "composite_score": 0, "severity": "green",
+                "harvestable_pool_ratio": 0.0, "largest_savings_bp": 0.0,
+                "harvest_candidates": 0, "items": [], "wash_sale_flags": 0}
+    from datetime import date
+    window = tax.get("wash_sale_window_days", 30)
+    ordinary = tax.get("ordinary_drag", 0.408)
+    ltcg = tax.get("ltcg_drag", 0.238)
+
+    today = date.today()
+    items = []
+    pool = 0.0
+    total_value = 0.0
+    wash_flags = 0
+
+    for tk, pos in positions.items():
+        if not isinstance(pos, dict) or pos.get("account", "taxable") != "taxable":
+            continue  # TLH only in taxable accounts
+        lots = pos.get("lots") or []
+        price = current_prices.get(tk, 0.0) or 0.0
+        shares_total = float(pos.get("shares", 0))
+        total_value += price * shares_total
+        lot_dates = []
+        for lot in lots:
+            lot_date = lot.get("date")
+            lot_shares = float(lot.get("shares", 0))
+            cost = float(lot.get("cost_per_share", 0))
+            if not lot_date or lot_shares <= 0 or cost <= 0:
+                continue  # unknown lot -> skip (fail-open)
+            try:
+                d = date.fromisoformat(str(lot_date))
+            except ValueError:
+                continue
+            lot_dates.append((d, tk))
+            pnl = (price - cost) * lot_shares
+            if pnl >= 0:
+                continue
+            holding_days = (today - d).days
+            period = "LT" if holding_days > 365 else "ST"
+            rate = ltcg if period == "LT" else ordinary
+            savings = abs(pnl) * rate
+            pool += abs(pnl)
+            items.append({
+                "ticker": tk, "lot_date": lot_date, "shares": lot_shares,
+                "unrealized_pnl": round(pnl, 2), "holding_period": period,
+                "est_savings": round(savings, 2),
+            })
+        # Wash-sale v1: any two same-ticker lots within +/-window
+        for i in range(len(lot_dates)):
+            for j in range(i + 1, len(lot_dates)):
+                if lot_dates[i][1] != lot_dates[j][1]:
+                    continue
+                gap = abs((lot_dates[i][0] - lot_dates[j][0]).days)
+                if gap <= window:
+                    wash_flags += 1
+
+    pool_ratio = pool / total_value if total_value > 0 else 0.0
+    largest = max((i["est_savings"] for i in items), default=0.0)
+    # largest savings as basis points of portfolio value
+    largest_bp = largest / total_value * 10000 if total_value > 0 else 0.0
+
+    result = grade_tlh(pool_ratio, largest_bp, len(items), theta)
+    result["items"] = items
+    result["wash_sale_flags"] = wash_flags
+    return result
+
+
+def check_asset_location(positions, distribution_char, theta: dict) -> Dict:
+    """
+    C4 — Asset location checker.
+    For each position: is its account type optimal for its distribution character?
+    ordinary -> ira/401k (defer); qualified -> roth/taxable (LTCG);
+    roc -> taxable (0% current); sec1256 -> taxable.
+    Mismatch: ordinary in taxable; qualified in ira/401k (withdrawal ordinary).
+    """
+    tax = theta.get("tax", {})
+    if not tax:
+        return {"composite_grade": "N/A", "composite_score": 0, "severity": "green",
+                "mismatch_count": 0, "total_positions": 0, "mismatch_ratio": 0.0,
+                "max_drag_gap_bp": 0.0, "items": []}
+    treatment = tax.get("account_treatment", {})
+    ordinary = tax.get("ordinary_drag", 0.408)
+    ltcg = tax.get("ltcg_drag", 0.238)
+
+    total = 0
+    mismatches = 0
+    max_gap_bp = 0.0
+    items = []
+
+    for tk, pos in positions.items():
+        if not isinstance(pos, dict):
+            continue
+        account = pos.get("account", "taxable")
+        total += 1
+        char_info = distribution_char.get(tk, {})
+        char = char_info.get("character", "qualified") if isinstance(char_info, dict) else "qualified"
+
+        if char == "ordinary":
+            # Best in ira/401k (defer 40.8%); taxable = 40.8% drag
+            drag = ordinary if account == "taxable" else 0.0
+            mismatch = account == "taxable"
+            rec = "ira/401k"
+        elif char == "sec1256":
+            drag = tax.get("blended_1256_drag", 0.28) if account == "taxable" else 0.0
+            mismatch = account == "taxable"
+            rec = "ira/401k"
+        elif char == "roc":
+            drag = 0.0  # location-neutral (0 current tax)
+            mismatch = False
+            rec = account
+        else:  # qualified
+            # Best roth/taxable; ira/401k withdrawal = ordinary (40.8%)
+            if account in ("ira", "401k"):
+                drag = ordinary
+                mismatch = True
+                rec = "taxable/roth"
+            else:
+                drag = 0.0
+                mismatch = False
+                rec = account
+
+        gap_bp = drag * 10000 if drag > 0 else 0.0
+        max_gap_bp = max(max_gap_bp, gap_bp)
+        if mismatch:
+            mismatches += 1
+        items.append({
+            "ticker": tk, "account": account, "character": char,
+            "drag_if_current": round(drag, 4), "mismatch": mismatch,
+            "recommended_account": rec,
+        })
+
+    result = grade_asset_location(mismatches, total, max_gap_bp, theta)
+    result["items"] = items
+    return result
+
+
+def check_basis_erosion(positions, distribution_char, theta: dict) -> Dict:
+    """
+    C5 — Basis erosion tracker (ROC funds).
+    erosion_ratio = min(1, annual_roc_rate x years_held) — static annualized
+    ROC assumption (v1; 19a ingestion future). Thresholds: 50/75/90%.
+    """
+    tax = theta.get("tax", {})
+    if not tax:
+        return {"composite_grade": "N/A", "composite_score": 0, "severity": "green",
+                "max_erosion_ratio": 0.0, "locked_positions": 0,
+                "near_locked_positions": 0, "items": []}
+    from datetime import date
+    thresholds = tax.get("erosion_thresholds", [0.50, 0.75, 0.90])
+    today = date.today()
+
+    max_erosion = 0.0
+    locked = 0
+    near_locked = 0
+    items = []
+
+    for tk, pos in positions.items():
+        if not isinstance(pos, dict):
+            continue
+        char_info = distribution_char.get(tk, {})
+        char = char_info.get("character", "qualified") if isinstance(char_info, dict) else "qualified"
+        if char != "roc":
+            continue
+        roc_rate = char_info.get("annual_roc_rate", 0.10) if isinstance(char_info, dict) else 0.10
+        for lot in pos.get("lots") or []:
+            lot_date = lot.get("date")
+            if not lot_date:
+                continue
+            try:
+                d = date.fromisoformat(str(lot_date))
+            except ValueError:
+                continue
+            years = max(0.0, (today - d).days / 365.0)
+            erosion = min(1.0, roc_rate * years)
+            max_erosion = max(max_erosion, erosion)
+            if erosion >= 0.90:
+                locked += 1
+            elif erosion >= 0.75:
+                near_locked += 1
+            items.append({
+                "ticker": tk, "lot_date": lot_date, "years_held": round(years, 1),
+                "annual_roc_rate": roc_rate, "erosion_ratio": round(erosion, 3),
+                "erosion_pct": round(erosion * 100, 0),
+                "warning_level": max((t for t in thresholds if erosion >= t), default=None),
+            })
+
+    result = grade_basis_erosion(max_erosion, locked, near_locked, theta)
+    result["items"] = items
+    return result
+
+
+# =============================================================================
+# C7 — After-tax frontier checker + run_tax_grade orchestrator
+# =============================================================================
+
+def check_after_tax_frontier(portfolio_returns, positions, yields, theta: dict) -> Dict:
+    """
+    After-tax frontier impact checker.
+
+    pre-tax Sharpe: annualized mean/std of portfolio returns.
+    Portfolio drag: sum over positions of weight_i x yield_i x rate(char, account).
+    After-tax Sharpe: (pre-tax mean - drag) / std — constant shift, Sigma unchanged.
+    substitution_available: portfolio drag > 1pp -> tax-efficient alternatives exist.
+    """
+    tax = theta.get("tax", {})
+    if not tax or portfolio_returns is None or portfolio_returns.empty:
+        return {"composite_grade": "N/A", "composite_score": 0, "severity": "green",
+                "gap_pp": None, "substitution_available": False, "items": []}
+    import numpy as np
+
+    drags = _compute_drags(theta)
+    treatment = tax.get("account_treatment", {})
+    chars = {tk: _classify_distribution(tk, theta) for tk in positions}
+
+    ret = portfolio_returns.dropna()
+    if len(ret) < 20:
+        return {"composite_grade": "N/A", "composite_score": 0, "severity": "green",
+                "gap_pp": None, "substitution_available": False, "items": []}
+
+    mean_daily = float(ret.mean())
+    std_daily = float(ret.std())
+    ann_factor = 252.0
+    pre_sharpe = (mean_daily * ann_factor) / (std_daily * np.sqrt(ann_factor)) if std_daily > 0 else 0.0
+
+    # Portfolio weighted drag
+    total_value = sum(float(p.get("shares", 0)) * yields.get(tk, 0) for tk, p in positions.items()
+                      if isinstance(p, dict)) if yields else 0.0
+    # Use yields as a proxy weight when no price available: fall back to uniform
+    items = []
+    total_drag = 0.0
+    pos_items = []
+    for tk, p in positions.items():
+        if not isinstance(p, dict):
+            continue
+        char = chars.get(tk, {}).get("character", "qualified")
+        account = p.get("account", "taxable")
+        at = treatment.get(account, {})
+        if not at.get("dividend_drag", True):
+            drag = 0.0
+        else:
+            yld = yields.get(tk, 0.0)
+            rate = drags.get(char, drags.get("ordinary", 0.408)) if char in drags else (
+                {"qualified": drags["ltcg"], "ordinary": drags["ordinary"],
+                 "roc": drags["roc"], "sec1256": drags["blended_1256"]}.get(char, 0.408))
+            drag = yld * rate
+        total_drag += drag
+        pos_items.append({"ticker": tk, "account": account, "character": char,
+                          "yield": yld if "yld" in locals() else yields.get(tk, 0.0),
+                          "drag_annual": round(drag, 4)})
+
+    post_mean = mean_daily * ann_factor - total_drag
+    post_sharpe = post_mean / (std_daily * np.sqrt(ann_factor)) if std_daily > 0 else 0.0
+
+    gap = abs(pre_sharpe - post_sharpe)
+    substitution = total_drag > 0.01  # >1pp drag = alternatives worth exploring
+
+    result = grade_after_tax_gap(pre_sharpe, post_sharpe, substitution, theta)
+    result["items"] = pos_items
+    result["portfolio_drag_annual"] = round(total_drag, 4)
+    return result
+
+
+def run_tax_grade(positions, yields, theta: dict = None) -> Dict:
+    """
+    End-to-end tax grading: 4 checkers -> merge -> tweaks.
+
+    positions: v2 {ticker: {shares, account, lots}}
+    yields:    {ticker: decimal yield}
+    theta:     must have tax=TAX_DEFAULTS set (else axis inactive)
+    """
+    import data_fetcher
+    import portfolio as portfolio_mod
+    import theta as theta_mod
+
+    if theta is None:
+        theta = theta_mod.load_theta(tax=theta_mod.TAX_DEFAULTS)
+    tax = theta.get("tax")
+    if not tax:
+        return {"error": "tax axis disabled — configure Θ.tax"}
+
+    # Current prices for TLH (from closes cache)
+    tickers = list(positions.keys())
+    closes = data_fetcher.get_closes(tickers)
+    prices = {}
+    if not closes.empty:
+        last = closes.iloc[-1]
+        prices = {tk: float(last[tk]) if tk in closes.columns else 0.0 for tk in tickers}
+
+    # Portfolio returns for after-tax Sharpe
+    holdings = {tk: float(p["shares"]) for tk, p in positions.items() if isinstance(p, dict)}
+    port_returns = portfolio_mod.build_portfolio_returns(holdings, closes=closes)
+
+    chars = {tk: _classify_distribution(tk, theta) for tk in positions}
+
+    levels = {
+        "after_tax": check_after_tax_frontier(port_returns, positions, yields, theta),
+        "tlh": check_tlh_harvest(positions, prices, theta),
+        "location": check_asset_location(positions, chars, theta),
+        "erosion": check_basis_erosion(positions, chars, theta),
+    }
+    merged = merge_tax_grade(levels, theta)
+    merged["tweaks"] = generate_tax_tweaks(levels, theta)
+    merged["levels"] = levels
+    return merged

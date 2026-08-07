@@ -3,8 +3,21 @@
 NS-5 Portfolio & Policy Store — JSON-file-backed CRUD.
 
 Data layout:
-  data/portfolios.json  {name: {ticker: shares}}      — holdings as SHARES
+  data/portfolios.json  {name: {ticker: shares}}           — v1: holdings as SHARES
+                        {name: {ticker: {shares, account, lots}}} — v2: + tax metadata
   data/policies.json    {name: {ticker: weight}}      — allocation as WEIGHTS
+
+v2 position schema (tax axis):
+  {
+    "AAPL": {
+      "shares": 140,
+      "account": "taxable",          # taxable | ira | roth | 401k (default taxable)
+      "lots": [                       # optional — absent = fail-open (TLH N/A)
+        {"date": "2024-03-01", "shares": 80, "cost_per_share": 171.2}
+      ]
+    }
+  }
+v1 flat {ticker: shares} loads as a single unknown-date lot (fail-open).
 
 File-backed (not SQLite) for v1: small state, human-readable, atomic writes.
 Fail-open: missing/corrupt file → empty store, never crash.
@@ -81,6 +94,36 @@ def list_portfolios() -> List[str]:
 
 def get_portfolio(name: str) -> Optional[Dict]:
     return _load(PORTFOLIOS_PATH).get(name)
+
+
+def _normalize_position(tk: str, value) -> Dict:
+    """Normalize a stored position to v2 schema.
+
+    v1 flat {ticker: shares} → {"shares", "account": "taxable", "lots": []}
+    v2 {ticker: {shares, account, lots}} → passes through (defaults applied).
+    """
+    if isinstance(value, (int, float)):
+        return {"shares": float(value), "account": "taxable", "lots": []}
+    if isinstance(value, dict):
+        shares = float(value.get("shares", 0))
+        account = str(value.get("account", "taxable")).lower()
+        if account not in ("taxable", "ira", "roth", "401k"):
+            account = "taxable"
+        lots = value.get("lots") or []
+        return {"shares": shares, "account": account, "lots": list(lots)}
+    return {"shares": 0.0, "account": "taxable", "lots": []}
+
+
+def get_portfolio_positions(name: str) -> Optional[Dict[str, Dict]]:
+    """Return a portfolio as v2 positions {ticker: {shares, account, lots}}.
+
+    None if the portfolio doesn't exist. Fail-open: v1 entries normalize to
+    flat lots=[] (TLH/basis sub-axes will grade N/A, never block composite).
+    """
+    entry = _load(PORTFOLIOS_PATH).get(name)
+    if entry is None:
+        return None
+    return {str(tk).strip().upper(): _normalize_position(tk, v) for tk, v in entry.items()}
 
 
 def upsert_portfolio(name: str, holdings: Dict[str, float]) -> Dict:

@@ -55,7 +55,7 @@
   .sev-orange { color: #fb923c; } .sev-red { color: #f87171; }
 
   /* ---- KPI strip ---- */
-  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 14px 0; }
   .kpi {
     background: #111827; border: 1px solid #1f2937; border-radius: 10px;
     padding: 12px 14px; display: flex; align-items: center; gap: 12px;
@@ -191,6 +191,7 @@
       <div class="kpi"><div class="big gC" id="kpiDrift">—</div><div class="meta"><div class="t">Drift</div><div class="s" id="kpiDriftS">—</div></div></div>
       <div class="kpi"><div class="big" id="kpiVol">—</div><div class="meta"><div class="t">Portfolio Vol</div><div class="s" id="kpiVolS">—</div></div></div>
       <div class="kpi"><div class="big" id="kpiQQQ">—</div><div class="meta"><div class="t">QQQ Correlation</div><div class="s" id="kpiQQQS">—</div></div></div>
+      <div class="kpi"><div class="big" id="kpiTax">—</div><div class="meta"><div class="t">Tax Efficiency</div><div class="s" id="kpiTaxS">—</div></div></div>
     </div>
 
     <!-- Scorecard table -->
@@ -556,6 +557,7 @@ function concentrationDetail(k, data) {
 function renderScorecard(data) {
   const c = data.concentration;
   const dr = data.drift;
+  const tx = data.tax && !data.tax.error ? data.tax : null;
   const tb = document.querySelector('#axesTable tbody');
   tb.innerHTML = '';
   const order = CONC_AXES.concat(DRIFT_AXES);
@@ -582,6 +584,53 @@ function renderScorecard(data) {
       '<td class="' + (sg.severity === 'red' || sg.severity === 'orange' ? 'warn' : '') + '">' + detail + '</td>';
     tb.appendChild(tr);
   });
+  // Tax section (when axis enabled in request)
+  if (tx) {
+    const sec = document.createElement('tr');
+    sec.className = 'sec';
+    sec.innerHTML = '<td colspan="5">Tax — after-tax return · TLH · location · basis erosion</td>';
+    tb.appendChild(sec);
+    const TAX_AXES = ['after_tax', 'tlh', 'location', 'erosion'];
+    const TAX_LABEL = {after_tax: 'After-Tax Frontier', tlh: 'Tax-Loss Harvest', location: 'Asset Location', erosion: 'Basis Erosion'};
+    TAX_AXES.forEach(k => {
+      const sg = tx.sub_grades ? tx.sub_grades[k] : null;
+      if (!sg) return;
+      const lvl = tx.levels ? tx.levels[k] : null;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (TAX_LABEL[k] || k) + '</td>' +
+        '<td><span class="gr ' + gradeClass(sg.grade) + '"><b>' + esc(sg.grade) + '</b></span></td>' +
+        '<td>' + sg.score + '</td>' +
+        '<td>' + (sg.weight * 100).toFixed(0) + '%</td>' +
+        '<td>' + taxDetail(k, lvl) + '</td>';
+      tb.appendChild(tr);
+    });
+  }
+}
+
+function taxDetail(k, lvl) {
+  if (!lvl) return '';
+  var parts = [];
+  if (k === 'after_tax' && lvl.items) {
+    lvl.items.forEach(function(i) {
+      parts.push(i.ticker + ': ' + (i.drag_annual * 100).toFixed(1) + '% drag');
+    });
+    if (lvl.portfolio_drag_annual != null) parts.push('total drag ' + (lvl.portfolio_drag_annual * 100).toFixed(1) + '%');
+  } else if (k === 'tlh' && lvl.items) {
+    lvl.items.forEach(function(i) {
+      parts.push(i.ticker + ' ' + i.holding_period + ' $' + Math.abs(i.unrealized_pnl).toFixed(0) + ' loss');
+    });
+    if (lvl.wash_sale_flags) parts.push('⚠ ' + lvl.wash_sale_flags + ' wash-sale window');
+  } else if (k === 'location' && lvl.items) {
+    lvl.items.forEach(function(i) {
+      if (i.mismatch) parts.push('⚠ ' + i.ticker + ' ' + i.account + ' → ' + i.recommended_account);
+    });
+  } else if (k === 'erosion' && lvl.items) {
+    lvl.items.forEach(function(i) {
+      parts.push(i.ticker + ' ' + i.erosion_pct + '% eroded');
+    });
+  }
+  return parts.join(' · ') || '—';
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +684,19 @@ function renderKPIs(data) {
   } else {
     kpiQQQ.textContent = '—';
     document.getElementById('kpiQQQS').textContent = '—';
+  }
+
+  // Tax efficiency from tax axis
+  const kpiTax = document.getElementById('kpiTax');
+  const tx = data && data.tax && !data.tax.error ? data.tax : null;
+  if (tx && tx.composite_tax_grade) {
+    kpiTax.textContent = tx.composite_tax_grade;
+    kpiTax.className = 'big ' + gradeClass(tx.composite_tax_grade);
+    document.getElementById('kpiTaxS').innerHTML =
+      'composite ' + tx.composite_tax_score + ' · <span class="' + sevClass(tx.severity) + '">' + esc(tx.severity) + '</span>';
+  } else {
+    kpiTax.textContent = '—';
+    document.getElementById('kpiTaxS').textContent = 'axis disabled';
   }
 }
 
@@ -697,7 +759,7 @@ async function grade() {
     const res = await fetch('/api/grade', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({holdings: pname, policy_weights: polname})
+      body: JSON.stringify({holdings: pname, policy_weights: polname, tax: true, axes: ['concentration', 'drift', 'tax']})
     });
     const data = await res.json();
     if (!res.ok || data.error) {

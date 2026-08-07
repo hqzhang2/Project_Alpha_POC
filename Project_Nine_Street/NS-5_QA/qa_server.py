@@ -25,6 +25,7 @@ import environment
 import frontier
 import portfolio
 import portfolio_store
+import tax
 import theta as theta_mod
 
 PORT = int(os.environ.get("PORT", 9251))
@@ -345,6 +346,10 @@ class Handler(BaseHTTPRequestHandler):
                     theta["policy_weights"] = body["policy_weights"]
                 if "max_single_name_pct" in body:
                     theta["max_single_name_pct"] = body["max_single_name_pct"]
+                if body.get("tax") is True:
+                    theta["tax"] = theta_mod.TAX_DEFAULTS
+                elif isinstance(body.get("tax"), dict):
+                    theta["tax"] = body["tax"]
                 factors = _get_factors()
                 if factors.empty:
                     self._json({"error": "no factor data"}, 503); return
@@ -367,6 +372,29 @@ class Handler(BaseHTTPRequestHandler):
                     combined = list(result.get("tweaks", [])) + list(drift_res.get("tweaks", []))
                     if combined:
                         result["tweaks"] = combined
+                if "tax" in axes:
+                    if theta.get("tax") is None:
+                        result["tax"] = {"error": "tax axis disabled — configure Θ.tax"}
+                    else:
+                        # v2 positions (lots/accounts) — fail-open via store
+                        import portfolio_store as ps
+                        pname = holdings if isinstance(holdings, str) else None
+                        positions = ps.get_portfolio_positions(pname) if pname else None
+                        if positions is None:
+                            # dict holdings → normalize flat to v2 (no lots)
+                            positions = {str(tk).strip().upper():
+                                         ps._normalize_position(tk, v)
+                                         for tk, v in (holdings.items() if isinstance(holdings, dict) else {})}
+                        tickers = list(positions.keys())
+                        yields = data_fetcher.get_dividend_yields(tickers)
+                        tax_res = tax.run_tax_grade(positions, yields, theta=theta)
+                        if "error" in tax_res:
+                            result["tax"] = tax_res
+                        else:
+                            result["tax"] = tax_res
+                            combined = list(result.get("tweaks", [])) + list(tax_res.get("tweaks", []))
+                            if combined:
+                                result["tweaks"] = combined
                 self._json(result)
             elif self.path.startswith("/api/frontier"):
                 result = _frontier_response(body.get("holdings"),
