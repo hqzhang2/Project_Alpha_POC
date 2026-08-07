@@ -347,9 +347,26 @@ class Handler(BaseHTTPRequestHandler):
                 if "max_single_name_pct" in body:
                     theta["max_single_name_pct"] = body["max_single_name_pct"]
                 if body.get("tax") is True:
-                    theta["tax"] = theta_mod.TAX_DEFAULTS
+                    theta["tax"] = dict(theta_mod.TAX_DEFAULTS)
                 elif isinstance(body.get("tax"), dict):
-                    theta["tax"] = body["tax"]
+                    base = dict(theta_mod.TAX_DEFAULTS)
+                    # Deep-merge distribution_character so per-ticker overrides
+                    # don't clobber the seeded table (shallow merge would replace it)
+                    custom = body["tax"]
+                    if "distribution_character" in custom:
+                        merged_chars = dict(base.get("distribution_character", {}))
+                        merged_chars.update(custom["distribution_character"])
+                        custom["distribution_character"] = merged_chars
+                    base.update(custom)
+                    # Recompute drag rates from bracket fields (single source of
+                    # truth — stale stored drags would be wrong after bracket edits)
+                    import tax as tax_mod
+                    drags = tax_mod._compute_drags({"tax": base})
+                    base["ordinary_drag"] = drags["ordinary"]
+                    base["ltcg_drag"] = drags["ltcg"]
+                    base["blended_1256_drag"] = drags["blended_1256"]
+                    base["roc_drag"] = drags["roc"]
+                    theta["tax"] = base
                 factors = _get_factors()
                 if factors.empty:
                     self._json({"error": "no factor data"}, 503); return

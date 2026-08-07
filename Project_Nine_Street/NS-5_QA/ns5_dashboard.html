@@ -243,14 +243,26 @@
 
     <details style="margin:4px 0" id="taxProfDetails">
       <summary style="font-size:11px;color:#64748b;cursor:pointer;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Tax Profile ▾</summary>
-      <div style="padding:6px 0 2px;display:flex;flex-direction:column;gap:4px;font-size:11px">
-        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Federal bracket</span><span style="color:#e6edf3;font-weight:700">37%</span></div>
+      <div style="padding:6px 0 2px;display:flex;flex-direction:column;gap:5px;font-size:11px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#94a3b8">Federal bracket</span>
+          <select id="taxBracket" style="width:90px;background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 4px;font-size:11px">
+            <option value="0.10">10%</option><option value="0.12">12%</option><option value="0.22">22%</option>
+            <option value="0.24">24%</option><option value="0.32">32%</option><option value="0.35">35%</option>
+            <option value="0.37" selected>37%</option>
+          </select>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#94a3b8">State rate</span>
+          <input type="number" id="taxStateRate" value="0" min="0" max="0.15" step="0.001" style="width:90px;background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 4px;font-size:11px;text-align:right">
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;color:#94a3b8;cursor:pointer;user-select:none">
+          <input type="checkbox" id="taxNIIT" checked style="width:auto"> NIIT (3.8%)
+        </label>
+        <div style="border-top:1px solid #1f2937;margin:2px 0"></div>
         <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">LTCG rate</span><span style="color:#e6edf3;font-weight:700">20%</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">State rate</span><span style="color:#e6edf3;font-weight:700">0% (FL/TX)</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">NIIT</span><span style="color:#4ade80;font-weight:700">yes (3.8%)</span></div>
-        <div style="border-top:1px solid #1f2937;margin:4px 0"></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Ordinary drag</span><span style="color:#f87171;font-weight:700">40.8%</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">LTCG drag</span><span style="color:#f0b429;font-weight:700">23.8%</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8" id="taxDragLbl">Ordinary drag</span><span style="color:#f87171;font-weight:700" id="taxDragOrd">40.8%</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">LTCG drag</span><span style="color:#f0b429;font-weight:700" id="taxDragLtcg">23.8%</span></div>
       </div>
     </details>
 
@@ -295,6 +307,30 @@ function esc(s) {
 }
 function gradeClass(g) { return 'g' + String(g || 'N/A').replace(/[^A-Z]/g, '') || 'gC'; }
 function sevClass(s) { return 'sev-' + (s || 'yellow'); }
+
+// Tax profile: live drag preview + editable overrides
+function updateTaxPreview() {
+  var fb = parseFloat(document.getElementById('taxBracket').value || '0.37');
+  var sr = parseFloat(document.getElementById('taxStateRate').value || '0');
+  if (isNaN(sr)) sr = 0;
+  sr = Math.max(0, Math.min(0.15, sr));
+  var niit = document.getElementById('taxNIIT').checked ? 0.038 : 0;
+  var ord = fb + niit + sr;
+  var ltcg = 0.20 + niit + sr;
+  document.getElementById('taxDragOrd').textContent = (ord * 100).toFixed(1) + '%';
+  document.getElementById('taxDragLtcg').textContent = (ltcg * 100).toFixed(1) + '%';
+}
+function onTaxProfileChange() {
+  updateTaxPreview();
+}
+// Hook the three editable fields
+document.addEventListener('DOMContentLoaded', function() {
+  ['taxBracket', 'taxStateRate', 'taxNIIT'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', onTaxProfileChange);
+  });
+  updateTaxPreview();
+});
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
@@ -854,7 +890,15 @@ async function grade() {
     var axes = ['concentration', 'drift'];
     var body = {holdings: pname, policy_weights: polname};
     if (document.getElementById('taxToggle').checked) {
-      body.tax = true;
+      var taxBody = {};
+      // Editable tax profile overrides (only when changed from TAX_DEFAULTS)
+      var fb = parseFloat(document.getElementById('taxBracket').value || '0.37');
+      var sr = parseFloat(document.getElementById('taxStateRate').value || '0');
+      if (isNaN(sr)) sr = 0;
+      var niit = document.getElementById('taxNIIT').checked;
+      if (Math.abs(fb - 0.37) > 0.001) taxBody.federal_bracket = fb;
+      if (Math.abs(sr) > 0.0005) taxBody.state_rate = sr;
+      if (!niit) taxBody.niit = false;
       // Per-ticker distribution character overrides (non-default only)
       var chars = {};
       rows.forEach(function(r) {
@@ -862,7 +906,8 @@ async function grade() {
           chars[r.ticker.trim().toUpperCase()] = {character: r.character};
         }
       });
-      if (Object.keys(chars).length > 0) body.tax = {distribution_character: chars};
+      if (Object.keys(chars).length > 0) taxBody.distribution_character = chars;
+      body.tax = Object.keys(taxBody).length > 0 ? taxBody : true;
       axes.push('tax');
     }
     body.axes = axes;
