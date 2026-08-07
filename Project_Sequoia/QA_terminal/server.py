@@ -244,22 +244,45 @@ class ChartDataProcessor:
     
     @staticmethod
     def get_historical_chart(ticker: str, tf: str) -> dict:
-        """Get historical chart for given timeframe."""
+        """Get historical chart for given timeframe.
+
+        Includes pc_ratio: put/call OI ratio per date from the sentiment store
+        (oi_store readings), aligned to the chart's date labels. None where the
+        ticker has no OI reading that day. Fail-open: [] on any error.
+        """
         if not YFINANCE_AVAILABLE:
             return {'labels': [], 'prices': [], 'volumes': [], 'error': 'yfinance not available'}
-        
+
         try:
             period = config.TIMEFRAME_MAP.get(tf, '1y')
             data = yf.Ticker(ticker).history(period=period)
+            labels = [x.strftime('%Y-%m-%d') for x in data.index]
             return {
-                'labels': [x.strftime('%Y-%m-%d') for x in data.index],
+                'labels': labels,
                 'prices': data['Close'].tolist(),
                 'volumes': data['Volume'].tolist(),
+                'pc_ratio': ChartDataProcessor._pc_ratio_for(ticker, labels),
                 'ticker': ticker
             }
         except Exception as e:
             logger.error(f"Historical chart error for {ticker} ({tf}): {e}")
             return {'labels': [], 'prices': [], 'volumes': [], 'error': str(e), 'ticker': ticker}
+
+    @staticmethod
+    def _pc_ratio_for(ticker: str, labels: list) -> list:
+        """Put/call OI ratio per date for a ticker, from sentiment readings.
+
+        Returns a list aligned to `labels` (None where no OI reading that day).
+        """
+        try:
+            import sentiment_db
+            rows = sentiment_db.query_readings(scope='ticker', ticker=ticker,
+                                               metric='put_call_oi_ratio')
+            by_date = {r['asof_date']: r['value'] for r in rows if r.get('value') is not None}
+            return [by_date.get(l) for l in labels] if by_date else []
+        except Exception as e:
+            logger.error(f"pc_ratio lookup failed for {ticker}: {e}")
+            return []
 
 
 # ============================================================================
@@ -279,6 +302,7 @@ class Handler(SimpleHTTPRequestHandler):
             'year_highs': 'year_highs',
             'year_lows': 'year_lows',
             'news': 'news',
+            'sentiment': 'sentiment',
             'option_screener': 'option_screener',
             'fundamental_screener': 'fundamental_screener',
         }
@@ -440,6 +464,26 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_news_cn(self, qs):
         import news
         self.send_json(news.get_cn_news())
+    
+    def handle_sentiment(self, qs):
+        import sentiment
+        scope = qs.get('scope', [None])[0]
+        ticker = qs.get('ticker', [None])[0]
+        metric = qs.get('metric', [None])[0]
+        days = int(qs.get('days', [None])[0]) if qs.get('days', [None])[0] else None
+        latest = qs.get('latest', ['0'])[0] in ('1', 'true', 'True')
+        sources = qs.get('sources', [None])[0]
+        sources = [s.strip() for s in sources.split(',')] if sources else None
+        self.send_json(sentiment.get_sentiment(scope=scope, ticker=ticker, metric=metric,
+                                               days=days, sources=sources, latest=latest))
+    
+    def handle_sentiment_metrics(self, qs):
+        import sentiment
+        self.send_json(sentiment.get_metrics())
+    
+    def handle_sentiment_providers(self, qs):
+        import sentiment
+        self.send_json(sentiment.list_providers())
     
     def handle_prediction(self, qs):
         import prediction

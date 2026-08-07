@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentiment | Alpha Terminal</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; margin: 0; min-height: 100vh; }
+        .header { background: #161b22; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+
+        .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+        .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
+        .toolbar .status { color: #8b949e; font-size: 13px; margin-left: auto; }
+        .toolbar select { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+        .toolbar label { color: #8b949e; font-size: 13px; }
+
+        .page { padding: 14px 24px 24px; }
+
+        /* headline composite strip */
+        .comp { display: flex; gap: 12px; margin-bottom: 14px; }
+        .comp-tile { flex: 1; background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 10px 14px; }
+        .comp-tile .lbl { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+        .comp-tile .val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+        .comp-tile .sub { color: #8b949e; font-size: 11px; margin-top: 2px; }
+        .green { color: #3fb950; } .red { color: #f85149; } .gray { color: #8b949e; }
+
+        /* trend-forward rows: left stat rail + right chart */
+        .row { display: flex; background: #161b22; border: 1px solid #21262d; border-radius: 8px; margin-bottom: 10px; overflow: hidden; min-height: 120px; }
+        .row .rail { width: 230px; padding: 12px 14px; border-right: 1px solid #21262d; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+        .row .rail .r-name { font-size: 14px; font-weight: 700; }
+        .row .rail .r-val { font-size: 22px; font-weight: 700; }
+        .row .rail .r-unit { color: #8b949e; font-size: 12px; font-weight: 400; }
+        .row .rail .r-pill { align-self: flex-start; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .r-pill.bull { background: rgba(35,134,54,.25); color: #3fb950; border: 1px solid #238636; }
+        .r-pill.bear { background: rgba(248,81,73,.2); color: #f85149; border: 1px solid #da3633; }
+        .r-pill.neutral { background: rgba(139,148,158,.15); color: #8b949e; border: 1px solid #30363d; }
+        .row .rail .r-trends { display: flex; gap: 10px; margin-top: auto; color: #8b949e; font-size: 11px; }
+        .row .rail .r-trends b { color: #c9d1d9; }
+        .row .rail .r-src { color: #555; font-size: 10px; }
+        .row .chart { flex: 1; padding: 10px 12px 6px; height: 120px; }
+
+        .loading { text-align: center; color: #8b949e; padding: 20px; font-style: italic; }
+        .empty { text-align: center; color: #8b949e; padding: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header"><div class="nav" id="header-container"></div></div>
+
+    <div class="toolbar">
+        <h2>Market Sentiment</h2>
+        <label>Window <select id="snWindow">
+            <option value="1M">1M</option>
+            <option value="3M" selected>3M</option>
+            <option value="6M">6M</option>
+            <option value="1Y">1Y</option>
+            <option value="ALL">ALL</option>
+        </select></label>
+        <span class="status" id="snStatus"></span>
+    </div>
+
+    <div class="page">
+        <div class="comp" id="compStrip"></div>
+        <div id="rows"></div>
+        <div class="loading" id="snLoading" style="display:none">Loading…</div>
+        <div class="empty" id="snEmpty" style="display:none">No market readings yet — collectors populate as data lands.</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // ---- Market-only sentiment board (Variant B) ----
+        // Composite Market-Mood strip + one trend-forward row per market metric.
+        // Trend (1W/1M/3M) leads; today's value is secondary. Pill = sentiment
+        // sign only (green bull / red bear / gray no score).
+
+        const WINDOW_DAYS = { '1M': 21, '3M': 63, '6M': 126, '1Y': 252, 'ALL': Infinity };
+        // Market sentiment only — consumer-confidence surveys (UMich/Conf Board)
+        // are macro data, removed per Hong 2026-08-07.
+        const METRIC_ORDER = ['vix', 'breadth_ad', 'cboe_pc_equity', 'cboe_pc_index',
+                              'naaim_exposure', 'news_sentiment', 'aaii_bull_bear_spread'];
+        const METRIC_COLORS = {
+            vix: '#58a6ff', breadth_ad: '#3fb950', cboe_pc_equity: '#c9a6ff',
+            cboe_pc_index: '#c9a6ff', naaim_exposure: '#f0883e',
+            news_sentiment: '#7ec8e3', aaii_bull_bear_spread: '#c9a6ff'
+        };
+        let chartInstances = [];
+
+        function pillFor(sent) {
+            if (sent === null || sent === undefined) return '<span class="r-pill neutral">NO SCORE</span>';
+            if (sent > 0.05)  return '<span class="r-pill bull">BULLISH</span>';
+            if (sent < -0.05) return '<span class="r-pill bear">BEARISH</span>';
+            return '<span class="r-pill neutral">NEUTRAL</span>';
+        }
+
+        function fmtValue(r) {
+            if (r.value === null || r.value === undefined) return '—';
+            const v = Number(r.value);
+            if (isNaN(v)) return '—';
+            const s = r.unit ? ' ' + r.unit : '';
+            return (v % 1 !== 0 ? v.toFixed(2) : v) + s;
+        }
+
+        // % change over the trailing n points; null if insufficient data.
+        function pctChange(series, n) {
+            if (series.length < 2) return null;
+            const win = series.slice(-n);
+            if (win.length < 2) return null;
+            const first = win[0], last = win[win.length - 1];
+            if (first === 0) return null;
+            return (last / first - 1) * 100;
+        }
+
+        function trendCell(series, n) {
+            const p = pctChange(series, n);
+            if (p === null) return '<span>—</span>';
+            const arrow = p >= 0 ? '▲' : '▼';
+            const col = p >= 0 ? '#3fb950' : '#f85149';
+            return `<span>${n === 5 ? '1W' : n === 21 ? '1M' : '3M'} <b style="color:${col}">${arrow} ${Math.abs(p).toFixed(1)}%</b></span>`;
+        }
+
+        function destroyCharts() {
+            chartInstances.forEach(c => { try { c.destroy(); } catch (e) {} });
+            chartInstances = [];
+        }
+
+        function buildRow(metric, rows, window) {
+            // rows: ascending by asof_date (newest last)
+            const latest = rows[rows.length - 1];
+            const color = METRIC_COLORS[metric] || '#58a6ff';
+            const windowed = window === Infinity ? rows : rows.slice(-window);
+            const labels = windowed.map(r => r.asof_date);
+            const values = windowed.map(r => r.value);
+
+            const row = document.createElement('div');
+            row.className = 'row';
+            row.innerHTML = `
+                <div class="rail">
+                    <div class="r-name">${latest.display_name || latest.metric}</div>
+                    <div class="r-val">${fmtValue(latest)}</div>
+                    ${pillFor(latest.sentiment)}
+                    <div class="r-trends">
+                        ${trendCell(values, 5)}${trendCell(values, 21)}${trendCell(values, 63)}
+                    </div>
+                    <div class="r-src">source: ${latest.source || '—'} · ${labels.length} pts</div>
+                </div>
+                <div class="chart"><canvas></canvas></div>`;
+            document.getElementById('rows').appendChild(row);
+
+            const ctx = row.querySelector('canvas').getContext('2d');
+            chartInstances.push(new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets: [{
+                    data: values,
+                    borderColor: color,
+                    backgroundColor: color + '22',
+                    fill: true, tension: 0.3,
+                    // visible dot when history is a single point (line needs >=2)
+                    pointRadius: values.length === 1 ? 3 : 0,
+                    pointBackgroundColor: color,
+                    borderWidth: 1.6
+                }]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                               tooltip: { callbacks: { label: c => `${latest.display_name || metric}: ${c.parsed.y}` } } },
+                    scales: {
+                        x: { display: false },
+                        y: { display: true, grid: { color: '#21262d' },
+                             ticks: { color: '#8b949e', font: { size: 10 }, maxTicksLimit: 4 } }
+                    }
+                }
+            }));
+        }
+
+        function buildComposite(all) {
+            const strip = document.getElementById('compStrip');
+            const scored = all.filter(r => r.sentiment !== null && r.sentiment !== undefined);
+            const bulls = scored.filter(r => r.sentiment > 0.05).length;
+            const bears = scored.filter(r => r.sentiment < -0.05).length;
+            const latestOf = m => all.filter(r => r.metric === m).slice(-1)[0];
+
+            let moodVal, moodCls, moodSub;
+            if (!scored.length) {
+                moodVal = 'Accruing'; moodCls = 'gray'; moodSub = 'no scores yet — history builds';
+            } else {
+                const bullShare = bulls / scored.length;
+                moodVal = bullShare >= 0.6 ? 'Risk-On' : (bears / scored.length >= 0.6 ? 'Risk-Off' : 'Mixed');
+                moodCls = bullShare >= 0.6 ? 'green' : (bears / scored.length >= 0.6 ? 'red' : 'gray');
+                moodSub = `${bulls} of ${scored.length} indicators bullish`;
+            }
+
+            const vix = latestOf('vix');
+            const breadth = latestOf('breadth_ad');
+            const pcE = latestOf('cboe_pc_equity');
+            const naaim = latestOf('naaim_exposure');
+            const aaii = latestOf('aaii_bull_bear_spread');
+
+            const vixSub = vix ? `VIX ${fmtValue(vix)} · ${vix.sentiment > 0.05 ? 'low fear' : vix.sentiment < -0.05 ? 'high fear' : 'neutral'}` : 'accruing';
+            const breadthSub = breadth ? `${Math.round((1 + breadth.value) / 2 * (breadth.count || 39))} adv / ${Math.round((1 - breadth.value) / 2 * (breadth.count || 39))} dec` : 'accruing';
+            const posSub = (pcE ? `P/C ${Number(pcE.value).toFixed(2)}` : 'P/C —') + ' · ' + (naaim ? `NAAIM ${fmtValue(naaim)}` : 'NAAIM —');
+            const aaiiSub = aaii ? `bull-bear spread ${fmtValue(aaii)} · ${aaii.asof_date}` : 'accruing';
+
+            strip.innerHTML = `
+                <div class="comp-tile"><div class="lbl">Market Mood</div><div class="val ${moodCls}">${moodVal}</div><div class="sub">${moodSub}</div></div>
+                <div class="comp-tile"><div class="lbl">Volatility</div><div class="val ${vix && vix.sentiment > 0.05 ? 'green' : vix && vix.sentiment < -0.05 ? 'red' : 'gray'}">${vix ? fmtValue(vix) : '—'}</div><div class="sub">${vixSub}</div></div>
+                <div class="comp-tile"><div class="lbl">Breadth</div><div class="val ${breadth && breadth.sentiment > 0.05 ? 'green' : breadth && breadth.sentiment < -0.05 ? 'red' : 'gray'}">${breadth ? fmtValue(breadth) : '—'}</div><div class="sub">${breadthSub}</div></div>
+                <div class="comp-tile"><div class="lbl">Positioning</div><div class="val gray">${pcE && pcE.sentiment > 0.05 ? 'Bullish' : pcE && pcE.sentiment < -0.05 ? 'Bearish' : 'Mixed'}</div><div class="sub">${posSub}</div></div>
+                <div class="comp-tile"><div class="lbl">AAII</div><div class="val ${aaii && aaii.sentiment > 0.05 ? 'green' : aaii && aaii.sentiment < -0.05 ? 'red' : 'gray'}">${aaii ? fmtValue(aaii) : '—'}</div><div class="sub">${aaiiSub}</div></div>`;
+        }
+
+        async function snLoad() {
+            const status = document.getElementById('snStatus');
+            const loading = document.getElementById('snLoading');
+            const empty = document.getElementById('snEmpty');
+            const windowKey = document.getElementById('snWindow').value;
+            const window = WINDOW_DAYS[windowKey] || 63;
+
+            destroyCharts();
+            document.getElementById('rows').innerHTML = '';
+            loading.style.display = 'block';
+            empty.style.display = 'none';
+            status.textContent = 'Loading…';
+
+            try {
+                // Market scope only; 1y of history for trends + charts.
+                const res = await fetch('/api/sentiment?scope=market&days=365');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const rows = await res.json();
+                loading.style.display = 'none';
+
+                if (!rows.length) {
+                    empty.style.display = 'block';
+                    status.textContent = '0 rows';
+                    return;
+                }
+
+                buildComposite(rows);
+                // Group by metric, ascending by date.
+                const byMetric = {};
+                for (const r of rows) {
+                    (byMetric[r.metric] = byMetric[r.metric] || []).push(r);
+                }
+                for (const m of METRIC_ORDER) {
+                    const series = (byMetric[m] || []).sort((a, b) => a.asof_date < b.asof_date ? -1 : 1);
+                    if (series.length) buildRow(m, series, window);
+                }
+                status.textContent = rows.length + ' market readings · ' + windowKey + ' window';
+            } catch (e) {
+                loading.style.display = 'none';
+                empty.style.display = 'block';
+                empty.textContent = 'Error: ' + e.message;
+                status.textContent = 'Error';
+            }
+        }
+
+        document.getElementById('snWindow').addEventListener('change', snLoad);
+        snLoad();
+    </script>
+</body>
+</html>

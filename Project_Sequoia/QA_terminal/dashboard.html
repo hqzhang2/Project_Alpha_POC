@@ -545,8 +545,7 @@
             const ret = q['ret_' + tf.toLowerCase().replace('ytd', 'ytd').replace('1d', '1d').replace('1w', '1w').replace('1m', '1m').replace('3m', '3m').replace('1y', '1y').replace('5y', '5y')];
             if (ret !== undefined) {
                 const cls = ret >= 0 ? 'positive' : 'negative';
-                const label = tf === '1D' ? 'Today' : tf === '1W' ? '1W' : tf === '1M' ? '1M' : tf === '3M' ? '3M' : tf === 'YTD' ? 'YTD' : tf === '1Y' ? '1Y' : '5Y';
-                perfEl.innerHTML = `<span class="${cls}">${label}: ${ret.toFixed(2)}%</span>`;
+                perfEl.innerHTML = `<span class="${cls}">${ret >= 0 ? '▲' : '▼'} ${Math.abs(ret).toFixed(2)}%</span>`;
             }
         }
         
@@ -586,18 +585,36 @@
                 }
             ];
 
-            // Add Last Close line if available
-            if (data.last_close) {
-                datasets.push({
-                    label: 'Last Close',
-                    data: new Array(data.labels.length).fill(data.last_close),
-                    borderColor: 'rgba(248, 81, 73, 0.8)',
-                    borderDash: [5, 5],
-                    borderWidth: 1.5,
-                    pointRadius: 0,
-                    fill: false,
-                    yAxisID: 'y'
-                });
+            // Put/Call OI ratio overlay — all timeframes except 1D (OI is an EOD
+            // 16:30 ET snapshot; a 1D line would be a single flat point). Only
+            // when the ticker has OI-store readings (fail-open: no overlay).
+            // The ratio is min-max scaled onto the price band so it OVERLAYS the
+            // price line (one visual line, not two crossing ones); the y2 axis
+            // ticks show the corresponding ratio values (2 decimals).
+            if (timeframe !== '1D' && data.pc_ratio && data.pc_ratio.some(v => v !== null)) {
+                const prices = data.prices.filter(v => v !== null && v !== undefined);
+                const ratios = data.pc_ratio.filter(v => v !== null && v !== undefined);
+                if (prices.length && ratios.length) {
+                    const pMin = Math.min(...prices), pMax = Math.max(...prices);
+                    const rMin = Math.min(...ratios), rMax = Math.max(...ratios);
+                    const spanP = (pMax - pMin) || 1;
+                    const spanR = (rMax - rMin) || 1;
+                    // scale ratio into [pMin, pMax]
+                    const scaled = data.pc_ratio.map(v => v === null || v === undefined ? null
+                        : pMin + (v - rMin) / spanR * spanP);
+                    datasets.push({
+                        label: 'Put/Call OI',
+                        data: scaled,
+                        _raw: data.pc_ratio.filter(v => v !== null && v !== undefined),  // for axis tick mapping
+                        borderColor: '#f0883e',
+                        backgroundColor: 'rgba(240, 136, 62, 0.08)',
+                        fill: false,
+                        tension: 0.25,
+                        pointRadius: 0,
+                        borderWidth: 1.8,
+                        yAxisID: 'y2'
+                    });
+                }
             }
             
             const crosshairPlugin = {
@@ -665,6 +682,29 @@
                             position: 'right',
                             grid: { display: false },
                             ticks: { display: false }
+                        },
+                        y2: {
+                            position: 'right',
+                            grid: { color: 'rgba(240, 136, 62, 0.12)' },
+                            ticks: {
+                                color: '#f0883e', font: { size: 10 },
+                                // axis draws scaled values (price band); show the
+                                // ratio each position represents, 2 decimals
+                                callback: function(val) {
+                                    const d = Chart.getChart('chart');
+                                    if (!d) return '';
+                                    const pr = d.data.datasets.find(ds => ds.label === 'Put/Call OI');
+                                    if (!pr || !pr._raw || !pr._raw.length) return '';
+                                    const prices = d.data.datasets.find(ds => ds.label === 'Price').data.filter(v => v !== null && v !== undefined);
+                                    if (!prices.length) return '';
+                                    const pMin = Math.min(...prices), pMax = Math.max(...prices);
+                                    const rMin = Math.min(...pr._raw), rMax = Math.max(...pr._raw);
+                                    const spanP = (pMax - pMin) || 1, spanR = (rMax - rMin) || 1;
+                                    const ratio = rMin + (val - pMin) / spanP * spanR;
+                                    return ratio.toFixed(2);
+                                }
+                            },
+                            title: { display: true, text: 'P/C RATIO', color: '#f0883e', font: { size: 10 } }
                         }
                     }
                 }
