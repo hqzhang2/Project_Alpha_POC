@@ -19,6 +19,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -160,6 +161,36 @@ def load_risk_free():
     series = series.where(np.isfinite(series)).dropna()
     rf_daily = (series / 100.0) / 252.0
     return pd.DataFrame({"rf": rf_daily})
+
+
+def get_dividend_yields(tickers) -> Dict[str, float]:
+    """
+    Trailing annual dividend yield per ticker (decimal, e.g. 0.1076 = 10.76%).
+
+    Yahoo 'dividendYield' is a PERCENTAGE (10.76 = 10.76%), NOT a decimal —
+    divide by 100 (OMON unit trap, see alpha-terminal-ui-patterns). Prefer
+    'trailingAnnualDividendYield' (already decimal) when present.
+
+    Fail-open: any ticker Yahoo can't resolve yields 0.0 (no drag, no crash).
+    """
+    import yfinance as yf
+    yields = {}
+    for tk in tickers:
+        try:
+            info = yf.Ticker(tk).info
+            tdy = info.get("trailingAnnualDividendYield")
+            if tdy is not None and tdy > 0:
+                yields[tk] = float(tdy)
+                continue
+            dy = info.get("dividendYield")
+            if dy is not None and dy > 0:
+                yields[tk] = float(dy) / 100.0  # percentage → decimal
+                continue
+            yields[tk] = 0.0
+        except Exception as exc:  # noqa: BLE001 — fail-open per ticker
+            log.warning("dividend yield for %s unavailable (%s)", tk, exc)
+            yields[tk] = 0.0
+    return yields
 
 
 def build_factor_returns(force_refresh=False):
