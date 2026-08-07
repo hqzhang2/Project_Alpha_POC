@@ -1,7 +1,7 @@
 # MEMORY.md - Chuck's Long-Term Memory
 
 ## Email Accounts:
-- munger6c@gmail.com (password: Chuck108d#, App Password: vvqwcmdgjyhfpjhp)
+- munger6c@gmail.com (credentials moved to Vault / keychain — do not store passwords in this file)
 
 ## Discord Information:
 - Hong's User ID: 1467629773663768830
@@ -30,11 +30,11 @@
 3. **Ports are STRICT:** Production is ALWAYS `9098`. QA is ALWAYS `9099`.
 4. **Never bypass `deploy.sh`:** Do not manually start servers. The `deploy.sh` scripts set critical `PORT` and `ENV` variables. Missing these will cause QA files to overlap onto the Production port.
 
-## ⚠️ OPEN SECURITY ISSUE (2026-08-03): Hardcoded API keys in news tab
-- **Location:** `Project_Sequoia/terminal/news.py` lines 11-12 (PROD) + `Project_Sequoia/QA_terminal/news.py` (QA) — Finnhub + NewsAPI keys embedded as defaults in source, committed to git.
-- **Severity:** HIGH — keys are effectively public (committed to repo history).
-- **Status:** OPEN — do NOT fix inside sentiment/split work. Fix separately: rotate both keys → move to env/Vault (Vault dev mode pattern) → remove defaults from source → verify news tabs in QA first.
-- **Note:** `MEMORY.md` itself also contains a plaintext email password (munger6c@gmail.com) — flag for rotation/removal when convenient.
+## ✅ SECURITY ISSUE RESOLVED (2026-08-07): Hardcoded API keys in news tab
+- **Fixed:** `Project_Sequoia/terminal/news.py` (PROD) — hardcoded Finnhub + NewsAPI fallback keys removed; now env-only (matches QA). Keys moved to BOTH launchd plists (QA + PROD) `EnvironmentVariables`.
+- **Also fixed (same file, pre-existing bug):** PROD `news.py` was missing the R2 `ROUTES` dict — news routes were never registered on PROD (404 on every tab). Added; PROD news verified live (100 headlines / 8 economics / 1710 cn items).
+- **Remaining action for Hong:** ROTATE both keys (Finnhub + NewsAPI dashboards) — they are committed in git history and effectively public. Update the two plists after rotation.
+- **MEMORY.md password:** plaintext email password + app password removed from line 4 (2026-08-07) — credentials now Vault/keychain only.
 
 ## Sentiment Tab (DESIGN GREENLIT — IMPLEMENTATION IN PROGRESS)
 - **Status:** Design approved 2026-08-03 by Hong. Implementation on `feature/v2.9` (clean slate after critical-fix merge). Phased, per-phase sign-off.
