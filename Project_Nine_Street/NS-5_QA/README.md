@@ -164,11 +164,56 @@ Request both axes: `POST /api/grade` with `{"axes": ["concentration", "drift"]}`
 | `drift_axis_weights` | 15/25/30/30 | weight/risk/style/frontier composite weights |
 | `drift_severity_bounds` | green→red | Score → severity mapping (descending) |
 
+## Tax axis (v3)
+
+The tax axis grades after-tax efficiency — US personal income regime (federal +
+optional state). **Off by default**: `theta.tax = None`. Enable per-request with
+`"tax": true` in the `/api/grade` body (uses `TAX_DEFAULTS`), or set a custom
+profile dict. Disabled → `"tax": {"error": "tax axis disabled — configure Θ.tax"}`.
+
+### Sub-axes
+
+| Level | Grades | Flag when |
+|---|---|---|
+| **After-tax frontier** | Sharpe gap (pre-tax → after-tax) | Drag > 1pp; substitution available |
+| **Tax-loss harvest (TLH)** | Harvestable loss pool / portfolio value | Pool > 0.5%; wash-sale window hit |
+| **Asset location** | Fraction of positions in wrong account | Ordinary-heavy in taxable; qualified in IRA/401k |
+| **Basis erosion** | Max ROC erosion ratio | Erosion ≥ 50/75/90% thresholds |
+
+### Tax model
+
+- **Distribution character** (`theta.TAX_DEFAULTS.distribution_character`):
+  `qualified` | `ordinary` | `roc` | `sec1256` per ticker (PM-maintained).
+  Unknown tickers default `qualified` (conservative — understates drag) and are
+  tagged `unclassified`.
+- **Account treatment** (`account_treatment`): taxable (drag, TLH available),
+  ira/401k (no drag, but withdrawals ALWAYS ordinary — a qualified-div fund in
+  an IRA pays 40.8% at withdrawal vs 23.8% LTCG in taxable), roth (no tax).
+- **Drag rates** computed from bracket + NIIT + state — single source of truth,
+  never hardcoded twice (`_compute_drags`).
+- **ST vs LT**: 365-day holding period; ST losses offset ordinary (40.8%, more
+  valuable), LT losses offset LTCG (23.8%). Exit-timing matters near the
+  threshold (17pp flip).
+- **State tax**: `state_rate` in Θ.tax; 0.0 = no-income-tax states (FL/TX).
+
+### Data model (store v2)
+
+Portfolios may carry per-position tax metadata:
+`{ticker: {shares, account, lots: [{date, shares, cost_per_share}]}}`.
+v1 flat `{ticker: shares}` still works — normalizes to a single unknown-date
+lot. Missing lots → TLH/basis grade N/A (fail-open, never blocks the composite).
+
+### API
+
+`POST /api/grade` with `{"axes": ["concentration", "drift", "tax"], "tax": true}`
+returns `tax` = `{composite_tax_grade, composite_tax_score, severity, sub_grades,
+levels, tweaks}`. Tax tweaks merge into the shared `tweaks` list.
+
 ## Tests
 
 ```bash
 cd Project_Nine_Street/NS-5_QA
-env -i HOME=$HOME /usr/bin/python3 -m pytest tests/ -q    # 102 tests, all synthetic
+env -i HOME=$HOME /usr/bin/python3 -m pytest tests/ -q    # 133 tests, all synthetic
 ```
 
 | File | Coverage |
@@ -180,6 +225,7 @@ env -i HOME=$HOME /usr/bin/python3 -m pytest tests/ -q    # 102 tests, all synth
 | `test_frontier.py` | Efficient frontier math, GMV, diversification effect, benchmark anchors |
 | `test_store.py` | Portfolio/policy store CRUD, shares→weights conversion |
 | `test_drift.py` | Drift checkers (weight/risk/style/frontier), grade/merge, tweak structure |
+| `test_tax.py` | Tax checkers (TLH/location/erosion/after-tax), grade/merge, CAIE/JEPQ acceptance, yield unit-trap |
 
 ## Deployment
 

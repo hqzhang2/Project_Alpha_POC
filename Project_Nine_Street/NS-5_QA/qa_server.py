@@ -25,6 +25,7 @@ import environment
 import frontier
 import portfolio
 import portfolio_store
+import tax
 import theta as theta_mod
 
 PORT = int(os.environ.get("PORT", 9251))
@@ -345,6 +346,27 @@ class Handler(BaseHTTPRequestHandler):
                     theta["policy_weights"] = body["policy_weights"]
                 if "max_single_name_pct" in body:
                     theta["max_single_name_pct"] = body["max_single_name_pct"]
+                if body.get("tax") is True:
+                    theta["tax"] = dict(theta_mod.TAX_DEFAULTS)
+                elif isinstance(body.get("tax"), dict):
+                    base = dict(theta_mod.TAX_DEFAULTS)
+                    # Deep-merge distribution_character so per-ticker overrides
+                    # don't clobber the seeded table (shallow merge would replace it)
+                    custom = body["tax"]
+                    if "distribution_character" in custom:
+                        merged_chars = dict(base.get("distribution_character", {}))
+                        merged_chars.update(custom["distribution_character"])
+                        custom["distribution_character"] = merged_chars
+                    base.update(custom)
+                    # Recompute drag rates from bracket fields (single source of
+                    # truth — stale stored drags would be wrong after bracket edits)
+                    import tax as tax_mod
+                    drags = tax_mod._compute_drags({"tax": base})
+                    base["ordinary_drag"] = drags["ordinary"]
+                    base["ltcg_drag"] = drags["ltcg"]
+                    base["blended_1256_drag"] = drags["blended_1256"]
+                    base["roc_drag"] = drags["roc"]
+                    theta["tax"] = base
                 factors = _get_factors()
                 if factors.empty:
                     self._json({"error": "no factor data"}, 503); return
@@ -367,6 +389,29 @@ class Handler(BaseHTTPRequestHandler):
                     combined = list(result.get("tweaks", [])) + list(drift_res.get("tweaks", []))
                     if combined:
                         result["tweaks"] = combined
+                if "tax" in axes:
+                    if theta.get("tax") is None:
+                        result["tax"] = {"error": "tax axis disabled — configure Θ.tax"}
+                    else:
+                        # v2 positions (lots/accounts) — fail-open via store
+                        import portfolio_store as ps
+                        pname = holdings if isinstance(holdings, str) else None
+                        positions = ps.get_portfolio_positions(pname) if pname else None
+                        if positions is None:
+                            # dict holdings → normalize flat to v2 (no lots)
+                            positions = {str(tk).strip().upper():
+                                         ps._normalize_position(tk, v)
+                                         for tk, v in (holdings.items() if isinstance(holdings, dict) else {})}
+                        tickers = list(positions.keys())
+                        yields = data_fetcher.get_dividend_yields(tickers)
+                        tax_res = tax.run_tax_grade(positions, yields, theta=theta)
+                        if "error" in tax_res:
+                            result["tax"] = tax_res
+                        else:
+                            result["tax"] = tax_res
+                            combined = list(result.get("tweaks", [])) + list(tax_res.get("tweaks", []))
+                            if combined:
+                                result["tweaks"] = combined
                 self._json(result)
             elif self.path.startswith("/api/frontier"):
                 result = _frontier_response(body.get("holdings"),
