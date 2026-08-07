@@ -60,8 +60,12 @@
   - Tests: 35/35. Mockups in `sketches/004-007`. Live QA: AAPL 3M overlay shows 4 OI points (08-03→08-06) scaled into price band, 1D has none.
 - **Placement:** tab between 52-Week Lows and News. Single nav edit point: `QA_terminal/header.html`.
 - **Schema:** `{asof_date, scope, ticker(NULL=market), metric, source, value, sentiment(-1..+1,+1=bullish), count, recorded_at}` + metric_definitions (single interpretation source). 252d trailing percentile; fail-open; keys env-only.
-- **Remaining phases:** P5 StockTwits (social_volume, per-ticker — deferred, no current UI since tab is market-only). Next release: COT, margin debt, EDGAR.
-- **Run:** `python sentiment_collect.py` (deterministic, stdout deliverable). No launchd job yet — plan: after OI snapshot 16:30 ET Mon-Fri.
+- **COT + MARGIN LIVE (2026-08-07, next-release batch):**
+  - `cot`: CFTC **financial futures** report — `fut_fin_txt_YYYY.zip` → `FinFutYY.txt`. **CFTC split equity-index futures out of the regular disaggregated files** (fut_disagg/com_disagg contain NO financial futures — live-verified). Market `E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE`; net spec = `Asset_Mgr` + `Lev_Money` (long−short), count=OI. Weekly, ~3-4d lag. Live: 08-04 +607,034 contracts.
+  - `finra_margin`: FINRA margin-statistics page (`/rules-guidance/key-topics/margin-accounts/margin-statistics` — old URL 301s) embeds the monthly table server-side; debit balances, **stored $B** (source $M ÷1000; Jun-26 → 1,502.1 $B). Monthly, ~6wk lag. **Source renamed finra→finra_margin** (distinct natural key from short interest). Live: 06-01 $1,502.1B.
+  - Sentiment tab now **9 indicators + 6 composite tiles** (new "Lev & Spec" tile). Tests 46/46.
+- **Run:** launchd `com.alpha.terminal.sentiment.collect` Mon-Fri 16:45 ET (after OI snapshot 16:30); manual: `python sentiment_collect.py` (stdout deliverable).
+- **Remaining:** EDGAR insider + StockTwits (both per-ticker; Hong's gut: add as dashboard-page tiles — design discussion pending).
 - **Rules:** fail-open everywhere; AV/FRED keys only via env; American color (green=bull/red=bear/gray=null); QA → verify → release branch → PROD via deploy_prod.sh.
 
 ## Human Team Members:
