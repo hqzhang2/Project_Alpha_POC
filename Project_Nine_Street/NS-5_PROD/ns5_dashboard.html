@@ -3,168 +3,273 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NS-5 Portfolio Concentration</title>
+<title>Portfolio Optimization</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #0d1117; color: #e8e8f0;
-    min-height: 100vh; padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0b0f17; color: #dbe4f0; font-size: 13px; line-height: 1.5;
   }
-  h1 { font-size: 18px; color: #4ade80; margin-bottom: 4px; }
-  .sub { font-size: 12px; color: #6b7280; margin-bottom: 20px; }
-  .grid { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-  .card {
-    background: #161b22; border: 1px solid #1e1e2e; border-radius: 8px;
-    padding: 16px; min-width: 340px; flex: 1; max-width: 560px;
+  /* ---- Header ---- */
+  .hdr {
+    display: flex; align-items: center; gap: 12px; padding: 12px 24px;
+    background: #111827; border-bottom: 1px solid #1f2937;
   }
-  .card.wide { max-width: 100%; flex-basis: 100%; }
-  .chart-wrap { position: relative; height: 420px; }
-  .card h3 { font-size: 13px; color: #8888a0; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-  label { display: block; font-size: 12px; color: #8888a0; margin: 10px 0 4px; }
-  textarea {
-    width: 100%; background: #0d1117; color: #e8e8f0; border: 1px solid #30363d;
-    border-radius: 6px; padding: 8px; font-family: 'SF Mono', Menlo, monospace;
-    font-size: 12px; min-height: 90px; resize: vertical;
+  .hdr h1 { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .hdr .spacer { flex: 1; }
+  .hdr .asof { font-size: 11.5px; color: #64748b; font-variant-numeric: tabular-nums; }
+
+  /* ---- Shell ---- */
+  .shell { display: grid; grid-template-columns: 1fr 350px; max-width: 1500px; margin: 0 auto; }
+  .main { padding: 18px 22px; min-width: 0; }
+  .rail {
+    background: #0d1420; border-left: 1px solid #1f2937; padding: 14px;
+    overflow-y: auto; max-height: calc(100vh - 50px); position: sticky; top: 50px;
   }
-  button {
-    margin-top: 12px; padding: 8px 18px; border-radius: 6px; border: 1px solid #4ade80;
-    background: #14532d; color: #4ade80; font-size: 13px; font-weight: 600; cursor: pointer;
+
+  /* ---- Radar panel ---- */
+  .radar-panel {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
   }
-  button:hover { background: #166534; }
-  button:disabled { opacity: 0.5; cursor: wait; }
-  .composite {
-    text-align: center; padding: 20px 0 16px; border-bottom: 1px solid #1e1e2e; margin-bottom: 14px;
+  .radar-box { position: relative; height: 320px; }
+  .radar-box .center-grade {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; z-index: 2; pointer-events: none;
   }
-  .composite .grade { font-size: 44px; font-weight: 800; color: #4ade80; }
-  .composite .score { font-size: 13px; color: #8888a0; margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1e1e2e; }
-  th { color: #8888a0; font-weight: 500; }
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
-  .pill.A { background: #14532d; color: #4ade80; }
-  .pill.B { background: #1e3a5f; color: #58a6ff; }
-  .pill.C { background: #4d3800; color: #f0b429; }
-  .pill.D { background: #5f1e1e; color: #ff6b6b; }
-  .pill.F, .pill.N-A { background: #7a1f1f; color: #ff8b8b; }
-  .tweak {
-    background: #0d1117; border: 1px solid #1e1e2e; border-radius: 6px;
-    padding: 10px 12px; margin-bottom: 8px; font-size: 12px;
+  .radar-box .center-grade .big { font-size: 40px; font-weight: 900; line-height: 1.1; }
+  .radar-box .center-grade .sm { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+  .radar-box .center-grade .sm2 { font-size: 10px; color: #64748b; }
+  .legend { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+  .lg-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .lg-row .dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .lg-row .nm { color: #94a3b8; width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lg-row .gr { font-weight: 800; width: 20px; text-align: center; font-size: 12px; }
+  .lg-row .bar-wrap { flex: 1; height: 6px; background: #1f2937; border-radius: 3px; overflow: hidden; }
+  .lg-row .bar { height: 100%; border-radius: 3px; }
+  .lg-row .sc { width: 32px; text-align: right; color: #64748b; font-variant-numeric: tabular-nums; }
+  .lg-row .sev { width: 44px; text-align: right; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+  .gA { color: #4ade80; } .gB { color: #93c5fd; } .gC { color: #f0b429; }
+  .gD { color: #fb923c; } .gF { color: #f87171; }
+  .sev-green { color: #4ade80; } .sev-yellow { color: #f0b429; }
+  .sev-orange { color: #fb923c; } .sev-red { color: #f87171; }
+
+  /* ---- KPI strip ---- */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+  .kpi {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 12px 14px; display: flex; align-items: center; gap: 12px;
   }
-  .tweak .sev { font-size: 10px; font-weight: 700; text-transform: uppercase; }
-  .sev.critical { color: #ff6b6b; } .sev.high { color: #f0b429; } .sev.medium { color: #58a6ff; }
-  .tweak .action { color: #e8e8f0; margin: 4px 0; }
-  .tweak .why { color: #6b7280; font-size: 11px; }
-  .err { color: #ff6b6b; font-size: 12px; margin-top: 10px; white-space: pre-wrap; }
-  .meta { font-size: 11px; color: #484f58; margin-top: 12px; }
-  .example { font-size: 11px; color: #58a6ff; cursor: pointer; margin-top: 6px; }
-  select, input[type=text], input[type=number] {
-    background: #0d1117; color: #e8e8f0; border: 1px solid #30363d;
-    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  .kpi .big { font-size: 26px; font-weight: 900; line-height: 1.1; min-width: 56px; text-align: center; }
+  .kpi .meta .t { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .8px; }
+  .kpi .meta .s { font-size: 12px; color: #94a3b8; }
+
+  /* ---- Scorecard table ---- */
+  table.t { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12.5px; }
+  table.t th {
+    text-align: left; color: #64748b; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .7px; padding: 8px 12px; background: #111827;
+    border-bottom: 1px solid #1f2937;
   }
-  select { width: 100%; margin-bottom: 10px; }
-  .row-actions { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-  .row-actions input[type=text] { flex: 1; }
+  table.t td { padding: 8px 12px; border-bottom: 1px solid #16202e; font-variant-numeric: tabular-nums; }
+  table.t tbody tr:hover { background: #0f172a; }
+  table.t .sec td {
+    background: #0f172a; color: #64748b; font-size: 10px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .8px; padding: 6px 12px;
+  }
+  .warn { color: #f87171; } .ok { color: #4ade80; }
+  .panel-hdr {
+    display: flex; align-items: center; gap: 10px; margin: 16px 0 0;
+  }
+  .panel-hdr h3 { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: .8px; font-weight: 800; }
+  .panel-hdr .gbar { flex: 1; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #60a5fa, #4ade80); }
+
+  /* ---- Frontier chart ---- */
+  .chart-box { height: 320px; padding: 8px 4px 0; }
+  .chart-meta { color: #64748b; font-size: 11px; padding: 4px 8px 0; }
+
+  /* ---- Rail ---- */
+  .rail h4 {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px;
+    color: #64748b; margin: 12px 0 6px; font-weight: 800;
+  }
+  .rail h4:first-child { margin-top: 0; }
+  .rail select, .rail input[type=text], .rail input[type=number] {
+    width: 100%; background: #0b0f17; border: 1px solid #243044; color: #e6edf3;
+    border-radius: 5px; padding: 6px 8px; font-size: 12.5px; margin-bottom: 6px;
+  }
+  .rail select:focus, .rail input:focus { border-color: #60a5fa; outline: none; }
+  .name-row { display: flex; gap: 6px; }
+  .name-row input { flex: 1; }
   .icon-btn {
-    background: #21262d; border: 1px solid #30363d; color: #e8e8f0;
-    width: 28px; height: 28px; border-radius: 6px; font-size: 16px; font-weight: 700;
-    cursor: pointer; line-height: 1; padding: 0; margin: 0;
+    width: 28px; height: 28px; background: #111827; border: 1px solid #243044;
+    color: #94a3b8; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 700;
+    flex-shrink: 0; line-height: 1;
   }
-  .icon-btn:hover { border-color: #4ade80; color: #4ade80; }
-  .icon-btn.danger:hover { border-color: #f85149; color: #f85149; }
-  .btn-row { display: flex; gap: 10px; margin-top: 12px; }
-  .btn-row button { flex: 1; }
-  .btn-cancel { background: #21262d; border-color: #30363d; color: #e8e8f0; }
-  .btn-cancel:hover { background: #30363d; }
-  .btn-danger { background: #5f1e1e; border-color: #f85149; color: #ff8b8b; }
-  .btn-danger:hover { background: #7a1f1f; }
-  .table-editor { width: 100%; border-collapse: collapse; margin-top: 4px; }
-  .table-editor th, .table-editor td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #1e1e2e; }
-  .table-editor th { color: #8888a0; font-weight: 500; font-size: 11px; text-transform: uppercase; }
-  .table-editor input { width: 100%; padding: 4px 6px; font-size: 13px; }
-  .table-editor td.shares input { text-align: right; }
-  .table-editor td.del { width: 30px; text-align: center; }
-  .table-editor td.del button { margin: 0; width: 22px; height: 22px; font-size: 13px; }
-  .policy-detail {
-    background: #0d1117; border: 1px solid #1e1e2e; border-radius: 6px;
-    padding: 10px; font-family: 'SF Mono', Menlo, monospace; font-size: 12px;
-    color: #e8e8f0; white-space: pre-wrap; word-break: break-all; margin-top: 4px;
+  .icon-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+  .icon-btn.danger:hover { border-color: #f87171; color: #f87171; }
+
+  .editor { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
+  .editor th {
+    text-align: left; color: #64748b; font-size: 9.5px; text-transform: uppercase;
+    letter-spacing: .5px; padding: 3px 4px; border-bottom: 1px solid #1f2937;
   }
+  .editor td { padding: 2px 4px; border-bottom: 1px solid #121a28; }
+  .editor input {
+    width: 100%; background: #0b0f17; border: 1px solid #1c2634; color: #e6edf3;
+    border-radius: 4px; padding: 4px 5px; font-size: 12px; margin: 0;
+  }
+  .editor td.del { width: 24px; text-align: center; }
+  .editor td.del .icon-btn { width: 20px; height: 20px; font-size: 11px; }
+
+  .btn-row { display: flex; gap: 6px; margin-top: 4px; }
+  .btn {
+    flex: 1; padding: 6px 10px; border-radius: 5px; border: 1px solid #243044;
+    background: #111827; color: #dbe4f0; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { border-color: #60a5fa; }
+  .btn.primary { background: #238636; border-color: #238636; color: #fff; font-weight: 700; }
+  .btn.primary:hover { background: #2ea043; }
+  .btn.danger { background: #3d1212; border-color: #7f1d1d; color: #ff8b8b; }
+  .btn.primary:disabled { opacity: .5; cursor: wait; }
+  .btn-danger-wide { width: 100%; margin-top: 6px; }
+
+  .policy-json {
+    background: #0b0f17; border: 1px solid #1c2634; border-radius: 5px;
+    padding: 6px 8px; font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+    color: #94a3b8; white-space: pre-wrap;
+  }
+
+  .tweaks { list-style: none; }
+  .tweaks li {
+    background: #111827; border-left: 3px solid #f87171; border-radius: 5px;
+    padding: 7px 9px; margin-bottom: 5px; font-size: 11.5px;
+  }
+  .tweaks li.med { border-left-color: #fbbf24; }
+  .tweaks li.high { border-left-color: #fb923c; }
+  .tweaks li.crit { border-left-color: #f87171; }
+  .tweaks .tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: #64748b; }
+  .tweaks .act { color: #dbe4f0; margin: 2px 0; }
+  .tweaks .why { color: #64748b; font-size: 10.5px; }
+  .more {
+    width: 100%; padding: 5px; margin-top: 4px; background: #0f172a;
+    border: 1px dashed #243044; color: #64748b; border-radius: 5px;
+    cursor: pointer; font-size: 11.5px;
+  }
+  .more:hover { color: #60a5fa; border-color: #60a5fa; }
+  .err { color: #f87171; font-size: 12px; margin-top: 6px; min-height: 16px; }
+  .meta { color: #64748b; font-size: 11px; margin-top: 6px; }
+  .empty { color: #64748b; font-size: 12px; padding: 8px; }
 </style>
 </head>
 <body>
-  <h1>NS-5 · Portfolio Concentration Grading</h1>
-  <div class="sub">Evaluate any portfolio against a policy — factor loading, sector, effective-N, tail correlation. Not a return engine; a governance engine.</div>
 
-  <div class="grid">
-    <div class="card">
-      <h3>Portfolio</h3>
-      <label>Select portfolio</label>
-      <select id="portfolioSelect" onchange="onPortfolioSelect()"></select>
-      <label>Portfolio name <span style="color:#f85149">*</span></label>
-      <div class="row-actions">
-        <input type="text" id="portfolioName" placeholder="Portfolio name (required)">
-        <button class="icon-btn" title="Add row" onclick="addRow()">+</button>
-        <button class="icon-btn danger" title="Remove last row" onclick="removeRow()">−</button>
+<div class="hdr">
+  <h1>Portfolio Optimization</h1>
+  <div class="spacer"></div>
+  <div class="asof" id="hdrAsOf">loading…</div>
+</div>
+
+<div class="shell">
+  <div class="main">
+    <!-- Radar: 8 axes + composite in center -->
+    <div class="radar-panel">
+      <div class="radar-box">
+        <canvas id="radar"></canvas>
+        <div class="center-grade">
+          <div class="big" id="centerGrade">—</div>
+          <div class="sm" id="centerConc">composite —</div>
+          <div class="sm2" id="centerDrift">drift —</div>
+        </div>
       </div>
-      <table class="table-editor">
-        <thead><tr><th>Ticker</th><th>Shares</th><th></th></tr></thead>
-        <tbody id="holdingsBody"></tbody>
-      </table>
-      <div class="btn-row">
-        <button class="btn-cancel" onclick="cancelEdit()">Cancel</button>
-        <button onclick="savePortfolio()">Save</button>
-      </div>
-      <button class="btn-danger" style="width:100%" onclick="deletePortfolio()">Delete Portfolio</button>
-      <div class="err" id="err"></div>
-      <div class="meta" id="meta"></div>
+      <div class="legend" id="radarLegend"></div>
     </div>
 
-    <div class="card" style="max-width:480px">
-      <h3>Policy</h3>
-      <label>Select policy</label>
-      <select id="policySelect" onchange="onPolicySelect()"></select>
-      <div class="policy-detail" id="policyDetail">Select a policy…</div>
-      <button id="gradeBtn" onclick="grade()">Grade Portfolio</button>
-      <div class="meta">Policy used as the grading target (policy loading vector β*).</div>
+    <!-- KPI strip -->
+    <div class="kpis">
+      <div class="kpi"><div class="big gC" id="kpiConc">—</div><div class="meta"><div class="t">Concentration</div><div class="s" id="kpiConcS">—</div></div></div>
+      <div class="kpi"><div class="big gC" id="kpiDrift">—</div><div class="meta"><div class="t">Drift</div><div class="s" id="kpiDriftS">—</div></div></div>
+      <div class="kpi"><div class="big" id="kpiVol">—</div><div class="meta"><div class="t">Portfolio Vol</div><div class="s" id="kpiVolS">—</div></div></div>
+      <div class="kpi"><div class="big" id="kpiQQQ">—</div><div class="meta"><div class="t">QQQ Correlation</div><div class="s" id="kpiQQQS">—</div></div></div>
     </div>
 
-    <div class="card" id="resultCard" style="display:none">
-      <h3>Scorecard</h3>
-      <div class="composite">
-        <div class="grade" id="compGrade">—</div>
-        <div class="score" id="compScore">composite concentration score</div>
-      </div>
-      <table id="axesTable">
-        <thead><tr><th>Axis</th><th>Grade</th><th>Score</th><th>Weight</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <h3 style="margin-top:18px">Tweaks</h3>
-      <div id="tweaks"></div>
-    </div>
+    <!-- Scorecard table -->
+    <div class="panel-hdr"><h3>Scorecard</h3><div class="gbar"></div></div>
+    <table class="t" id="axesTable">
+      <thead><tr><th style="width:140px">Axis</th><th style="width:60px">Grade</th><th style="width:70px">Score</th><th style="width:60px">Weight</th><th>Detail / Measurement</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <!-- Frontier -->
+    <div class="panel-hdr"><h3>Efficient Frontier</h3><div class="gbar"></div></div>
+    <div class="chart-box"><canvas id="frontierChart"></canvas></div>
+    <div class="chart-meta" id="frontierMeta">Loading frontier…</div>
   </div>
 
-  <div class="card wide" style="margin-top:20px">
-    <h3>Efficient Frontier</h3>
-    <div class="chart-wrap"><canvas id="frontierChart"></canvas></div>
-    <div class="meta" id="frontierMeta">Loading frontier…</div>
+  <!-- Right rail -->
+  <div class="rail">
+    <h4>Portfolio</h4>
+    <select id="portfolioSelect" onchange="onPortfolioSelect()"></select>
+    <div class="name-row">
+      <input type="text" id="portfolioName" placeholder="Portfolio name (required)">
+      <button class="icon-btn" title="Add row" onclick="addRow()">+</button>
+      <button class="icon-btn danger" title="Remove last row" onclick="removeRow()">−</button>
+    </div>
+    <table class="editor">
+      <thead><tr><th>Ticker</th><th>Shares</th><th></th></tr></thead>
+      <tbody id="holdingsBody"></tbody>
+    </table>
+    <div class="btn-row">
+      <button class="btn" onclick="cancelEdit()">Cancel</button>
+      <button class="btn primary" onclick="savePortfolio()">Save</button>
+    </div>
+    <button class="btn danger btn-danger-wide" onclick="deletePortfolio()">Delete Portfolio</button>
+
+    <h4>Policy</h4>
+    <select id="policySelect" onchange="onPolicySelect()"></select>
+    <div class="policy-json" id="policyDetail">Select a policy…</div>
+
+    <button class="btn primary" id="gradeBtn" style="margin-top:8px" onclick="grade()">Grade Portfolio</button>
+
+    <h4>Tweaks · <span id="tweakCount">0</span></h4>
+    <ul class="tweaks" id="tweaks"></ul>
+    <div class="err" id="err"></div>
+    <div class="meta" id="meta"></div>
   </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let portfolios = [];
+let policies = [];
+let currentPortfolio = null;
+let rows = [];
+let radarChart = null;
 let frontierChart = null;
+let lastFrontier = null;   // last /api/frontier payload (for KPI vol tile)
 
-// ---------------------------------------------------------------------------
-// Portfolio editor state
-// ---------------------------------------------------------------------------
-let portfolios = [];          // [names]
-let policies = [];            // [names]
-let currentPortfolio = null;  // name of loaded portfolio (or null if new)
-let rows = [];                // [{ticker, shares}] editor state
+const CONC_AXES = ['factor_loading', 'sector', 'effective_n', 'tail_correlation'];
+const DRIFT_AXES = ['weight', 'risk', 'style', 'frontier'];
+const AXIS_LABEL = {
+  factor_loading: 'Factor Loading', sector: 'Sector', effective_n: 'Effective N',
+  tail_correlation: 'Tail Correlation', weight: 'Weight Drift', risk: 'Risk Drift',
+  style: 'Style Drift', frontier: 'Frontier Drift'
+};
+const AXIS_COLOR = {
+  factor_loading: '#3b82f6', sector: '#8b5cf6', effective_n: '#06b6d4', tail_correlation: '#10b981',
+  weight: '#f43f5e', risk: '#34d399', style: '#fb923c', frontier: '#fbbf24'
+};
+const AXIS_SECTION = {factor_loading: 0, sector: 0, effective_n: 0, tail_correlation: 0,
+                      weight: 1, risk: 1, style: 1, frontier: 1};
 
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+function gradeClass(g) { return 'g' + String(g || 'N/A').replace(/[^A-Z]/g, '') || 'gC'; }
+function sevClass(s) { return 'sev-' + (s || 'yellow'); }
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
@@ -174,9 +279,8 @@ async function api(url, opts) {
 }
 
 // ---------------------------------------------------------------------------
-// Portfolio CRUD
+// Portfolio CRUD (unchanged behavior)
 // ---------------------------------------------------------------------------
-
 async function refreshLists() {
   const p = await api('/api/portfolios');
   const pol = await api('/api/policies');
@@ -228,28 +332,16 @@ function renderRows() {
     tr.innerHTML =
       '<td><input type="text" value="' + esc(r.ticker) + '" placeholder="TICKER" ' +
         'oninput="rows[' + i + '].ticker=this.value.toUpperCase()"></td>' +
-      '<td class="shares"><input type="number" min="0" step="any" value="' + esc(r.shares) + '" ' +
+      '<td><input type="number" min="0" step="any" value="' + esc(r.shares) + '" ' +
         'placeholder="0" oninput="rows[' + i + '].shares=this.value"></td>' +
       '<td class="del"><button class="icon-btn danger" title="Remove row" onclick="removeRowAt(' + i + ')">×</button></td>';
     tb.appendChild(tr);
   });
 }
 
-function addRow() {
-  rows.push({ticker: '', shares: ''});
-  renderRows();
-}
-
-function removeRow() {
-  if (!rows.length) return;
-  rows.pop();
-  renderRows();
-}
-
-function removeRowAt(i) {
-  rows.splice(i, 1);
-  renderRows();
-}
+function addRow() { rows.push({ticker: '', shares: ''}); renderRows(); }
+function removeRow() { if (!rows.length) return; rows.pop(); renderRows(); }
+function removeRowAt(i) { rows.splice(i, 1); renderRows(); }
 
 function collectRows() {
   return rows
@@ -304,31 +396,295 @@ async function onPortfolioSelect() {
 // ---------------------------------------------------------------------------
 // Policy
 // ---------------------------------------------------------------------------
-
 async function showPolicy(name) {
   const d = await api('/api/policies?name=' + encodeURIComponent(name));
   document.getElementById('policyDetail').textContent = JSON.stringify(d.weights, null, 2);
 }
-
 async function onPolicySelect() {
   const sel = document.getElementById('policySelect');
   if (sel.value) await showPolicy(sel.value);
 }
 
-// ---------------------------------------------------------------------------
-// Grading + frontier (use stored portfolio/policy names)
-// ---------------------------------------------------------------------------
-
 function selectedPortfolioName() {
   const sel = document.getElementById('portfolioSelect');
   return sel.value || null;
 }
-
 function selectedPolicyName() {
   const sel = document.getElementById('policySelect');
   return sel.value || null;
 }
 
+// ---------------------------------------------------------------------------
+// Radar + legend
+// ---------------------------------------------------------------------------
+function renderRadar(data) {
+  const c = data.concentration;
+  const dr = data.drift;
+  const sub = {};
+  CONC_AXES.forEach(k => { sub[k] = c.sub_grades[k]; });
+  DRIFT_AXES.forEach(k => { sub[k] = dr ? dr.sub_grades[k] : null; });
+
+  // Center: concentration composite big, drift beneath
+  const cg = c.composite_concentration_grade;
+  const csc = c.composite_concentration_score;
+  const center = document.getElementById('centerGrade');
+  center.textContent = cg;
+  center.className = 'big ' + gradeClass(cg);
+  document.getElementById('centerConc').textContent = 'concentration ' + csc;
+  if (dr && dr.composite_drift_grade) {
+    document.getElementById('centerDrift').textContent =
+      'drift ' + dr.composite_drift_score + ' · ' + dr.severity;
+  } else {
+    document.getElementById('centerDrift').textContent = '';
+  }
+
+  // Legend
+  const lg = document.getElementById('radarLegend');
+  lg.innerHTML = '';
+  const order = CONC_AXES.concat(DRIFT_AXES);
+  order.forEach(k => {
+    const sg = sub[k];
+    if (!sg) return;
+    const row = document.createElement('div');
+    row.className = 'lg-row';
+    const pct = Math.max(0, Math.min(100, (sg.score / 5) * 100));
+    const sev = sg.severity ? '<span class="sev ' + sevClass(sg.severity) + '">' + esc(sg.severity) + '</span>' : '';
+    row.innerHTML =
+      '<span class="dot" style="background:' + AXIS_COLOR[k] + '"></span>' +
+      '<span class="nm" title="' + esc(AXIS_LABEL[k]) + '">' + esc(AXIS_LABEL[k]) + '</span>' +
+      '<span class="gr ' + gradeClass(sg.grade) + '">' + esc(sg.grade) + '</span>' +
+      '<div class="bar-wrap"><div class="bar" style="width:' + pct.toFixed(0) + '%;background:' + AXIS_COLOR[k] + '"></div></div>' +
+      '<span class="sc">' + sg.score + '</span>' + sev;
+    lg.appendChild(row);
+  });
+
+  // Radar chart
+  const labels = order.map(k => AXIS_LABEL[k]);
+  const values = order.map(k => (sub[k] ? sub[k].score : 0));
+  const ctx = document.getElementById('radar').getContext('2d');
+  if (radarChart) radarChart.destroy();
+  radarChart = new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Current',
+        data: values,
+        borderColor: '#60a5fa',
+        backgroundColor: 'rgba(96,165,250,.15)',
+        pointBackgroundColor: '#60a5fa',
+        pointRadius: 3
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {legend: {display: false}},
+      scales: {
+        r: {
+          min: 0, max: 5,
+          ticks: {stepSize: 1, color: '#475569', backdropColor: 'transparent', font: {size: 9}},
+          grid: {color: '#1f2937'}, angleLines: {color: '#1f2937'},
+          pointLabels: {color: '#94a3b8', font: {size: 10}}
+        }
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Scorecard table
+// ---------------------------------------------------------------------------
+function driftDetail(k, lvl) {
+  if (!lvl) return '';
+  var parts = [];
+  if (k === 'weight' && lvl.items) {
+    lvl.items.forEach(function(it) {
+      var mark = it.flagged ? '⚠' : '✓';
+      parts.push(mark + ' ' + it.sector + ': ' +
+        (it.actual * 100).toFixed(1) + '% vs ' + (it.policy * 100).toFixed(1) + '%');
+    });
+  } else if (k === 'risk') {
+    if (lvl.trailing_vols) {
+      var vols = Object.keys(lvl.trailing_vols).map(function(w) {
+        return w + ': ' + (lvl.trailing_vols[w] * 100).toFixed(1) + '%';
+      });
+      parts.push('trailing ' + vols.join(' / '));
+    }
+    if (lvl.long_run_vol) parts.push('long-run σ: ' + (lvl.long_run_vol * 100).toFixed(1) + '%');
+    if (lvl.var_95 != null) parts.push('VaR95: ' + (lvl.var_95 * 100).toFixed(2) + '%');
+    if (lvl.cvar_95 != null) parts.push('CVaR95: ' + (lvl.cvar_95 * 100).toFixed(2) + '%');
+  } else if (k === 'style' && lvl.factor_deviations) {
+    lvl.factor_deviations.forEach(function(f) {
+      var mark = f.flagged ? '⚠' : '✓';
+      parts.push(mark + ' ' + f.factor + ': β ' + f.current_beta + ' vs ' +
+        f.policy_beta + ' (' + f.sigma + 'σ)');
+    });
+    if (lvl.qqq_corr) parts.push('QQQ corr: ' + lvl.qqq_corr);
+  } else if (k === 'frontier') {
+    if (lvl.sharpe_long_run != null) parts.push('Sharpe: ' + lvl.sharpe_long_run + ' → ' + lvl.sharpe_trailing);
+    if (lvl.tangency_shift) parts.push('tangency shift: ' + (lvl.tangency_shift * 100).toFixed(0) + '%');
+    if (lvl.bond_corr != null) parts.push('stock-bond corr: ' + lvl.bond_corr);
+    if (lvl.bond_corr_sign_flipped) parts.push('⚠ bond corr sign flipped');
+  }
+  return parts.join(' · ');
+}
+
+function concentrationDetail(k, data) {
+  // Pull the most relevant tweak-derived detail for concentration axes
+  var tw = (data.tweaks || []).filter(function(t) { return t.axis === 'concentration'; });
+  if (k === 'factor_loading') {
+    var parts = tw.map(function(t) {
+      return t.sub_axis + ' ' + (t.sigma != null ? t.sigma + 'σ' : '');
+    });
+    return parts.slice(0, 4).join(' · ') || '—';
+  }
+  if (k === 'sector') {
+    var s = tw.find(function(t) { return t.sub_axis === 'sector'; });
+    return s ? s.rationale : '—';
+  }
+  if (k === 'effective_n') {
+    var n = tw.find(function(t) { return t.sub_axis === 'effective_n'; });
+    return n ? n.rationale : '—';
+  }
+  if (k === 'tail_correlation') {
+    var tc = tw.find(function(t) { return t.sub_axis === 'tail_correlation'; });
+    return tc ? tc.rationale : '—';
+  }
+  return '—';
+}
+
+function renderScorecard(data) {
+  const c = data.concentration;
+  const dr = data.drift;
+  const tb = document.querySelector('#axesTable tbody');
+  tb.innerHTML = '';
+  const order = CONC_AXES.concat(DRIFT_AXES);
+  let lastSection = -1;
+  order.forEach(k => {
+    const sg = (AXIS_SECTION[k] === 0) ? c.sub_grades[k] : (dr ? dr.sub_grades[k] : null);
+    if (!sg) return;
+    if (AXIS_SECTION[k] !== lastSection) {
+      lastSection = AXIS_SECTION[k];
+      const sec = document.createElement('tr');
+      sec.className = 'sec';
+      sec.innerHTML = '<td colspan="5">' + (lastSection === 0 ? 'Concentration — deviation from policy in the cross-section' : 'Drift — how far the portfolio has moved from its target over time') + '</td>';
+      tb.appendChild(sec);
+    }
+    const detail = (AXIS_SECTION[k] === 0)
+      ? concentrationDetail(k, data)
+      : driftDetail(k, dr && dr.levels ? dr.levels[k] : null);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + AXIS_LABEL[k] + '</td>' +
+      '<td><span class="gr ' + gradeClass(sg.grade) + '"><b>' + esc(sg.grade) + '</b></span></td>' +
+      '<td>' + sg.score + '</td>' +
+      '<td>' + (sg.weight * 100).toFixed(0) + '%</td>' +
+      '<td class="' + (sg.severity === 'red' || sg.severity === 'orange' ? 'warn' : '') + '">' + detail + '</td>';
+    tb.appendChild(tr);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// KPI tiles
+// ---------------------------------------------------------------------------
+function renderKPIs(data) {
+  const c = data && data.concentration;
+  const dr = data && data.drift;
+  const kpiConc = document.getElementById('kpiConc');
+  if (c) {
+    kpiConc.textContent = c.composite_concentration_grade;
+    kpiConc.className = 'big ' + gradeClass(c.composite_concentration_grade);
+    document.getElementById('kpiConcS').textContent = 'composite ' + c.composite_concentration_score;
+  } else {
+    kpiConc.textContent = '—';
+    document.getElementById('kpiConcS').textContent = 'grade to compute';
+  }
+
+  const kpiDrift = document.getElementById('kpiDrift');
+  if (dr && dr.composite_drift_grade) {
+    kpiDrift.textContent = dr.composite_drift_grade;
+    kpiDrift.className = 'big ' + gradeClass(dr.composite_drift_grade);
+    document.getElementById('kpiDriftS').innerHTML =
+      'composite ' + dr.composite_drift_score + ' · <span class="' + sevClass(dr.severity) + '">' + esc(dr.severity) + '</span>';
+  } else {
+    kpiDrift.textContent = '—';
+    document.getElementById('kpiDriftS').textContent = 'not graded';
+  }
+
+  // Portfolio vol from last frontier payload
+  const kpiVol = document.getElementById('kpiVol');
+  const fr = lastFrontier;
+  if (fr && fr.portfolio && fr.portfolio.vol != null) {
+    kpiVol.textContent = (fr.portfolio.vol * 100).toFixed(1) + '%';
+    kpiVol.className = 'big';
+    document.getElementById('kpiVolS').textContent =
+      'ret ' + (fr.portfolio.ret * 100).toFixed(1) + '%';
+  } else {
+    kpiVol.textContent = '—';
+    document.getElementById('kpiVolS').textContent = 'grade to compute';
+  }
+
+  // QQQ correlation from style drift
+  const kpiQQQ = document.getElementById('kpiQQQ');
+  const styleLvl = dr && dr.levels ? dr.levels.style : null;
+  if (styleLvl && styleLvl.qqq_corr != null) {
+    const q = styleLvl.qqq_corr;
+    kpiQQQ.textContent = q.toFixed(2);
+    kpiQQQ.className = 'big ' + (q > 0.90 ? 'gF' : q > 0.8 ? 'gD' : 'gC');
+    document.getElementById('kpiQQQS').textContent = q > 0.90 ? 'this IS QQQ' : 'style concentration';
+  } else {
+    kpiQQQ.textContent = '—';
+    document.getElementById('kpiQQQS').textContent = '—';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tweaks (collapsed list)
+// ---------------------------------------------------------------------------
+function renderTweaks(tweaks) {
+  const tw = document.getElementById('tweaks');
+  const cnt = document.getElementById('tweakCount');
+  tw.innerHTML = '';
+  var list = tweaks || [];
+  cnt.textContent = list.length;
+  if (!list.length) {
+    tw.innerHTML = '<li class="med"><div class="act">No tweaks — portfolio is within policy bands.</div></li>';
+    return;
+  }
+  var SHOW = 5;
+  var makeLi = function(t) {
+    var sev = t.severity || 'medium';
+    var cls = sev === 'critical' ? 'crit' : (sev === 'high' ? 'high' : 'med');
+    var sub = t.sub_axis || t.level || t.factor || '';
+    var li = document.createElement('li');
+    li.className = cls;
+    li.innerHTML =
+      '<span class="tag">' + esc(sev) + ' · ' + esc(t.axis) + (sub ? ' / ' + esc(sub) : '') + '</span>' +
+      '<div class="act">' + esc(t.recommended_action) + '</div>' +
+      '<div class="why">' + esc(t.rationale) + '</div>';
+    return li;
+  };
+  list.slice(0, SHOW).forEach(function(t) { tw.appendChild(makeLi(t)); });
+  if (list.length > SHOW) {
+    var wrap = document.createElement('div');
+    wrap.id = 'moreTweaks';
+    wrap.style.display = 'none';
+    list.slice(SHOW).forEach(function(t) { wrap.appendChild(makeLi(t)); });
+    tw.appendChild(wrap);
+    var moreBtn = document.createElement('button');
+    moreBtn.className = 'more';
+    moreBtn.textContent = 'Show ' + (list.length - SHOW) + ' more tweaks';
+    moreBtn.onclick = function() {
+      wrap.style.display = '';
+      moreBtn.style.display = 'none';
+    };
+    tw.appendChild(moreBtn);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Grade
+// ---------------------------------------------------------------------------
 async function grade() {
   const btn = document.getElementById('gradeBtn');
   btn.disabled = true;
@@ -348,48 +704,25 @@ async function grade() {
       document.getElementById('err').textContent = (data.error || ('HTTP ' + res.status));
       return;
     }
-    const c = data.concentration;
-    document.getElementById('compGrade').textContent = c.composite_concentration_grade;
-    document.getElementById('compScore').textContent =
-      'composite concentration score: ' + c.composite_concentration_score;
-    const tb = document.querySelector('#axesTable tbody');
-    tb.innerHTML = '';
-    ['factor_loading', 'sector', 'effective_n', 'tail_correlation'].forEach(k => {
-      const sg = c.sub_grades[k];
-      const tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + k.replace('_', ' ') + '</td>' +
-                     '<td>' + pill(sg.grade) + '</td>' +
-                     '<td>' + sg.score + '</td>' +
-                     '<td>' + (sg.weight * 100).toFixed(0) + '%</td>';
-      tb.appendChild(tr);
-    });
-    const tw = document.getElementById('tweaks');
-    tw.innerHTML = '';
-    (data.tweaks || []).forEach(t => {
-      const div = document.createElement('div');
-      div.className = 'tweak';
-      div.innerHTML = '<span class="sev ' + t.severity + '">' + esc(t.severity) + '</span> ' +
-        esc(t.axis) + (t.sub_axis ? ' / ' + esc(t.sub_axis) : '') +
-        '<div class="action">' + esc(t.recommended_action) + '</div>' +
-        '<div class="why">' + esc(t.rationale) + '</div>';
-      tw.appendChild(div);
-    });
-    if (!data.tweaks || !data.tweaks.length) tw.innerHTML = '<div class="meta">No tweaks — portfolio is within policy bands.</div>';
-    document.getElementById('resultCard').style.display = 'block';
-    const meta = document.getElementById('meta');
-    meta.textContent = 'as_of: ' + (data.as_of || 'n/a') + ' · n_obs: ' + (data.n_obs || 0) +
+    renderRadar(data);
+    renderScorecard(data);
+    renderKPIs(data);
+    renderTweaks(data.tweaks);
+    document.getElementById('meta').textContent =
+      'as_of: ' + (data.as_of || 'n/a') + ' · n_obs: ' + (data.n_obs || 0) +
       ' · r²: ' + (data.regression ? data.regression.r_squared : 'n/a');
-    await loadFrontier();  // refresh frontier with current portfolio/policy
+    document.getElementById('hdrAsOf').textContent = 'as_of ' + (data.as_of || 'n/a');
+    await loadFrontier();
   } catch (e) {
     document.getElementById('err').textContent = 'Failed: ' + e.message;
   } finally {
     btn.disabled = false;
   }
 }
-function pill(g) {
-  var cls = String(g || 'N/A').replace(/[^A-Z]/g, '') || 'N-A';
-  return '<span class="pill ' + cls + '">' + esc(g) + '</span>';
-}
+
+// ---------------------------------------------------------------------------
+// Frontier chart
+// ---------------------------------------------------------------------------
 async function loadFrontier() {
   var meta = document.getElementById('frontierMeta');
   try {
@@ -403,8 +736,9 @@ async function loadFrontier() {
     });
     var d = await res.json();
     if (!res.ok || d.error) { meta.textContent = 'frontier: ' + (d.error || ('HTTP ' + res.status)); return; }
+    lastFrontier = d;
+    if (document.getElementById('kpiVol').textContent === '—') renderKPIs({concentration: null, drift: null});
 
-    // Scatter points: assets (gray), GMV (blue), portfolio (green), policy (orange)
     var assets = (d.assets || []).map(function(a) {
       return {x: a.vol, y: a.ret, label: a.ticker};
     });
@@ -413,11 +747,9 @@ async function loadFrontier() {
       ? [{x: d.portfolio.vol, y: d.portfolio.ret, label: 'Portfolio'}] : [];
     var pol = d.policy && d.policy.vol != null
       ? [{x: d.policy.vol, y: d.policy.ret, label: 'Policy'}] : [];
-    // Benchmark anchors: SPY / QQQ (white squares)
     var benchmarks = (d.benchmarks || []).map(function(b) {
       return {x: b.vol, y: b.ret, label: b.ticker};
     });
-
     var frontierPts = (d.frontier || []).map(function(p) { return {x: p.vol, y: p.ret}; });
 
     var ctx = document.getElementById('frontierChart').getContext('2d');
@@ -426,11 +758,11 @@ async function loadFrontier() {
       type: 'scatter',
       data: {
         datasets: [
-          {label: 'Efficient Frontier', data: frontierPts, showLine: true, borderColor: '#58a6ff',
+          {label: 'Efficient Frontier', data: frontierPts, showLine: true, borderColor: '#60a5fa',
            borderWidth: 2, pointRadius: 0, fill: false, tension: 0},
           {label: 'Assets', data: assets, backgroundColor: '#6e7681', pointRadius: 4,
            pointHoverRadius: 6},
-          {label: 'GMV', data: gmv, backgroundColor: '#f0883e', pointRadius: 7,
+          {label: 'GMV', data: gmv, backgroundColor: '#fb923c', pointRadius: 7,
            pointStyle: 'rectRot'},
           {label: 'Benchmarks', data: benchmarks, backgroundColor: '#e8e8f0',
            borderColor: '#e8e8f0', pointRadius: 7, pointStyle: 'rect',
@@ -445,7 +777,7 @@ async function loadFrontier() {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { labels: { color: '#e8e8f0', font: {size: 11} } },
+          legend: { labels: { color: '#94a3b8', font: {size: 11} } },
           tooltip: {
             callbacks: {
               label: function(c) {
@@ -466,12 +798,12 @@ async function loadFrontier() {
           }
         },
         scales: {
-          x: { title: {display: true, text: 'Volatility (ann. %)', color: '#8888a0'},
-               ticks: {color: '#8888a0', callback: function(v) { return (v * 100).toFixed(0) + '%'; }},
-               grid: {color: '#1e1e2e'} },
-          y: { title: {display: true, text: 'Return (ann. %)', color: '#8888a0'},
-               ticks: {color: '#8888a0', callback: function(v) { return (v * 100).toFixed(0) + '%'; }},
-               grid: {color: '#1e1e2e'} }
+          x: { title: {display: true, text: 'Volatility (ann. %)', color: '#64748b'},
+               ticks: {color: '#64748b', callback: function(v) { return (v * 100).toFixed(0) + '%'; }},
+               grid: {color: '#16202e'} },
+          y: { title: {display: true, text: 'Return (ann. %)', color: '#64748b'},
+               ticks: {color: '#64748b', callback: function(v) { return (v * 100).toFixed(0) + '%'; }},
+               grid: {color: '#16202e'} }
         }
       }
     });
@@ -483,7 +815,7 @@ async function loadFrontier() {
   }
 }
 
-// Initial load — portfolios, policies, frontier, dashboard
+// Initial load
 refreshLists().then(function() { loadFrontier(); });
 </script>
 </body>
