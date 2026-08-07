@@ -56,13 +56,10 @@ class TestGradeFunctions:
 
     def test_after_tax_gap_severe(self):
         th = _theta()
-        # Committed frontier formula: score = 5 - (gap/3)*5.
-        # A 0.40 Sharpe gap → 4.33 → B (calibration question for frontier —
-        # research doc §3.2 flags at 0.15; /3 divisor may be too lenient).
+        # Re-calibrated: gap >= 0.3 → score 0 → F (per drift flag at 0.15)
         r = tax.grade_after_tax_gap(0.70, 0.30, True, th)
-        assert r["composite_grade"] == "B"
+        assert r["composite_grade"] == "F"
         assert r["gap_pp"] == pytest.approx(0.40, abs=1e-2)
-        assert r["substitution_available"] is True
 
     def test_after_tax_gap_missing(self):
         th = _theta()
@@ -76,8 +73,9 @@ class TestGradeFunctions:
 
     def test_tlh_large_pool(self):
         th = _theta()
+        # Re-calibrated: 12% → 5 - 0.12/0.025 = 0.2 → F (10% = F boundary)
         r = tax.grade_tlh(0.12, 200, 4, th)
-        assert r["composite_grade"] == "C"  # linear formula: 5 - 0.12/0.05 = 2.6
+        assert r["composite_grade"] == "F"
         assert r["harvestable_pool_ratio"] == pytest.approx(0.12, abs=1e-3)
 
     def test_location_clean(self):

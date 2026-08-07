@@ -96,8 +96,8 @@ def grade_after_tax_gap(pre_tax_sharpe: Optional[float],
                 "severity": "green", "gap_pp": None, "substitution_available": False}
 
     gap_pp = abs(pre_tax_sharpe - after_tax_sharpe)
-    # Score: 5.0 for no gap, linear down to 0 for ≥10pp gap, clamped
-    score = max(0, min(5, 5.0 - (gap_pp / 3.0) * 5.0))
+    # Score: 5.0 for no gap, linear to 0 for gap >= 0.3 (per drift flag at 0.15)
+    score = max(0, 5.0 - (gap_pp / 0.3) * 5.0)
     score = round(score, 2)
     letter = _score_to_letter(score, [(4.5,"A"),(3.5,"B"),(2.5,"C"),(1.5,"D"),(0,"F")])
     sev = _severity(score, theta)
@@ -119,8 +119,8 @@ def grade_tlh(harvestable_pool_ratio: float,
     harvestable_pool_ratio = loss pool / portfolio value.
     A: <0.5% (negligible) → F: >10% (large opportunity unrealized).
     """
-    # Score: 5.0 for 0 harvestable, drops to 1.0 for 20%+ harvestable
-    score = max(1.0, 5.0 - (harvestable_pool_ratio / 0.05))
+    # Score: 5.0 for 0 harvestable, drops to 1.0 at 10% (F at >10% per original bounds)
+    score = max(1.0, 5.0 - (harvestable_pool_ratio / 0.025))
     score = round(score, 2)
     letter = _score_to_letter(score, [(4.5,"A"),(3.5,"B"),(2.5,"C"),(1.5,"D"),(0,"F")])
     sev = _severity(score, theta)
@@ -233,9 +233,9 @@ def generate_tax_tweaks(levels: Dict[str, Dict], theta: dict) -> List[Dict]:
 
     # --- After-tax gap tweaks ---
     at = levels.get("after_tax", {})
-    if at.get("composite_score") and at.get("composite_score") < 4.5:
+    if at.get("composite_score") is not None and at.get("composite_score") < 4.5:
         gap = at.get("gap_pp", 0)
-        sev = "critical" if gap > 3 else ("high" if gap > 2 else ("medium" if gap > 0.5 else "medium"))
+        sev = "critical" if gap > 0.25 else ("high" if gap > 0.15 else ("medium" if gap > 0.05 else "medium"))
         tweaks.append({
             "axis": "tax",
             "sub_axis": "after_tax_frontier",
@@ -249,7 +249,7 @@ def generate_tax_tweaks(levels: Dict[str, Dict], theta: dict) -> List[Dict]:
 
     # --- TLH tweaks ---
     tlh = levels.get("tlh", {})
-    if tlh.get("composite_score") and tlh.get("composite_score") < 4.5:
+    if tlh.get("composite_score") is not None and tlh.get("composite_score") < 4.5:
         pool = tlh.get("harvestable_pool_ratio", 0) * 100
         sev = "critical" if pool > 10 else ("high" if pool > 5 else ("medium" if pool > 1 else "medium"))
         tweaks.append({
@@ -264,7 +264,7 @@ def generate_tax_tweaks(levels: Dict[str, Dict], theta: dict) -> List[Dict]:
 
     # --- Asset location tweaks ---
     loc = levels.get("location", {})
-    if loc.get("composite_score") and loc.get("composite_score") < 4.5:
+    if loc.get("composite_score") is not None and loc.get("composite_score") < 4.5:
         m = loc.get("mismatch_count", 0)
         sev = "critical" if m >= 3 else ("high" if m >= 2 else "medium")
         tweaks.append({
@@ -279,7 +279,7 @@ def generate_tax_tweaks(levels: Dict[str, Dict], theta: dict) -> List[Dict]:
 
     # --- Basis erosion tweaks ---
     ero = levels.get("erosion", {})
-    if ero.get("composite_score") and ero.get("composite_score") < 4.5:
+    if ero.get("composite_score") is not None and ero.get("composite_score") < 4.5:
         max_e = ero.get("max_erosion_ratio", 0) * 100
         locked = ero.get("locked_positions", 0)
         sev = "critical" if max_e > 90 else ("high" if max_e > 75 else ("medium" if max_e > 50 else "medium"))
@@ -506,7 +506,7 @@ def check_basis_erosion(positions, distribution_char, theta: dict) -> Dict:
 # C7 — After-tax frontier checker + run_tax_grade orchestrator
 # =============================================================================
 
-def check_after_tax_frontier(portfolio_returns, positions, yields, theta: dict) -> Dict:
+def check_after_tax_frontier(portfolio_returns, positions, yields, theta: dict, closes=None) -> Dict:
     """
     After-tax frontier impact checker.
 
@@ -535,16 +535,28 @@ def check_after_tax_frontier(portfolio_returns, positions, yields, theta: dict) 
     ann_factor = 252.0
     pre_sharpe = (mean_daily * ann_factor) / (std_daily * np.sqrt(ann_factor)) if std_daily > 0 else 0.0
 
-    # Portfolio weighted drag
-    total_value = sum(float(p.get("shares", 0)) * yields.get(tk, 0) for tk, p in positions.items()
-                      if isinstance(p, dict)) if yields else 0.0
-    # Use yields as a proxy weight when no price available: fall back to uniform
-    items = []
-    total_drag = 0.0
-    pos_items = []
+    # Portfolio-weighted drag: weight_i × yield_i × rate(char_i, account_i)
+    # Weight derived from shares × price (last row of closes).
+    closes_ts = closes.iloc[-1] if closes is not None and not closes.empty else {}
+    total_value = 0.0
+    port_weights = {}
     for tk, p in positions.items():
         if not isinstance(p, dict):
             continue
+        shares = float(p.get("shares", 0))
+        price = 0.0
+        if tk in closes_ts:
+            price = float(closes_ts[tk])  # closes_ts = last row of closes
+        val = shares * price
+        port_weights[tk] = val
+        total_value += val
+
+    weighted_drag = 0.0
+    items = []
+    for tk, p in positions.items():
+        if not isinstance(p, dict):
+            continue
+        w = port_weights.get(tk, 0) / total_value if total_value > 0 else 0
         char = chars.get(tk, {}).get("character", "qualified")
         account = p.get("account", "taxable")
         at = treatment.get(account, {})
@@ -556,20 +568,21 @@ def check_after_tax_frontier(portfolio_returns, positions, yields, theta: dict) 
                 {"qualified": drags["ltcg"], "ordinary": drags["ordinary"],
                  "roc": drags["roc"], "sec1256": drags["blended_1256"]}.get(char, 0.408))
             drag = yld * rate
-        total_drag += drag
-        pos_items.append({"ticker": tk, "account": account, "character": char,
-                          "yield": yld if "yld" in locals() else yields.get(tk, 0.0),
-                          "drag_annual": round(drag, 4)})
+        weighted_drag += w * drag
+        items.append({"ticker": tk, "account": account, "character": char,
+                      "yield": yields.get(tk, 0.0), "weight": round(w, 4),
+                      "drag_annual": round(drag, 4),
+                      "weighted_drag": round(w * drag, 6)})
 
-    post_mean = mean_daily * ann_factor - total_drag
+    post_mean = mean_daily * ann_factor - weighted_drag
     post_sharpe = post_mean / (std_daily * np.sqrt(ann_factor)) if std_daily > 0 else 0.0
 
     gap = abs(pre_sharpe - post_sharpe)
-    substitution = total_drag > 0.01  # >1pp drag = alternatives worth exploring
+    substitution = weighted_drag > 0.01  # >1pp weighted drag = alternatives worth exploring
 
     result = grade_after_tax_gap(pre_sharpe, post_sharpe, substitution, theta)
-    result["items"] = pos_items
-    result["portfolio_drag_annual"] = round(total_drag, 4)
+    result["items"] = items
+    result["portfolio_drag_annual"] = round(weighted_drag, 4)
     return result
 
 
@@ -606,7 +619,7 @@ def run_tax_grade(positions, yields, theta: dict = None) -> Dict:
     chars = {tk: _classify_distribution(tk, theta) for tk in positions}
 
     levels = {
-        "after_tax": check_after_tax_frontier(port_returns, positions, yields, theta),
+        "after_tax": check_after_tax_frontier(port_returns, positions, yields, theta, closes=closes),
         "tlh": check_tlh_harvest(positions, prices, theta),
         "location": check_asset_location(positions, chars, theta),
         "erosion": check_basis_erosion(positions, chars, theta),
