@@ -211,7 +211,66 @@ THETA_DEFAULTS = {
         (2.0, "orange"),    # elevated — action needed
         (0,   "red"),       # critical — re-plan trigger
     ],
+
+    # --- Tax axis (v3) — None = disabled; set to TAX_DEFAULTS to activate ---
+    "tax": None,
 }
+
+# =============================================================================
+# TAX_DEFAULTS — the recommended tax profile for axis activation.
+# Pass `tax=theta.TAX_DEFAULTS` to load_theta() to enable the tax axis.
+# US personal income regime only (federal + optional state).
+# =============================================================================
+
+TAX_DEFAULTS = {
+    # Tax rates (single source of truth — drags computed, not stored twice)
+    "federal_bracket": 0.37,            # top marginal ordinary rate
+    "ltcg_rate": 0.20,                   # federal long-term capital gains rate
+    "niit": True,                        # 3.8% net investment income tax
+    "state_rate": 0.0,                   # state income rate (0 = none, e.g. FL/TX)
+
+    # Drag rates (computed via _compute_drags — never hardcoded elsewhere)
+    "ordinary_drag": 0.408,             # 0.37 + 0.038 + 0.0
+    "ltcg_drag": 0.238,                  # 0.20 + 0.038 + 0.0
+    "blended_1256_drag": 0.28,           # 0.60*ltcg_drag + 0.40*ordinary_drag
+    "roc_drag": 0,                       # deferred to sale; 0 current
+
+    # Basis erosion thresholds (ROC position locked-in warning)
+    "erosion_thresholds": [0.50, 0.75, 0.90],
+
+    # Wash-sale window (days before/after a loss sale)
+    "wash_sale_window_days": 30,
+
+    # Per-account-type tax treatment
+    "account_treatment": {
+        "taxable":  {"dividend_drag": True,  "sale_taxable": True,  "tlh_available": True,  "withdrawal_always_ordinary": False},
+        "ira":      {"dividend_drag": False, "sale_taxable": False, "tlh_available": False, "withdrawal_always_ordinary": True},
+        "401k":     {"dividend_drag": False, "sale_taxable": False, "tlh_available": False, "withdrawal_always_ordinary": True},
+        "roth":     {"dividend_drag": False, "sale_taxable": False, "tlh_available": False, "withdrawal_always_ordinary": False},
+    },
+
+    # Distribution character classifier (per-ticker, PM-maintained)
+    # Values: "qualified" | "ordinary" | "roc" | "sec1256"
+    # ROC tickers require annual_roc_rate (e.g. CAIE: 0.14 = 14%/yr)
+    # Unknown tickers default to "qualified" (conservative — understates drag)
+    "distribution_character": {
+        "CAIE": {"character": "roc",      "annual_roc_rate": 0.14},
+        "JEPQ": {"character": "ordinary"},
+        "SPYI": {"character": "sec1256"},
+        "VOO":  {"character": "qualified"},
+        "SCHD": {"character": "qualified"},
+        "TLT":  {"character": "ordinary"},
+    },
+
+    # Tax severity -> color
+    "tax_severity_bounds": [
+        (5.0, "green"),
+        (3.5, "yellow"),
+        (2.0, "orange"),
+        (0,   "red"),
+    ],
+}
+
 
 
 def load_theta(path: str = None, **overrides) -> dict:
