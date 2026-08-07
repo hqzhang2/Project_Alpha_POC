@@ -217,7 +217,7 @@
       <button class="icon-btn danger" title="Remove last row" onclick="removeRow()">−</button>
     </div>
     <table class="editor">
-      <thead><tr><th>Ticker</th><th>Shares</th><th></th></tr></thead>
+      <thead><tr><th>Ticker</th><th>Shares</th><th title="Account type: Tx=taxable, IRA, Roth, 401k">Acct</th><th title="Distribution character: Q=qualified, O=ordinary, R=ROC, 1256=sec1256">Char</th><th></th></tr></thead>
       <tbody id="holdingsBody"></tbody>
     </table>
     <div class="btn-row">
@@ -226,9 +226,33 @@
     </div>
     <button class="btn danger btn-danger-wide" onclick="deletePortfolio()">Delete Portfolio</button>
 
+    <details style="margin:8px 0" id="lotDetails">
+      <summary style="font-size:11px;color:#64748b;cursor:pointer;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Tax Lots ▾</summary>
+      <div style="font-size:10px;color:#64748b;margin:4px 0 6px">Lot tracking enables TLH (harvest candidates) and basis erosion monitoring. Leave empty if unknown — tax axis grades N/A on those sub-axes (fail-open).</div>
+      <div id="lotsEditor"></div>
+      <button class="btn" onclick="addLot()" style="margin-top:4px">+ Add Lot</button>
+    </details>
+
     <h4>Policy</h4>
     <select id="policySelect" onchange="onPolicySelect()"></select>
     <div class="policy-json" id="policyDetail">Select a policy…</div>
+
+    <label style="display:flex;align-items:center;gap:6px;margin:8px 0;font-size:12px;color:#94a3b8;cursor:pointer;user-select:none">
+      <input type="checkbox" id="taxToggle" checked> Include tax analysis
+    </label>
+
+    <details style="margin:4px 0" id="taxProfDetails">
+      <summary style="font-size:11px;color:#64748b;cursor:pointer;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Tax Profile ▾</summary>
+      <div style="padding:6px 0 2px;display:flex;flex-direction:column;gap:4px;font-size:11px">
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Federal bracket</span><span style="color:#e6edf3;font-weight:700">37%</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">LTCG rate</span><span style="color:#e6edf3;font-weight:700">20%</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">State rate</span><span style="color:#e6edf3;font-weight:700">0% (FL/TX)</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">NIIT</span><span style="color:#4ade80;font-weight:700">yes (3.8%)</span></div>
+        <div style="border-top:1px solid #1f2937;margin:4px 0"></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Ordinary drag</span><span style="color:#f87171;font-weight:700">40.8%</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">LTCG drag</span><span style="color:#f0b429;font-weight:700">23.8%</span></div>
+      </div>
+    </details>
 
     <button class="btn primary" id="gradeBtn" style="margin-top:8px" onclick="grade()">Grade Portfolio</button>
 
@@ -320,9 +344,16 @@ async function refreshLists() {
 async function loadPortfolio(name) {
   const d = await api('/api/portfolios?name=' + encodeURIComponent(name));
   document.getElementById('portfolioName').value = d.name;
-  rows = Object.entries(d.holdings || {}).map(([ticker, shares]) => ({ticker, shares}));
-  if (!rows.length) rows = [{ticker: '', shares: ''}];
+  lotRows = [];
+  rows = Object.entries(d.holdings || {}).map(([tk, v]) => {
+    if (typeof v === 'number') return {ticker: tk, shares: v, account: 'taxable', character: 'qualified'};
+    const lots = v.lots || [];
+    lots.forEach(l => lotRows.push({ticker: tk, date: l.date, shares: l.shares, cost_per_share: l.cost_per_share}));
+    return {ticker: tk, shares: v.shares || 0, account: v.account || 'taxable', character: v.character || 'qualified'};
+  });
+  if (!rows.length) rows = [{ticker: '', shares: '', account: 'taxable', character: 'qualified'}];
   renderRows();
+  renderLots();
 }
 
 function renderRows() {
@@ -330,24 +361,83 @@ function renderRows() {
   tb.innerHTML = '';
   rows.forEach((r, i) => {
     const tr = document.createElement('tr');
+    const acctOpts = [['taxable','Tx'],['ira','IRA'],['roth','Roth'],['401k','401k']]
+      .map(p => '<option value="' + p[0] + '"' + ((r.account || 'taxable') === p[0] ? ' selected' : '') + '>' + p[1] + '</option>').join('');
+    const charOpts = [['qualified','Q'],['ordinary','O'],['roc','R'],['sec1256','1256']]
+      .map(p => '<option value="' + p[0] + '"' + ((r.character || 'qualified') === p[0] ? ' selected' : '') + '>' + p[1] + '</option>').join('');
     tr.innerHTML =
       '<td><input type="text" value="' + esc(r.ticker) + '" placeholder="TICKER" ' +
         'oninput="rows[' + i + '].ticker=this.value.toUpperCase()"></td>' +
       '<td><input type="number" min="0" step="any" value="' + esc(r.shares) + '" ' +
         'placeholder="0" oninput="rows[' + i + '].shares=this.value"></td>' +
+      '<td><select onchange="rows[' + i + '].account=this.value" style="width:100%;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:4px;padding:3px 2px;font-size:10px">' + acctOpts + '</select></td>' +
+      '<td><select onchange="rows[' + i + '].character=this.value" style="width:100%;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:4px;padding:3px 2px;font-size:11px">' + charOpts + '</select></td>' +
       '<td class="del"><button class="icon-btn danger" title="Remove row" onclick="removeRowAt(' + i + ')">×</button></td>';
     tb.appendChild(tr);
   });
 }
 
-function addRow() { rows.push({ticker: '', shares: ''}); renderRows(); }
+function addRow() { rows.push({ticker: '', shares: '', account: 'taxable', character: 'qualified'}); renderRows(); }
 function removeRow() { if (!rows.length) return; rows.pop(); renderRows(); }
 function removeRowAt(i) { rows.splice(i, 1); renderRows(); }
+
+// ---------------------------------------------------------------------------
+// Tax lots (store v2 metadata — TLH + basis erosion inputs)
+// ---------------------------------------------------------------------------
+let lotRows = [];  // [{ticker, date, shares, cost_per_share}]
+
+function renderLots() {
+  const tb = document.getElementById('lotsEditor');
+  tb.innerHTML = '';
+  if (!lotRows.length) {
+    tb.innerHTML = '<div style="color:#64748b;font-size:11px;padding:6px">No lots recorded. Click + Add Lot, then fill date / shares / cost per share.</div>';
+    return;
+  }
+  var table = '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>' +
+    '<th style="color:#64748b;text-align:left;padding:2px 4px">Ticker</th>' +
+    '<th style="color:#64748b;text-align:left;padding:2px 4px">Date</th>' +
+    '<th style="color:#64748b;text-align:right;padding:2px 4px">Shares</th>' +
+    '<th style="color:#64748b;text-align:right;padding:2px 4px">Cost/Share</th>' +
+    '<th></th></tr></thead><tbody>';
+  lotRows.forEach(function(l, i) {
+    table += '<tr><td>' + esc(l.ticker) + '</td>' +
+      '<td><input type="date" value="' + esc(l.date) + '" onchange="lotRows[' + i + '].date=this.value" style="width:100%;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:3px;padding:2px 4px;font-size:10px"></td>' +
+      '<td><input type="number" min="0" step="any" value="' + esc(l.shares) + '" onchange="lotRows[' + i + '].shares=Number(this.value)" style="width:60px;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:3px;padding:2px 4px;font-size:10px;text-align:right"></td>' +
+      '<td><input type="number" min="0" step="0.01" value="' + esc(l.cost_per_share) + '" onchange="lotRows[' + i + '].cost_per_share=Number(this.value)" style="width:70px;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:3px;padding:2px 4px;font-size:10px;text-align:right"></td>' +
+      '<td><button class="icon-btn danger" style="width:18px;height:18px;font-size:10px" onclick="removeLot(' + i + ')">x</button></td></tr>';
+  });
+  table += '</tbody></table>';
+  tb.innerHTML = table;
+}
+
+function addLot() {
+  var tk = '';
+  var first = rows.find(r => (r.ticker || '').trim());
+  if (first) tk = first.ticker.trim().toUpperCase();
+  if (!tk) { alert('Add a ticker in the holdings table first.'); return; }
+  lotRows.push({ticker: tk, date: '', shares: '', cost_per_share: ''});
+  renderLots();
+}
+
+function removeLot(i) {
+  if (!confirm('Remove this lot?')) return;
+  lotRows.splice(i, 1);
+  renderLots();
+}
 
 function collectRows() {
   return rows
     .filter(r => (r.ticker || '').trim() && r.shares !== '' && Number(r.shares) > 0)
-    .map(r => ({ticker: r.ticker.trim().toUpperCase(), shares: Number(r.shares)}));
+    .map(r => {
+      const pos = {ticker: r.ticker.trim().toUpperCase(), shares: Number(r.shares)};
+      if (r.account && r.account !== 'taxable') pos.account = r.account;
+      const tk = r.ticker.trim().toUpperCase();
+      const tickerLots = lotRows
+        .filter(l => l.ticker === tk && l.date && Number(l.shares) > 0 && Number(l.cost_per_share) > 0)
+        .map(l => ({date: l.date, shares: Number(l.shares), cost_per_share: Number(l.cost_per_share)}));
+      if (tickerLots.length) pos.lots = tickerLots;
+      return pos;
+    });
 }
 
 async function savePortfolio() {
@@ -356,7 +446,12 @@ async function savePortfolio() {
   const holdings = collectRows();
   if (!holdings.length) { document.getElementById('err').textContent = 'Add at least one ticker with positive shares.'; return; }
   const h = {};
-  holdings.forEach(r => { h[r.ticker] = r.shares; });
+  holdings.forEach(r => {
+    const entry = {shares: r.shares};
+    if (r.account) entry.account = r.account;
+    if (r.lots && r.lots.length) entry.lots = r.lots;
+    h[r.ticker] = entry;
+  });
   if (!confirm('Save portfolio "' + name + '"?')) return;
   try {
     await api('/api/portfolios', {
@@ -376,7 +471,7 @@ async function cancelEdit() {
   if (!confirm('Discard unsaved changes?')) return;
   document.getElementById('err').textContent = '';
   if (currentPortfolio) await loadPortfolio(currentPortfolio);
-  else { rows = [{ticker: '', shares: ''}]; renderRows(); }
+  else { rows = [{ticker: '', shares: '', account: 'taxable', character: 'qualified'}]; lotRows = []; renderRows(); renderLots(); }
 }
 
 async function deletePortfolio() {
@@ -756,10 +851,25 @@ async function grade() {
     const polname = selectedPolicyName();
     if (!pname) throw new Error('Select a portfolio first.');
     if (!polname) throw new Error('Select a policy first.');
+    var axes = ['concentration', 'drift'];
+    var body = {holdings: pname, policy_weights: polname};
+    if (document.getElementById('taxToggle').checked) {
+      body.tax = true;
+      // Per-ticker distribution character overrides (non-default only)
+      var chars = {};
+      rows.forEach(function(r) {
+        if (r.ticker && r.character && r.character !== 'qualified') {
+          chars[r.ticker.trim().toUpperCase()] = {character: r.character};
+        }
+      });
+      if (Object.keys(chars).length > 0) body.tax = {distribution_character: chars};
+      axes.push('tax');
+    }
+    body.axes = axes;
     const res = await fetch('/api/grade', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({holdings: pname, policy_weights: polname, tax: true, axes: ['concentration', 'drift', 'tax']})
+      body: JSON.stringify(body)
     });
     const data = await res.json();
     if (!res.ok || data.error) {

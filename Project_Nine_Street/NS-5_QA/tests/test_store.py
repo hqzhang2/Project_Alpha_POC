@@ -35,13 +35,13 @@ class TestPortfolioCRUD:
         store.upsert_portfolio("A", {"AAPL": 10, "TLT": 100})
         store.upsert_portfolio("B", {"SPY": 5})
         assert store.list_portfolios() == ["A", "B"]
-        assert store.get_portfolio("A") == {"AAPL": 10.0, "TLT": 100.0}
+        assert store.get_portfolio("A") == {"AAPL": {"shares": 10.0}, "TLT": {"shares": 100.0}}
         assert store.get_portfolio("ZZZ") is None
 
     def test_upsert_overwrites(self, store):
         store.upsert_portfolio("A", {"AAPL": 10})
         store.upsert_portfolio("A", {"AAPL": 20, "MSFT": 30})
-        assert store.get_portfolio("A") == {"AAPL": 20.0, "MSFT": 30.0}
+        assert store.get_portfolio("A") == {"AAPL": {"shares": 20.0}, "MSFT": {"shares": 30.0}}
 
     def test_delete(self, store):
         store.upsert_portfolio("A", {"AAPL": 1})
@@ -54,7 +54,7 @@ class TestPortfolioCRUD:
         out = store.rename_portfolio("Old", "New")
         assert out["name"] == "New"
         assert store.get_portfolio("Old") is None
-        assert store.get_portfolio("New") == {"AAPL": 1.0}
+        assert store.get_portfolio("New") == {"AAPL": {"shares": 1.0}}
 
     def test_name_required(self, store):
         with pytest.raises(ValueError):
@@ -70,7 +70,7 @@ class TestPortfolioCRUD:
 
     def test_ticker_normalized_upper(self, store):
         store.upsert_portfolio("A", {"aapl": 10})
-        assert store.get_portfolio("A") == {"AAPL": 10.0}
+        assert store.get_portfolio("A") == {"AAPL": {"shares": 10.0}}
 
 
 class TestPolicyCRUD:

@@ -127,21 +127,30 @@ def get_portfolio_positions(name: str) -> Optional[Dict[str, Dict]]:
 
 
 def upsert_portfolio(name: str, holdings: Dict[str, float]) -> Dict:
-    """Create or update. Returns the saved entry."""
+    """Create or update. Accepts v1 flat {ticker: shares} OR v2
+    {ticker: {shares, account, lots}}. Returns the saved entry (v2-normalized)."""
     name = (name or "").strip()
     if not name:
         raise ValueError("portfolio name is required")
     if not isinstance(holdings, dict) or not holdings:
         raise ValueError("holdings must be a non-empty dict of {ticker: shares}")
     cleaned = {}
-    for tk, shares in holdings.items():
+    for tk, value in holdings.items():
         tk = str(tk).strip().upper()
         if not tk:
             continue
-        shares = float(shares)
-        if shares < 0:
+        pos = _normalize_position(tk, value)
+        if pos["shares"] < 0:
             raise ValueError(f"negative shares for {tk}")
-        cleaned[tk] = shares
+        if pos["shares"] <= 0:
+            continue  # drop zero-share positions
+        # Store minimal v2: omit default account and empty lots
+        entry = {"shares": pos["shares"]}
+        if pos["account"] != "taxable":
+            entry["account"] = pos["account"]
+        if pos["lots"]:
+            entry["lots"] = pos["lots"]
+        cleaned[tk] = entry
     if not cleaned:
         raise ValueError("holdings must contain at least one ticker with positive shares")
 
