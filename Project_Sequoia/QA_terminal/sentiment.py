@@ -59,7 +59,7 @@ METRIC_DEFINITIONS = [
      "source_default": "cot"},                      # deferred (next release)
     {"metric": "margin_debt", "display_name": "Margin Debt", "scope": "market",
      "unit": "$B", "higher_is": "bullish", "normalization": "percentile", "window": 252,
-     "source_default": "finra"},                    # deferred (next release)
+     "source_default": "finra_margin"},                  # deferred (next release)
     {"metric": "insider_net_buy", "display_name": "Insider Net Buy", "scope": "ticker",
      "unit": "$M", "higher_is": "bullish", "normalization": "percentile", "window": 252,
      "source_default": "edgar"},                    # deferred (next release)

@@ -132,6 +132,104 @@ def register_all():
     sentiment.register_provider(SOURCE_NAAIM, collect_naaim)
     sentiment.register_provider(SOURCE_AV, collect_av_news)
     sentiment.register_provider(SOURCE_AAII, collect_aaii)
+    sentiment.register_provider(SOURCE_COT, collect_cot)
+    sentiment.register_provider(SOURCE_MARGIN, collect_margin_debt)
+
+
+# ---------------------------------------------------------------------------
+# Next release: COT (CFTC) + Margin Debt (FINRA) — both free, keyless.
+#
+# COT: CFTC split equity-index futures into the FINANCIAL futures report
+#   (`fut_fin_txt_YYYY.zip` -> FinFutYY.txt). Market "E-MINI S&P 500 - CHICAGO
+#   MERCANTILE EXCHANGE". Net spec = Asset_Mgr + Lev_Money (long - short).
+#   Weekly, ~3-4 day lag. (The regular fut_disagg/com_disagg files contain NO
+#   financial futures — live-verified 2026-08-07.)
+# Margin: FINRA margin-statistics page embeds the monthly table server-side
+#   (Debit Balances in Customers' Securities Margin Accounts, $M). Monthly,
+#   ~6 week lag. Source name finra_margin (distinct from finra short interest).
+# ---------------------------------------------------------------------------
+
+SOURCE_COT = "cot"
+SOURCE_MARGIN = "finra_margin"
+
+COT_FIN_URL = "https://www.cftc.gov/files/dea/history/fut_fin_txt_{year}.zip"
+COT_MARKET = "E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE"
+MARGIN_URL = "https://www.finra.org/rules-guidance/key-topics/margin-accounts/margin-statistics"
+
+
+def collect_cot():
+    """COT net spec positioning on E-mini S&P 500 futures (CFTC financial report).
+
+    Download current-year zip, parse FinFutYY.txt, filter the E-mini S&P 500
+    market, take the latest report date. value = net spec contracts
+    (Asset_Mgr + Lev_Money longs - shorts); sentiment = percentile (higher =
+    bullish). Fail-open: download/parse error -> 0.
+    """
+    import sentiment  # lazy
+    import csv
+    import io
+    import zipfile
+
+    year = datetime.date.today().year
+    try:
+        import requests
+        r = requests.get(COT_FIN_URL.format(year=year), timeout=30)
+        r.raise_for_status()
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        name = z.namelist()[0]
+        rows = list(csv.DictReader(io.StringIO(z.read(name).decode("utf-8", errors="ignore"))))
+        sp = [row for row in rows if row.get("Market_and_Exchange_Names") == COT_MARKET]
+        if not sp:
+            logger.error("COT: market %r not found in %s", COT_MARKET, name)
+            return 0
+        latest = max(sp, key=lambda row: row["Report_Date_as_YYYY-MM-DD"])
+        am_l = int(latest.get("Asset_Mgr_Positions_Long_All") or 0)
+        am_s = int(latest.get("Asset_Mgr_Positions_Short_All") or 0)
+        lm_l = int(latest.get("Lev_Money_Positions_Long_All") or 0)
+        lm_s = int(latest.get("Lev_Money_Positions_Short_All") or 0)
+        value = float((am_l + lm_l) - (am_s + lm_s))
+        asof = latest["Report_Date_as_YYYY-MM-DD"]
+        hist = db.history_for("cot_net_spec", limit=252)
+        sent = sentiment.normalize(value, "percentile", hist) if hist else None
+        return 1 if db.upsert_reading(asof, "market", None, "cot_net_spec", SOURCE_COT,
+                                      value, sent, count=int(latest.get("Open_Interest_All") or 0)) else 0
+    except Exception as e:
+        logger.error("COT fetch failed: %s", e)
+        return 0
+
+
+def collect_margin_debt():
+    """FINRA margin debt (monthly, $M) from the margin-statistics page table.
+
+    Page embeds the monthly table server-side; first data row = latest month.
+    value = Debit Balances in Customers' Securities Margin Accounts ($M);
+    sentiment = percentile (higher = bullish — leverage appetite).
+    Fail-open: fetch/parse error -> 0.
+    """
+    import sentiment  # lazy
+    import re
+
+    page = _fetch_text(MARGIN_URL)
+    if not page:
+        return 0
+    m = re.search(r"<table.*?</table>", page, re.S)
+    if not m:
+        logger.error("MARGIN: table not found")
+        return 0
+    rows = re.findall(r"<tr.*?</tr>", m.group(0), re.S)
+    if len(rows) < 2:
+        return 0
+    cells = [re.sub(r"<[^>]+>", "", c).strip()
+             for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", rows[1], re.S)]
+    if len(cells) < 2 or not cells[0] or not cells[1]:
+        return 0
+    mo, yy = cells[0].split("-")  # e.g. Jun-26
+    asof = f"20{yy}-{datetime.datetime.strptime(mo, '%b').month:02d}-01"
+    value = float(cells[1].replace(",", "")) / 1000.0  # source reports $M -> store $B
+    hist = db.history_for("margin_debt", limit=252)
+    sent = sentiment.normalize(value, "percentile", hist) if hist else None
+    return 1 if db.upsert_reading(asof, "market", None, "margin_debt", SOURCE_MARGIN,
+                                  value, sent, count=len(rows) - 1) else 0
 
 
 # ---------------------------------------------------------------------------

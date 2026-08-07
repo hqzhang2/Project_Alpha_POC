@@ -77,11 +77,13 @@
         // Market sentiment only — consumer-confidence surveys (UMich/Conf Board)
         // are macro data, removed per Hong 2026-08-07.
         const METRIC_ORDER = ['vix', 'breadth_ad', 'cboe_pc_equity', 'cboe_pc_index',
-                              'naaim_exposure', 'news_sentiment', 'aaii_bull_bear_spread'];
+                              'naaim_exposure', 'news_sentiment', 'aaii_bull_bear_spread',
+                              'cot_net_spec', 'margin_debt'];
         const METRIC_COLORS = {
             vix: '#58a6ff', breadth_ad: '#3fb950', cboe_pc_equity: '#c9a6ff',
             cboe_pc_index: '#c9a6ff', naaim_exposure: '#f0883e',
-            news_sentiment: '#7ec8e3', aaii_bull_bear_spread: '#c9a6ff'
+            news_sentiment: '#7ec8e3', aaii_bull_bear_spread: '#c9a6ff',
+            cot_net_spec: '#58a6ff', margin_debt: '#7ec8e3'
         };
         let chartInstances = [];
 
@@ -194,18 +196,22 @@
             const pcE = latestOf('cboe_pc_equity');
             const naaim = latestOf('naaim_exposure');
             const aaii = latestOf('aaii_bull_bear_spread');
+            const cot = latestOf('cot_net_spec');
+            const margin = latestOf('margin_debt');
 
             const vixSub = vix ? `VIX ${fmtValue(vix)} · ${vix.sentiment > 0.05 ? 'low fear' : vix.sentiment < -0.05 ? 'high fear' : 'neutral'}` : 'accruing';
             const breadthSub = breadth ? `${Math.round((1 + breadth.value) / 2 * (breadth.count || 39))} adv / ${Math.round((1 - breadth.value) / 2 * (breadth.count || 39))} dec` : 'accruing';
             const posSub = (pcE ? `P/C ${Number(pcE.value).toFixed(2)}` : 'P/C —') + ' · ' + (naaim ? `NAAIM ${fmtValue(naaim)}` : 'NAAIM —');
             const aaiiSub = aaii ? `bull-bear spread ${fmtValue(aaii)} · ${aaii.asof_date}` : 'accruing';
+            const lmSub = (cot ? `COT ${fmtValue(cot)}` : 'COT —') + ' · ' + (margin ? `Margin $${Number(margin.value).toFixed(1)}B` : 'Margin —');
 
             strip.innerHTML = `
                 <div class="comp-tile"><div class="lbl">Market Mood</div><div class="val ${moodCls}">${moodVal}</div><div class="sub">${moodSub}</div></div>
                 <div class="comp-tile"><div class="lbl">Volatility</div><div class="val ${vix && vix.sentiment > 0.05 ? 'green' : vix && vix.sentiment < -0.05 ? 'red' : 'gray'}">${vix ? fmtValue(vix) : '—'}</div><div class="sub">${vixSub}</div></div>
                 <div class="comp-tile"><div class="lbl">Breadth</div><div class="val ${breadth && breadth.sentiment > 0.05 ? 'green' : breadth && breadth.sentiment < -0.05 ? 'red' : 'gray'}">${breadth ? fmtValue(breadth) : '—'}</div><div class="sub">${breadthSub}</div></div>
                 <div class="comp-tile"><div class="lbl">Positioning</div><div class="val gray">${pcE && pcE.sentiment > 0.05 ? 'Bullish' : pcE && pcE.sentiment < -0.05 ? 'Bearish' : 'Mixed'}</div><div class="sub">${posSub}</div></div>
-                <div class="comp-tile"><div class="lbl">AAII</div><div class="val ${aaii && aaii.sentiment > 0.05 ? 'green' : aaii && aaii.sentiment < -0.05 ? 'red' : 'gray'}">${aaii ? fmtValue(aaii) : '—'}</div><div class="sub">${aaiiSub}</div></div>`;
+                <div class="comp-tile"><div class="lbl">AAII</div><div class="val ${aaii && aaii.sentiment > 0.05 ? 'green' : aaii && aaii.sentiment < -0.05 ? 'red' : 'gray'}">${aaii ? fmtValue(aaii) : '—'}</div><div class="sub">${aaiiSub}</div></div>
+                <div class="comp-tile"><div class="lbl">Lev & Spec</div><div class="val gray">${cot && cot.sentiment > 0.05 ? 'Spec+ ' + fmtValue(cot) : margin && margin.sentiment > 0.05 ? 'Debt↑' : cot || margin ? 'Mixed' : 'Accruing'}</div><div class="sub">${lmSub}</div></div>`;
         }
 
         async function snLoad() {

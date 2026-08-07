@@ -590,6 +590,77 @@ class TestCollectors(unittest.TestCase):
                  patch.object(requests, "post", return_value=fake):
                 self.assertEqual(self.collect.collect_aaii(), 0)
 
+    # ---- COT (CFTC financial futures) + Margin Debt (FINRA) ----
+
+    def test_cot_parses_financial_report(self):
+        import io, zipfile, csv
+        header = ["Market_and_Exchange_Names", "Report_Date_as_YYYY-MM-DD", "Open_Interest_All",
+                  "Asset_Mgr_Positions_Long_All", "Asset_Mgr_Positions_Short_All",
+                  "Lev_Money_Positions_Long_All", "Lev_Money_Positions_Short_All"]
+        rows = [
+            ["E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE", "2026-08-04", "2116079",
+             "1162320", "225287", "206039", "536038"],
+            ["E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE", "2026-07-28", "2000000",
+             "1000000", "200000", "200000", "500000"],
+            ["OTHER MARKET - CHICAGO MERCANTILE EXCHANGE", "2026-08-04", "100",
+             "1", "1", "1", "1"],
+        ]
+        buf = io.StringIO()
+        w = csv.writer(buf); w.writerow(header); w.writerows(rows)
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as z:
+            z.writestr("FinFutYY.txt", buf.getvalue())
+        zip_buf.seek(0)
+
+        import requests
+        fake = MagicMock(); fake.status_code = 200
+        fake.content = zip_buf.getvalue()
+        with patch.object(db, "DB_PATH", self.db_path), \
+             patch.object(requests, "get", return_value=fake) as mg:
+            n = self.collect.collect_cot()
+            self.assertEqual(n, 1)
+            self.assertIn("fut_fin_txt_", mg.call_args[0][0])  # financial futures file
+            r = db.query_readings(metric="cot_net_spec")[0]
+            self.assertEqual(r["asof_date"], "2026-08-04")
+            # net spec = (1162320+206039) - (225287+536038) = 607034
+            self.assertAlmostEqual(r["value"], 607034.0)
+            self.assertEqual(r["count"], 2116079)  # open interest
+            self.assertEqual(r["source"], "cot")
+
+    def test_cot_fail_open(self):
+        import requests
+        for fake_content in [b"not a zip", b""]:
+            fake = MagicMock(); fake.status_code = 200
+            fake.content = fake_content
+            with patch.object(db, "DB_PATH", self.db_path), \
+                 patch.object(requests, "get", return_value=fake):
+                self.assertEqual(self.collect.collect_cot(), 0)
+
+    def test_margin_parses_table(self):
+        page = ("<html><table>"
+                "<tr><th>Month/Year</th><th>Debit Balances</th></tr>"
+                "<tr><td>Jun-26</td><td>1,502,072</td></tr>"
+                "<tr><td>May-26</td><td>1,415,557</td></tr>"
+                "</table></html>")
+        with patch.object(self.collect, "_fetch_text", return_value=page), \
+             patch.object(db, "DB_PATH", self.db_path):
+            n = self.collect.collect_margin_debt()
+            self.assertEqual(n, 1)
+            r = db.query_readings(metric="margin_debt")[0]
+            self.assertEqual(r["asof_date"], "2026-06-01")  # Jun-26 -> 2026-06
+            self.assertAlmostEqual(r["value"], 1502.072)  # $M/1000 -> $B
+            self.assertEqual(r["source"], "finra_margin")
+            self.assertIsNone(r["sentiment"])  # no history yet -> gray
+
+    def test_margin_fail_open(self):
+        with patch.object(self.collect, "_fetch_text", return_value=None), \
+             patch.object(db, "DB_PATH", self.db_path):
+            self.assertEqual(self.collect.collect_margin_debt(), 0)
+        for bad in ["<html>no table</html>", "<table></table>", "<table><tr><td>x</td></tr></table>"]:
+            with patch.object(self.collect, "_fetch_text", return_value=bad), \
+                 patch.object(db, "DB_PATH", self.db_path):
+                self.assertEqual(self.collect.collect_margin_debt(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
