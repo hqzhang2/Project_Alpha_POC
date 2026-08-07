@@ -232,7 +232,7 @@ TAX_DEFAULTS = {
     # Drag rates (computed via _compute_drags — never hardcoded elsewhere)
     "ordinary_drag": 0.408,             # 0.37 + 0.038 + 0.0
     "ltcg_drag": 0.238,                  # 0.20 + 0.038 + 0.0
-    "blended_1256_drag": 0.28,           # 0.60*ltcg_drag + 0.40*ordinary_drag
+    "blended_1256_drag": 0.306,           # 0.60*ltcg_drag + 0.40*ordinary_drag
     "roc_drag": 0,                       # deferred to sale; 0 current
 
     # Basis erosion thresholds (ROC position locked-in warning)

@@ -392,8 +392,11 @@ def check_asset_location(positions, distribution_char, theta: dict) -> Dict:
                 "mismatch_count": 0, "total_positions": 0, "mismatch_ratio": 0.0,
                 "max_drag_gap_bp": 0.0, "items": []}
     treatment = tax.get("account_treatment", {})
-    ordinary = tax.get("ordinary_drag", 0.408)
-    ltcg = tax.get("ltcg_drag", 0.238)
+    # Single source of truth for drag rates (not stored fields)
+    drag_rates = _compute_drags(theta)
+    ordinary = drag_rates["ordinary"]
+    ltcg = drag_rates["ltcg"]
+    blended = drag_rates["blended_1256"]
 
     total = 0
     mismatches = 0
@@ -414,7 +417,7 @@ def check_asset_location(positions, distribution_char, theta: dict) -> Dict:
             mismatch = account == "taxable"
             rec = "ira/401k"
         elif char == "sec1256":
-            drag = tax.get("blended_1256_drag", 0.28) if account == "taxable" else 0.0
+            drag = blended if account == "taxable" else 0.0
             mismatch = account == "taxable"
             rec = "ira/401k"
         elif char == "roc":
