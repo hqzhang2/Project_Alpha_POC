@@ -294,18 +294,23 @@ def get_options_chain(ticker: str, expiry: str = None, use_cache: bool = True) -
 
         # Expected move to expiry: ATM straddle (call mid + put mid at the
         # strike nearest spot). Market-implied, uses the same mids as IV.
+        # Only strikes present on BOTH sides qualify — call/put grids can
+        # differ (live: IJH ATM call 78.0 had no matching put -> KeyError
+        # killed the whole chain). Guard with the shared-strike set.
         expected_move = None
         if call_by_strike and put_by_strike and spot:
-            atm_strike = min(call_by_strike, key=lambda k: abs(k - spot))
-            c_atm, p_atm = call_by_strike[atm_strike], put_by_strike[atm_strike]
-            c_mid = _mid_or_last(c_atm)
-            p_mid = _mid_or_last(p_atm)
-            if c_mid is not None and p_mid is not None and c_mid > 0 and p_mid > 0:
-                expected_move = {
-                    'strike': atm_strike,
-                    'straddle': round(c_mid + p_mid, 2),
-                    'pct': round((c_mid + p_mid) / spot * 100, 2)
-                }
+            shared = set(call_by_strike) & set(put_by_strike)
+            if shared:
+                atm_strike = min(shared, key=lambda k: abs(k - spot))
+                c_atm, p_atm = call_by_strike[atm_strike], put_by_strike[atm_strike]
+                c_mid = _mid_or_last(c_atm)
+                p_mid = _mid_or_last(p_atm)
+                if c_mid is not None and p_mid is not None and c_mid > 0 and p_mid > 0:
+                    expected_move = {
+                        'strike': atm_strike,
+                        'straddle': round(c_mid + p_mid, 2),
+                        'pct': round((c_mid + p_mid) / spot * 100, 2)
+                    }
 
         result = {
             "ticker": ticker.upper(),

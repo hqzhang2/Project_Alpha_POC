@@ -1,7 +1,7 @@
 # MEMORY.md - Chuck's Long-Term Memory
 
 ## Email Accounts:
-- munger6c@gmail.com (password: Chuck108d#, App Password: vvqwcmdgjyhfpjhp)
+- munger6c@gmail.com (credentials moved to Vault / keychain — do not store passwords in this file)
 
 ## Discord Information:
 - Hong's User ID: 1467629773663768830
@@ -29,6 +29,44 @@
 2. **All development work MUST go to the QA environment (`Project_Sequoia/QA_terminal/`).**
 3. **Ports are STRICT:** Production is ALWAYS `9098`. QA is ALWAYS `9099`.
 4. **Never bypass `deploy.sh`:** Do not manually start servers. The `deploy.sh` scripts set critical `PORT` and `ENV` variables. Missing these will cause QA files to overlap onto the Production port.
+
+## ✅ SECURITY ISSUE RESOLVED (2026-08-07): Hardcoded API keys in news tab
+- **Fixed:** `Project_Sequoia/terminal/news.py` (PROD) — hardcoded Finnhub + NewsAPI fallback keys removed; now env-only (matches QA). Keys moved to BOTH launchd plists (QA + PROD) `EnvironmentVariables`.
+- **Also fixed (same file, pre-existing bug):** PROD `news.py` was missing the R2 `ROUTES` dict — news routes were never registered on PROD (404 on every tab). Added; PROD news verified live (100 headlines / 8 economics / 1710 cn items).
+- **KEYS ROTATED (2026-08-07, fully closed):** Hong rotated Finnhub (`d9rl99…`) + NewsAPI (`297c1832…`) at the provider dashboards; both plists updated, both services bootout+bootstrap reloaded, old keys grep-verified ABSENT from both processes, live endpoints verified on 9099 + 9098 (headline 100 / M&A 67 / economics 11 / markets 13 / technologies 58). Git-history exposure closed for both providers.
+- **MEMORY.md password:** plaintext email password + app password removed from line 4 (2026-08-07) — credentials now Vault/keychain only.
+
+## Sentiment Tab (DESIGN GREENLIT — IMPLEMENTATION IN PROGRESS)
+- **Status:** Design approved 2026-08-03 by Hong. Implementation on `feature/v2.9` (clean slate after critical-fix merge). Phased, per-phase sign-off.
+- **Phase 1 DONE (2026-08-07):** skeleton — `sentiment_db.py` (readings + metric_definitions, natural-key upsert, fail-open), `sentiment.py` v2 (14-metric seed, normalization helpers, query layer, ROUTES), `sentiment.html` tab (between 52-Week Lows and News in `header.html`), server.py 3 handlers (`/api/sentiment`, `/api/sentiment/metrics`, `/api/sentiment/providers`). 22 unit tests pass.
+- **Phase 2 DONE (2026-08-07):** `sentiment_collect.py` collectors live in QA:
+  - `oi_store`: put/call OI ratio per (date, ticker) from own `data/option_oi.db` (capitalized types `'Call'`/`'Put'`!), value=put_oi/call_oi, sentiment=call_share, incremental via `latest_reading_date_for`. 239 rows written.
+  - `breadth`: **APPROVED SUBSTITUTION 2026-08-07** — Yahoo delisted ^NYAD/^NAH/^NAL ("Quote not found"); replaced with universe A/D across fixed 39-name `BREADTH_UNIVERSE` (MAG7+large caps+sector ETFs), value=(adv−dec)/(adv+dec) share → passthrough sentiment. Documented proxy in code comment. Live: 08-07 +0.385 (adv=27 dec=12).
+- **Phase 3 DONE (2026-08-07):** CBOE + FINRA collectors live:
+  - `cboe` (VIX + Equity/Index P/C): VIX from `VIX_History.csv` (real 253d trailing percentile — 08-06: 15.15 → +0.787); P/C from daily page's double-escaped Next.js JSON (`page.replace("\\","")` then regex; plain `Mozilla/5.0` UA — FINRA WAF 403s full Chrome UA). P/C gray until strip history ≥ MIN_PERCENTILE_HISTORY=20.
+  - `finra`: discovers latest `shrtYYYYMMDD.csv` from catalog page, pipe-delimited, `daysToCoverQuantity` = parts[9] (revisionFlag is parts[10] — field-index trap), 999.99 sentinel skipped, asof=settlement date, BREADTH_UNIVERSE tickers only. 39 rows (07-15 settlement). Gray until history accrues.
+  - **Schema fix (caught live):** SQLite composite PK treats NULL ticker as distinct → market-row duplicates. Fixed with `idx_readings_key` unique index on `(asof_date, scope, COALESCE(ticker,''), metric, source)` + dedup in `init_db()`. Regression tests added. Also: `seed()` now called at import (was missing → definitions table empty).
+- **Phase 4 DONE (2026-08-07):** surveys:
+  - `naaim`: NAAIM Exposure Index weekly from `index.naaim.org/embeddable/chart` — Symfony UX ChartJS data attr (HTML-escaped JSON `&quot;`, `html.unescape` + `json.loads`), latest point, center_50. Live: 04-29 index 93.79 → +0.876 (their chart data lags ~3mo — their feed, not our bug). No key.
+  - `fred`: **REMOVED 2026-08-07 (per Hong)** — UMich `UMCSENT` + OECD composite `USACSCICP02STSAM` were consumer-confidence MACRO data, not market sentiment. Collector + provider + seed rows + live DB rows all removed; `FRED_API_KEY` no longer needed. Restore only if a future macro tab wants it.
+  - **AAII LIVE (2026-08-07):** `aaii` provider — weekly bull/bear/neutral via **Firecrawl scrape API** (`api.firecrawl.dev/v1/scrape`, key `FIRECRAWL_API_KEY` in QA plist env). Why: aaii.com is behind **Imperva bot protection** (JS challenge; every scripted HTTP client incl. browser-UA curl gets 403/"Pardon Our Interruption" — only a real browser or Firecrawl passes). Free tier 1,000 credits/mo; AAII needs 1 scrape/week (~4 credits). value = bull−bear spread (pt), sentiment = spread_100. Live: 08-05 spread −1.0pt → −0.01 NEUTRAL. Fallback (option A, unused): weekly Hermes cron with web_extract. Tests 42/42.
+  - **View fix (approved):** `latest=1` default view — one row per (scope, ticker, metric, source) via max-asof join (COALESCE-ticker aware), so lagged sources (NAAIM/FINRA/FRED) stay visible. `days=N` remains the explicit history view. Tab has "Latest per metric" checkbox (default on).
+- **UI REDESIGN (Hong-approved 2026-08-07, mockup Variant B):** sentiment tab is now **market-only** — per-ticker OI rows moved to the Dashboard as a **P/C overlay**:
+  - `sentiment.html`: composite Market-Mood strip (Risk-On/Risk-Off/Mixed from scored-indicator share) + one trend-forward row per market metric (rail: name/value/pill/1W-1M-3M trends/source + Chart.js line), window selector 1M/3M/6M/1Y/ALL. Per-ticker scope UI removed. **Single-point series render a visible dot** (line needs ≥2 pts; history accrues daily — charts fill as collectors run).
+  - `dashboard.html`: `renderChart` adds **Put/Call OI** dataset on `y2` axis (RIGHT, orange `#f0883e`, "P/C RATIO" title) — **all timeframes except 1D** (OI is EOD 16:30 snapshot; a 1D line = one flat point). **Ratio is min-max scaled onto the price band so the line OVERLAYS the price line** (one visual line, not two crossing); y2 tick labels map scaled positions back to ratio values (2 decimals, via `_raw` stash on the dataset). Last-Close line REMOVED (per spec). Price stays LEFT. Crosshair + return-of-period + log-scale checkbox kept; **period label removed from return** (was "3M: 7.28%" → "▲ 7.28%").
+  - `server.py`: `get_historical_chart` now returns `pc_ratio` (aligned to labels, None where no OI reading) via `ChartDataProcessor._pc_ratio_for()` — reads sentiment store `put_call_oi_ratio` readings, fail-open `[]`.
+  - **FRED/UMich/ConfBoard REMOVED (2026-08-07, per Hong):** consumer confidence is macro data, not market sentiment. Dropped from seed (15→13 metrics), collector, provider registry, and live DB (purged 2 def rows). AAII still deferred (WAF-blocked).
+  - **AV NEWS_SENTIMENT LIVE (2026-08-07, Phase 5 part 1):** `alphavantage` provider, market-scope aggregate. **AV tickers filter is INTERSECTION-based — multi-ticker calls return 0 articles** (live-verified: SPY alone 50, SPY,QQQ 0) → use the **no-ticker query** (today's top 50 market news, financial_markets/earnings heavy) as the market mood sample. value = mean overall_sentiment_score, count = articles, passthrough. Key `ALPHA_VANTAGE_API_KEY` in QA plist env (added; **restart via `launchctl bootout`+`bootstrap`, NOT kickstart — kickstart doesn't reload plist EnvironmentVariables** — live lesson 2026-08-07). Keyless → providers.alphavantage: False, collector 0. Live: 08-07 v=+0.149 count=50. Sentiment tab now 6 rows incl. News Sentiment. Tests 39/39.
+  - Tests: 35/35. Mockups in `sketches/004-007`. Live QA: AAPL 3M overlay shows 4 OI points (08-03→08-06) scaled into price band, 1D has none.
+- **Placement:** tab between 52-Week Lows and News. Single nav edit point: `QA_terminal/header.html`.
+- **Schema:** `{asof_date, scope, ticker(NULL=market), metric, source, value, sentiment(-1..+1,+1=bullish), count, recorded_at}` + metric_definitions (single interpretation source). 252d trailing percentile; fail-open; keys env-only.
+- **COT + MARGIN LIVE (2026-08-07, next-release batch):**
+  - `cot`: CFTC **financial futures** report — `fut_fin_txt_YYYY.zip` → `FinFutYY.txt`. **CFTC split equity-index futures out of the regular disaggregated files** (fut_disagg/com_disagg contain NO financial futures — live-verified). Market `E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE`; net spec = `Asset_Mgr` + `Lev_Money` (long−short), count=OI. Weekly, ~3-4d lag. Live: 08-04 +607,034 contracts.
+  - `finra_margin`: FINRA margin-statistics page (`/rules-guidance/key-topics/margin-accounts/margin-statistics` — old URL 301s) embeds the monthly table server-side; debit balances, **stored $B** (source $M ÷1000; Jun-26 → 1,502.1 $B). Monthly, ~6wk lag. **Source renamed finra→finra_margin** (distinct natural key from short interest). Live: 06-01 $1,502.1B.
+  - Sentiment tab now **9 indicators + 6 composite tiles** (new "Lev & Spec" tile). Tests 46/46.
+- **Run:** launchd `com.alpha.terminal.sentiment.collect` Mon-Fri 16:45 ET (after OI snapshot 16:30); manual: `python sentiment_collect.py` (stdout deliverable).
+- **Remaining:** EDGAR insider + StockTwits (both per-ticker; Hong's gut: add as dashboard-page tiles — design discussion pending).
+- **Rules:** fail-open everywhere; AV/FRED keys only via env; American color (green=bull/red=bear/gray=null); QA → verify → release branch → PROD via deploy_prod.sh.
 
 ## Human Team Members:
 | Role | Name | Focus |

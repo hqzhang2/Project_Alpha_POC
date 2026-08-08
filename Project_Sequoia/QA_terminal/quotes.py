@@ -53,7 +53,7 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
         info = ticker_obj.info
         
         # Initialize return values as None
-        ret_1d = ret_1w = ret_1m = ret_3m = ret_ytd = ret_1y = ret_5y = None
+        ret_1d = ret_1w = ret_1m = ret_3m = ret_6m = ret_ytd = ret_1y = ret_2y = ret_5y = None
         
         # Get historical data for performance calculation
         try:
@@ -81,6 +81,10 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
                     three_mo = hist[hist.index >= now_local - timedelta(days=90)]
                     ret_3m = safe_ret(latest_price, safe_float(three_mo['Close'].iloc[0])) if len(three_mo) > 1 else None
                     
+                    # 6M (180 days ago)
+                    six_mo = hist[hist.index >= now_local - timedelta(days=180)]
+                    ret_6m = safe_ret(latest_price, safe_float(six_mo['Close'].iloc[0])) if len(six_mo) > 1 else None
+                    
                     # YTD performance
                     ytd_start = hist[hist.index >= '2026-01-01']
                     ret_ytd = safe_ret(latest_price, safe_float(ytd_start['Close'].iloc[0])) if len(ytd_start) > 1 else None
@@ -88,6 +92,10 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
                     # 1Y performance
                     one_yr = hist[hist.index >= '2025-03-31']
                     ret_1y = safe_ret(latest_price, safe_float(one_yr['Close'].iloc[0])) if len(one_yr) > 1 else None
+                    
+                    # 2Y performance
+                    two_yr = hist[hist.index >= '2024-03-31']
+                    ret_2y = safe_ret(latest_price, safe_float(two_yr['Close'].iloc[0])) if len(two_yr) > 1 else None
                     
                     # 5Y performance
                     five_yr = hist[hist.index >= '2021-03-31']
@@ -115,8 +123,10 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
             "ret_1w": ret_1w,
             "ret_1m": ret_1m,
             "ret_3m": ret_3m,
+            "ret_6m": ret_6m,
             "ret_ytd": ret_ytd,
             "ret_1y": ret_1y,
+            "ret_2y": ret_2y,
             "ret_5y": ret_5y,
             "timestamp": now
         }
