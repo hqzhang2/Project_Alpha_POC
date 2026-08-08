@@ -47,4 +47,11 @@ def store_today_snapshot(threshold_pct=AT_HIGH_THRESHOLD_PCT, force=False):
 # Module route registration (R2)
 ROUTES = {
     '/api/year-highs': 'handle_year_highs',
+    '/api/year-highs/trend': 'handle_year_highs_trend',
 }
+
+
+def get_trend():
+    """Per-date sector counts for the 52W-high trend chart."""
+    import db
+    return db.get_sector_trend('year_highs', 'pct_off', '>=')

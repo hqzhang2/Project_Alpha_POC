@@ -191,3 +191,76 @@ def test_scheduler_idempotent_store(tmp_path, monkeypatch):
     assert count == 3  # unchanged
     rows = db.get_year_highs(d)
     assert len(rows) == 3  # still the original 3, not overwritten
+
+
+# --------------------------------------------------------------------------- #
+# Trend chart (Variant B, 2026-08): per-date sector counts.
+# Filter must match the page's displayed-count filter (pct_off >= 0 / pct_from_low <= 0)
+# so the chart TOTAL legend equals the page status count.
+# --------------------------------------------------------------------------- #
+def test_db_get_sector_trend_highs_filters_below_high(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    db.init_db()
+    db.store_year_highs("2026-07-23", SAMPLE_ROWS)  # AAPL -1.1, BMY 0.0, XYZ -50
+    rows = db.get_sector_trend("year_highs", "pct_off", ">=")
+    # only BMY is at/near the high (pct_off >= 0)
+    assert rows == [{"date": "2026-07-23", "sector": "Healthcare", "count": 1}]
+
+
+def test_db_get_sector_trend_lows_filters_above_low(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    db.init_db()
+    # lows table: pct_from_low <= 0 means at/near the low
+    db.store_year_lows("2026-07-23", [
+        {"ticker": "AAPL", "exchange": "NASDAQ", "sector": "Technology",
+         "close": 300.0, "low_52w": 300.0, "pct_from_low": 0.0, "volume": 1},
+        {"ticker": "BMY", "exchange": "NYSE", "sector": "Healthcare",
+         "close": 55.0, "low_52w": 60.0, "pct_from_low": 1.5, "volume": 1},
+    ])
+    rows = db.get_sector_trend("year_lows", "pct_from_low", "<=")
+    assert rows == [{"date": "2026-07-23", "sector": "Technology", "count": 1}]
+
+
+def test_db_get_sector_trend_multi_date_sorted(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    db.init_db()
+    db.store_year_highs("2026-07-22", [SAMPLE_ROWS[1]])  # Healthcare
+    db.store_year_highs("2026-07-23", [SAMPLE_ROWS[0], SAMPLE_ROWS[1]])  # Tech(-1.1 filtered) + Healthcare
+    rows = db.get_sector_trend("year_highs", "pct_off", ">=")
+    # 07-22: Healthcare 1; 07-23: Healthcare 1 (AAPL below high excluded)
+    assert rows == [
+        {"date": "2026-07-22", "sector": "Healthcare", "count": 1},
+        {"date": "2026-07-23", "sector": "Healthcare", "count": 1},
+    ]
+
+
+def test_db_get_sector_trend_rejects_bad_args():
+    with pytest.raises(ValueError):
+        db.get_sector_trend("year_mid", "pct_off", ">=")
+    with pytest.raises(ValueError):
+        db.get_sector_trend("year_highs", "pct_off", "==")
+
+
+def test_module_get_trend_highs_and_lows(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    db.init_db()
+    db.store_year_highs("2026-07-23", SAMPLE_ROWS)
+    import year_highs as yh
+    import year_lows as yl
+    assert yh.get_trend() == [{"date": "2026-07-23", "sector": "Healthcare", "count": 1}]
+    assert yl.get_trend() == []
+
+
+def test_route_year_highs_trend(server):
+    db.store_year_highs("2026-07-23", SAMPLE_ROWS)
+    data = _get_json(server, "/api/year-highs/trend")
+    assert data["results"] == [{"date": "2026-07-23", "sector": "Healthcare", "count": 1}]
+
+
+def test_route_year_lows_trend(server):
+    db.store_year_lows("2026-07-23", [
+        {"ticker": "AAPL", "exchange": "NASDAQ", "sector": "Technology",
+         "close": 300.0, "low_52w": 300.0, "pct_from_low": 0.0, "volume": 1},
+    ])
+    data = _get_json(server, "/api/year-lows/trend")
+    assert data["results"] == [{"date": "2026-07-23", "sector": "Technology", "count": 1}]

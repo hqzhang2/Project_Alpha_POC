@@ -43,4 +43,11 @@ def store_today_snapshot(threshold_pct=AT_LOW_THRESHOLD_PCT, force=False):
 # Module route registration (R2)
 ROUTES = {
     '/api/year-lows': 'handle_year_lows',
+    '/api/year-lows/trend': 'handle_year_lows_trend',
 }
+
+
+def get_trend():
+    """Per-date sector counts for the 52W-low trend chart."""
+    import db
+    return db.get_sector_trend('year_lows', 'pct_from_low', '<=')
