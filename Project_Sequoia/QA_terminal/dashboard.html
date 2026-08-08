@@ -800,7 +800,7 @@
                 }
             ];
 
-            // Put/Call OI ratio overlay — all timeframes except 1D (OI is an EOD
+            // Put/Call ratio overlay — all timeframes except 1D (OI is an EOD
             // 16:30 ET snapshot; a 1D line would be a single flat point). Only
             // when the ticker has OI-store readings (fail-open: no overlay).
             // The ratio is min-max scaled onto the price band so it OVERLAYS the
@@ -821,14 +821,20 @@
                     const scaled = data.pc_ratio.map(v => v === null || v === undefined ? null
                         : pMin + (v - rMin) / spanR * spanP);
                     pcOverlay = {
-                        label: 'Put/Call OI',
+                        label: 'P/C Ratio',
                         data: scaled,
-                        _raw: data.pc_ratio.filter(v => v !== null && v !== undefined),  // for axis tick mapping
+                        // ALIGNED with data (nulls preserved): tooltip reads the
+                        // real ratio at dataIndex; tick callback filters for min/max.
+                        _raw: data.pc_ratio,
                         borderColor: '#f0883e',
                         backgroundColor: 'rgba(240, 136, 62, 0.08)',
                         fill: false,
                         tension: 0.25,
-                        pointRadius: 0,
+                        // single-point series (on-demand snapshot day 1) would
+                        // be invisible with pointRadius 0 — show a visible dot
+                        // signaling "history accruing" (same as sentiment tab)
+                        pointRadius: ratios.length === 1 ? 4 : 0,
+                        pointBackgroundColor: '#f0883e',
                         borderWidth: 1.8,
                         yAxisID: 'y2'
                     };
@@ -873,7 +879,21 @@
                         legend: { display: false },
                         tooltip: {
                             mode: 'index',
-                            intersect: false
+                            intersect: false,
+                            callbacks: {
+                                // P/C Ratio dataset holds min-max SCALED values
+                                // (price band); the tooltip must show the REAL
+                                // ratio from the aligned _raw array, not the
+                                // scaled number.
+                                label: function(ctx) {
+                                    const ds = ctx.dataset;
+                                    if (ds.label === 'P/C Ratio') {
+                                        const raw = ds._raw && ds._raw[ctx.dataIndex];
+                                        return raw == null ? 'P/C Ratio: —' : 'P/C Ratio: ' + Number(raw).toFixed(2);
+                                    }
+                                    return ds.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y : '—');
+                                }
+                            }
                         }
                     },
                     scales: {
@@ -912,12 +932,14 @@
                                 callback: function(val) {
                                     const d = Chart.getChart('chart');
                                     if (!d) return '';
-                                    const pr = d.data.datasets.find(ds => ds.label === 'Put/Call OI');
+                                    const pr = d.data.datasets.find(ds => ds.label === 'P/C Ratio');
                                     if (!pr || !pr._raw || !pr._raw.length) return '';
+                                    const raws = pr._raw.filter(v => v !== null && v !== undefined);
+                                    if (!raws.length) return '';
                                     const prices = d.data.datasets.find(ds => ds.label === 'Price').data.filter(v => v !== null && v !== undefined);
                                     if (!prices.length) return '';
                                     const pMin = Math.min(...prices), pMax = Math.max(...prices);
-                                    const rMin = Math.min(...pr._raw), rMax = Math.max(...pr._raw);
+                                    const rMin = Math.min(...raws), rMax = Math.max(...raws);
                                     const spanP = (pMax - pMin) || 1, spanR = (rMax - rMin) || 1;
                                     const ratio = rMin + (val - pMin) / spanP * spanR;
                                     return ratio.toFixed(2);

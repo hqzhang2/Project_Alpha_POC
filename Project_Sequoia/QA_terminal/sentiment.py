@@ -36,7 +36,7 @@ AAII_API_KEY_ENV = "FIRECRAWL_API_KEY"
 
 METRIC_DEFINITIONS = [
     # --- Tier 1: market-implied -------------------------------------------
-    {"metric": "put_call_oi_ratio", "display_name": "Put/Call OI", "scope": "ticker",
+    {"metric": "put_call_oi_ratio", "display_name": "Put/Call Ratio", "scope": "ticker",
      "unit": "ratio", "higher_is": "bearish", "normalization": "call_share", "window": 252,
      "source_default": "oi_store"},
     {"metric": "breadth_ad", "display_name": "A/D Breadth", "scope": "market",

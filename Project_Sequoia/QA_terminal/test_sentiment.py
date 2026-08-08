@@ -208,7 +208,7 @@ class TestUnifiedFetch(unittest.TestCase):
                 rows = sentiment.get_sentiment(days=10)
                 self.assertEqual(len(rows), 2)
                 self.assertEqual(rows[0]["asof_date"], "2026-08-03")  # newest first
-                self.assertEqual(rows[0]["display_name"], "Put/Call OI")
+                self.assertEqual(rows[0]["display_name"], "Put/Call Ratio")
             finally:
                 os.unlink(path)
 
