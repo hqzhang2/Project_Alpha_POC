@@ -265,8 +265,10 @@ class TestPcRatio(unittest.TestCase):
                                   "oi_store", 1.2, -0.1, count=400)
                 labels = ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06"]
                 out = server.ChartDataProcessor._pc_ratio_for("AAPL", labels)
-                # 08-03 & 08-06 have no reading -> None; aligned by position
-                self.assertEqual(out, [None, 0.55, 0.61, None])
+                # 08-03 has no reading -> None; readings carry FORWARD to later
+                # labels (a Friday reading shows on Monday's bar too — the
+                # on-demand weekend-snapshot case). 08-06 keeps 08-05's 0.61.
+                self.assertEqual(out, [None, 0.55, 0.61, 0.61])
             finally:
                 os.unlink(path)
 

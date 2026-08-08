@@ -38,6 +38,39 @@ METRIC_BREADTH = "breadth_ad"
 SOURCE_BREADTH = "breadth"
 
 
+def compute_oi_ratio(date, ticker):
+    """Compute + upsert ONE (date, ticker) put/call OI ratio from option_oi.db.
+
+    On-demand path (dashboard watchlist add): after snapshot_ticker stores the
+    chain, this derives the ratio reading so the chart overlay + chips get
+    data immediately. Returns 1 on write, 0 on no-data/fail-open.
+    """
+    import sentiment  # lazy
+    if not os.path.exists(_OI_DB):
+        return 0
+    try:
+        conn = sqlite3.connect(_OI_DB)
+        try:
+            row = conn.execute(
+                "SELECT "
+                "  SUM(CASE WHEN type='Call' THEN oi ELSE 0 END) AS call_oi, "
+                "  SUM(CASE WHEN type='Put' THEN oi ELSE 0 END) AS put_oi "
+                "FROM contract_oi WHERE date=? AND ticker=?",
+                (date, ticker),
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row or not row[0] or not row[1]:
+            return 0
+        ratio = row[1] / row[0]
+        sent = sentiment.normalize(ratio, "call_share")
+        return 1 if db.upsert_reading(date, "ticker", ticker, METRIC_OI, SOURCE_OI,
+                                      ratio, sent, count=int(row[0] + row[1])) else 0
+    except Exception as e:
+        logger.error("oi ratio %s %s failed: %s", date, ticker, e)
+        return 0
+
+
 def collect_oi_ratios():
     """Put/call OI ratio per (date, ticker) from option_oi.db. Incremental. Returns rows written."""
     import sentiment  # lazy: avoids circular import

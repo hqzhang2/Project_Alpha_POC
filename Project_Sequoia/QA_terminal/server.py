@@ -273,13 +273,24 @@ class ChartDataProcessor:
         """Put/call OI ratio per date for a ticker, from sentiment readings.
 
         Returns a list aligned to `labels` (None where no OI reading that day).
+        Readings dated on/after a label's date attach to it (an on-demand
+        snapshot on a weekend is dated Saturday but reflects Friday's close —
+        it belongs on Friday's bar, not nowhere).
         """
         try:
             import sentiment_db
             rows = sentiment_db.query_readings(scope='ticker', ticker=ticker,
                                                metric='put_call_oi_ratio')
-            by_date = {r['asof_date']: r['value'] for r in rows if r.get('value') is not None}
-            return [by_date.get(l) for l in labels] if by_date else []
+            # readings sorted by date; advance a pointer as labels progress
+            dated = sorted((r['asof_date'], r['value']) for r in rows
+                           if r.get('value') is not None)
+            out, i, cur = [], 0, None
+            for lab in labels:
+                while i < len(dated) and dated[i][0] <= lab:
+                    cur = dated[i][1]
+                    i += 1
+                out.append(cur)
+            return out if any(v is not None for v in out) else []
         except Exception as e:
             logger.error(f"pc_ratio lookup failed for {ticker}: {e}")
             return []
@@ -328,6 +339,7 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/estimates': 'handle_estimates',
         '/api/ratio': 'handle_ratio',
         '/api/health': 'handle_health',
+        '/api/oi/snapshot': 'handle_oi_snapshot',
         '/health': 'handle_health',  # deploy_prod.sh checks /health on all services
     }
 
@@ -426,6 +438,30 @@ class Handler(SimpleHTTPRequestHandler):
             'timestamp': datetime.now().isoformat(),
             'yfinance': YFINANCE_AVAILABLE
         })
+    
+    def handle_oi_snapshot(self, qs):
+        """On-demand OI snapshot for one ticker (dashboard watchlist add).
+
+        Snapshots the ticker's option chains into option_oi.db, then derives
+        the put/call OI ratio reading so the chart overlay gets data
+        immediately. Returns contract + reading counts; fail-open on error.
+        """
+        import datetime as _dt
+        import snapshot_oi, options_data, sentiment_collect
+        ticker = (qs.get('ticker', [''])[0] or '').upper()
+        if not ticker:
+            self.send_json({'error': 'ticker required'}, status=400)
+            return
+        try:
+            provider = options_data.get_provider()
+            asof = snapshot_oi.last_trading_day(ticker)
+            contracts = snapshot_oi.snapshot_ticker(provider, ticker, asof)
+            reading = sentiment_collect.compute_oi_ratio(asof, ticker)
+            self.send_json({'ticker': ticker, 'asof': asof,
+                            'contracts': contracts, 'reading': reading})
+        except Exception as e:
+            logger.exception(f"oi snapshot failed for {ticker}")
+            self.send_json({'error': str(e)}, status=500)
     
     def handle_etf_holdings(self, qs):
         if not YFINANCE_AVAILABLE:

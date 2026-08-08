@@ -487,6 +487,7 @@
                 watchlist.sort();
                 try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
                 fetchQuotes();
+                snapshotOiOnDemand(t);
             }
             input.value = '';
         }
@@ -509,8 +510,26 @@
                 watchlist.sort();
                 try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
                 fetchQuotes();
+                snapshotOiOnDemand(t);
             }
             input.value = '';
+        }
+        
+        // On-demand OI snapshot when a NEW ticker joins the watchlist: snapshots
+        // its option chains + derives the put/call ratio reading so the chart
+        // P/C overlay appears without waiting for the 16:30 ET daily job.
+        // Fire-and-forget; chart refresh happens after it completes.
+        async function snapshotOiOnDemand(t) {
+            try {
+                const r = await fetch('/api/oi/snapshot?ticker=' + encodeURIComponent(t));
+                const d = await r.json();
+                if (d.reading) {
+                    // new ratio reading exists — reload the chart to show the overlay
+                    fetchChart(currentTicker, timeframe);
+                }
+            } catch (e) {
+                console.warn('on-demand OI snapshot failed for', t, e);
+            }
         }
         
         // Refresh
