@@ -33,7 +33,7 @@
 ## ✅ SECURITY ISSUE RESOLVED (2026-08-07): Hardcoded API keys in news tab
 - **Fixed:** `Project_Sequoia/terminal/news.py` (PROD) — hardcoded Finnhub + NewsAPI fallback keys removed; now env-only (matches QA). Keys moved to BOTH launchd plists (QA + PROD) `EnvironmentVariables`.
 - **Also fixed (same file, pre-existing bug):** PROD `news.py` was missing the R2 `ROUTES` dict — news routes were never registered on PROD (404 on every tab). Added; PROD news verified live (100 headlines / 8 economics / 1710 cn items).
-- **Remaining action for Hong:** ROTATE both keys (Finnhub + NewsAPI dashboards) — they are committed in git history and effectively public. Update the two plists after rotation.
+- **KEYS ROTATED (2026-08-07, fully closed):** Hong rotated Finnhub (`d9rl99…`) + NewsAPI (`297c1832…`) at the provider dashboards; both plists updated, both services bootout+bootstrap reloaded, old keys grep-verified ABSENT from both processes, live endpoints verified on 9099 + 9098 (headline 100 / M&A 67 / economics 11 / markets 13 / technologies 58). Git-history exposure closed for both providers.
 - **MEMORY.md password:** plaintext email password + app password removed from line 4 (2026-08-07) — credentials now Vault/keychain only.
 
 ## Sentiment Tab (DESIGN GREENLIT — IMPLEMENTATION IN PROGRESS)
