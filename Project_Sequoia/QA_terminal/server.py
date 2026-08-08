@@ -521,6 +521,11 @@ class Handler(SimpleHTTPRequestHandler):
         import sentiment
         self.send_json(sentiment.list_providers())
     
+    def handle_sentiment_ticker(self, qs):
+        import sentiment
+        ticker = (qs.get('ticker', [''])[0] or '').upper()
+        self.send_json(sentiment.get_ticker_sentiment(ticker))
+    
     def handle_prediction(self, qs):
         import prediction
         self.send_json(prediction.get_predictions())

@@ -167,6 +167,8 @@ def register_all():
     sentiment.register_provider(SOURCE_AAII, collect_aaii)
     sentiment.register_provider(SOURCE_COT, collect_cot)
     sentiment.register_provider(SOURCE_MARGIN, collect_margin_debt)
+    sentiment.register_provider(SOURCE_EDGAR, collect_edgar)
+    sentiment.register_provider(SOURCE_STOCKTWITS, collect_stocktwits)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +265,296 @@ def collect_margin_debt():
     sent = sentiment.normalize(value, "percentile", hist) if hist else None
     return 1 if db.upsert_reading(asof, "market", None, "margin_debt", SOURCE_MARGIN,
                                   value, sent, count=len(rows) - 1) else 0
+
+
+# ---------------------------------------------------------------------------
+# Per-ticker dashboard tiles: EDGAR insider + StockTwits social (2026-08-07).
+#
+# EDGAR: submissions API -> recent Form 4s within 90d -> per-filing
+#   form4.xml -> net buy $M (P buys - S sells at market price). Detail rows
+#   go to insider_filings for the drill-down modal. value = net $M (raw),
+#   sentiment = percentile over market-cap-scaled (bps) history so the signal
+#   is comparable across tickers (AAPL $12M vs microcap $12M are different
+#   convictions). SEC requires a UA with contact info.
+# StockTwits: stream API (browser UA — python-requests UA gets 403) paged via
+#   cursor.max (NOT next) until 7d covered or page cap. Classification is
+#   SPARSE (~20% of messages carry Bullish/Bearish); spread = (bull-bear)/
+#   classified, count = total messages (volume context). Detail rows ->
+#   social_daily for the modal.
+# ---------------------------------------------------------------------------
+
+SOURCE_EDGAR = "edgar"
+SOURCE_STOCKTWITS = "stocktwits"
+
+EDGAR_HEADERS = {"User-Agent": "alpha-terminal/1.0 (quant dashboard; chuck@example.com)"}
+EDGAR_SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik}.json"
+EDGAR_FILING = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc}"
+EDGAR_WINDOW_DAYS = 90          # Hong-approved: 90d window
+STOCKTWITS_URL = "https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json"
+STOCKTWITS_WINDOW_DAYS = 7      # Hong-approved: 7d aggregate
+STOCKTWITS_MAX_PAGES = 20       # ~600 msgs cap; count is a volume proxy
+# StockTwits 403s the python-requests UA; browser UA required (verified live).
+_STOCKTWITS_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"}
+
+
+def _edgar_cik(ticker):
+    """CIK for a ticker via the existing SEC map seam. None on miss."""
+    try:
+        import sec_edgar
+        return sec_edgar.get_cik(ticker)
+    except Exception:
+        return None
+
+
+def _edgar_fetch(url):
+    import requests
+    r = requests.get(url, headers=EDGAR_HEADERS, timeout=20)
+    r.raise_for_status()
+    return r
+
+
+def _parse_form4(xml_text):
+    """Form 4 XML -> list of transaction dicts (code, shares, price)."""
+    import re
+    rows = []
+    # transaction blocks: code + shares + price (+ date)
+    blocks = re.split(r"</nonDerivativeTransaction>", xml_text)
+    for b in blocks:
+        code_m = re.search(r"<transactionCode>(\w)</transactionCode>", b)
+        sh_m = re.search(r"<transactionShares>\s*<value>([\d.]+)</value>", b)
+        pr_m = re.search(r"<transactionPricePerShare>\s*<value>([\d.]+)</value>", b)
+        dt_m = re.search(r"<transactionDate>\s*<value>(\d{4}-\d{2}-\d{2})</value>", b)
+        if code_m and sh_m:
+            try:
+                rows.append({
+                    "code": code_m.group(1),
+                    "shares": float(sh_m.group(1)),
+                    "price": float(pr_m.group(1)) if pr_m else None,
+                    "date": dt_m.group(1) if dt_m else None,
+                })
+            except ValueError:
+                continue
+    return rows
+
+
+def collect_edgar():
+    """Per-ticker insider net buy from SEC EDGAR Form 4s (90d window).
+
+    Iterates the watchlist (or a sane fallback), writes one reading per
+    ticker + insider_filings detail rows. value = net $M (P-S); sentiment =
+    percentile over bps-scaled history (value / market cap). Fail-open.
+    """
+    import sentiment  # lazy
+    import os
+    import sys
+
+    tickers = _watchlist_tickers()
+    if not tickers:
+        return 0
+    wrote = 0
+    for t in tickers:
+        try:
+            wrote += _collect_edgar_one(t, sentiment)
+        except Exception as e:
+            logger.error("EDGAR %s failed: %s", t, e)
+    return wrote
+
+
+def _collect_edgar_one(ticker, sentiment):
+    import json
+    import os
+
+    cik = _edgar_cik(ticker)
+    if not cik:
+        logger.warning("EDGAR: no CIK for %s", ticker)
+        return 0
+    cutoff = (datetime.date.today() - datetime.timedelta(days=EDGAR_WINDOW_DAYS)).isoformat()
+
+    # 1. Recent filings -> Form 4s in window
+    data = _edgar_fetch(EDGAR_SUBMISSIONS.format(cik=cik)).json()
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accs = recent.get("accessionNumber", [])
+    docs = recent.get("primaryDocument", [])
+    dates = recent.get("filingDate", [])
+    f4 = [(accs[i], docs[i], dates[i]) for i in range(len(forms))
+          if forms[i] == "4" and dates[i] >= cutoff]
+    if not f4:
+        logger.info("EDGAR %s: no Form 4s in window", ticker)
+        return 0
+
+    # 2. Per-filing detail + net buy/sell
+    detail, net = [], 0.0
+    for acc, doc, fdate in f4:
+        acc_flat = acc.replace("-", "")
+        try:
+            # primaryDocument like 'xslF345X06/form4.xml' = render path; the
+            # real file is form4.xml at the accession root (verified live).
+            doc_name = doc.split("/")[-1] if doc.startswith("xsl") else doc
+            xml = _edgar_fetch(EDGAR_FILING.format(cik=cik, accession=acc_flat, doc=doc_name)).text
+            txs = _parse_form4(xml)
+            insider = _parse_form4_owner(xml)
+            for tx in txs:
+                code, shares, price = tx["code"], tx["shares"], tx.get("price")
+                val = shares * price if price else 0.0
+                signed = val if code == "P" else (-val if code == "S" else 0.0)
+                net += signed
+                detail.append({"filing_date": tx.get("date") or fdate, "insider": insider,
+                               "role": None, "code": code, "shares": shares,
+                               "price": price, "value": round(signed, 2)})
+        except Exception as e:
+            logger.warning("EDGAR %s filing %s failed: %s", ticker, acc, e)
+            continue
+
+    if not detail:
+        return 0
+    db.replace_filings(ticker, detail)
+
+    # 3. Reading: raw net $M; percentile over bps history (market-cap scaled)
+    value_m = round(net / 1e6, 4)  # $M
+    bps = _insider_bps(ticker, net)
+    hist = db.history_for("insider_net_buy", limit=252)
+    hist_bps = [_insider_bps(ticker, v * 1e6) for v in hist] if hist else []
+    sent = sentiment.normalize(bps, "percentile", hist_bps) if hist_bps else None
+    asof = datetime.date.today().isoformat()
+    return 1 if db.upsert_reading(asof, "ticker", ticker, "insider_net_buy", SOURCE_EDGAR,
+                                  value_m, sent, count=len(detail)) else 0
+
+
+def _parse_form4_owner(xml_text):
+    """Reporting owner name from Form 4 XML (or None)."""
+    import re
+    # rptOwnerCik precedes rptOwnerName inside reportingOwnerId
+    m = re.search(r"<rptOwnerName>([^<]+)</rptOwnerName>", xml_text)
+    return m.group(1).strip() if m else None
+
+
+def _insider_bps(ticker, net_usd):
+    """Net insider $ as basis points of market cap (bps = $ / cap * 1e4).
+
+    Uses the live market cap via the quotes seam; None on any miss (the
+    percentile history then just skips this point).
+    """
+    try:
+        import quotes
+        q = quotes.get_quote(ticker)
+        cap = (q or {}).get("market_cap")
+        if not cap:
+            return None
+        return net_usd / cap * 1e4
+    except Exception:
+        return None
+
+
+def _watchlist_tickers():
+    """Watchlist tickers (localStorage-backed) or the dashboard default set."""
+    try:
+        import json
+        import os
+        p = os.path.expanduser("~/Library/Application Support/AlphaTerminal/watchlist.json")
+        if os.path.exists(p):
+            with open(p) as f:
+                wl = json.load(f)
+            if wl:
+                return [t.upper() for t in wl]
+    except Exception:
+        pass
+    return ["AAPL", "AMZN", "GLD", "GOOGL", "MSFT", "NVDA", "QQQ", "SMH", "SPY", "TSLA", "XLE"]
+
+
+def collect_stocktwits():
+    """Per-ticker StockTwits bull-bear spread over a 7d window.
+
+    Stream API paged via cursor.max (NOT next). Classification is sparse;
+    spread = (bull-bear)/classified over the window, count = total messages.
+    Detail rows -> social_daily. Fail-open.
+    """
+    import sentiment  # lazy
+
+    tickers = _watchlist_tickers()
+    if not tickers:
+        return 0
+    wrote = 0
+    for t in tickers:
+        try:
+            wrote += _collect_stocktwits_one(t, sentiment)
+        except Exception as e:
+            logger.error("STOCKTWITS %s failed: %s", t, e)
+    return wrote
+
+
+def _collect_stocktwits_one(ticker, sentiment):
+    import requests
+    from collections import defaultdict
+
+    headers = _STOCKTWITS_HEADERS
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=STOCKTWITS_WINDOW_DAYS)
+    cursor_max = None
+    by_day = defaultdict(lambda: {"messages": 0, "classified": 0, "bull": 0, "bear": 0})
+    bull = bear = total_msgs = 0
+    pages = 0
+    while pages < STOCKTWITS_MAX_PAGES:
+        url = STOCKTWITS_URL.format(ticker=ticker)
+        if cursor_max:
+            url += f"?max={cursor_max}"
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        msgs = data.get("messages", [])
+        if not msgs:
+            break
+        for m in msgs:
+            created = m.get("created_at", "")
+            try:
+                dt = datetime.datetime.strptime(created[:19], "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                continue
+            if dt < cutoff:
+                break  # passed the window; stop (newest-first)
+            day = dt.date().isoformat()
+            total_msgs += 1
+            by_day[day]["messages"] += 1
+            s = (m.get("entities") or {}).get("sentiment")
+            if s and s.get("basic"):
+                by_day[day]["classified"] += 1
+                if s["basic"] == "Bullish":
+                    bull += 1
+                    by_day[day]["bull"] += 1
+                elif s["basic"] == "Bearish":
+                    bear += 1
+                    by_day[day]["bear"] += 1
+        pages += 1
+        cur = data.get("cursor", {})
+        if not cur.get("more"):
+            break
+        cursor_max = cur.get("max")
+        if not cursor_max:
+            break
+
+    if total_msgs == 0:
+        return 0
+    classified = bull + bear
+    spread = (bull - bear) / classified if classified else None
+    asof = datetime.date.today().isoformat()
+
+    # detail rows
+    daily_rows = []
+    for day, d in sorted(by_day.items(), reverse=True):
+        c = d["classified"]
+        daily_rows.append({"day": day, "messages": d["messages"], "classified": c,
+                           "bull": d["bull"], "bear": d["bear"],
+                           "spread": round((d["bull"] - d["bear"]) / c, 4) if c else None})
+    db.replace_social_daily(ticker, daily_rows)
+
+    # volume reading (count only)
+    v_wrote = db.upsert_reading(asof, "ticker", ticker, "social_volume", SOURCE_STOCKTWITS,
+                                float(total_msgs), None, count=total_msgs)
+    # spread reading (sentiment = passthrough)
+    s_wrote = 0
+    if spread is not None:
+        s_wrote = db.upsert_reading(asof, "ticker", ticker, "social_bull_bear", SOURCE_STOCKTWITS,
+                                    round(spread, 4), round(spread, 4), count=classified)
+    return (1 if v_wrote else 0) + (1 if s_wrote else 0)
 
 
 # ---------------------------------------------------------------------------

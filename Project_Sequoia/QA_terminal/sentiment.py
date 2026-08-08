@@ -77,6 +77,9 @@ METRIC_DEFINITIONS = [
     {"metric": "social_volume", "display_name": "Social Volume", "scope": "ticker",
      "unit": "msgs", "higher_is": "bullish", "normalization": None, "window": None,
      "source_default": "stocktwits"},
+    {"metric": "social_bull_bear", "display_name": "Social Bull-Bear", "scope": "ticker",
+     "unit": "spread", "higher_is": "bullish", "normalization": "passthrough", "window": None,
+     "source_default": "stocktwits"},
 ]
 
 
@@ -213,7 +216,44 @@ ROUTES = {
     "/api/sentiment": "handle_sentiment",
     "/api/sentiment/metrics": "handle_sentiment_metrics",
     "/api/sentiment/providers": "handle_sentiment_providers",
+    "/api/sentiment/ticker": "handle_sentiment_ticker",
 }
+
+
+def get_ticker_sentiment(ticker):
+    """Per-ticker dashboard payload: chip headlines + drill-down detail.
+
+    {
+      "insider": {"value": -15.9547, "unit": "$M", "sentiment": null,
+                  "count": 10, "asof_date": "...", "filings": [...]},
+      "social":  {"spread": 0.5, "sentiment": 0.5, "count": 599,
+                  "classified": 192, "asof_date": "...", "daily": [...]}
+    }
+    Fail-open: every field present, empty lists/None when no data.
+    """
+    import sentiment_db as db
+    out = {
+        "insider": {"value": None, "unit": "$M", "sentiment": None, "count": 0,
+                    "asof_date": None, "filings": []},
+        "social": {"spread": None, "sentiment": None, "count": 0, "classified": 0,
+                   "asof_date": None, "daily": []},
+    }
+    try:
+        rows = db.query_readings(ticker=ticker, latest=True)
+        for r in rows:
+            if r.get("metric") == "insider_net_buy":
+                out["insider"].update({"value": r.get("value"), "sentiment": r.get("sentiment"),
+                                       "count": r.get("count") or 0, "asof_date": r.get("asof_date")})
+            elif r.get("metric") == "social_bull_bear":
+                out["social"].update({"spread": r.get("value"), "sentiment": r.get("sentiment"),
+                                      "classified": r.get("count") or 0, "asof_date": r.get("asof_date")})
+            elif r.get("metric") == "social_volume":
+                out["social"]["count"] = r.get("count") or 0
+        out["insider"]["filings"] = db.query_filings(ticker, limit=50)
+        out["social"]["daily"] = db.query_social_daily(ticker, limit=14)
+    except Exception:
+        pass
+    return out
 
 
 # Register Phase 2/3 collectors (oi_store, breadth, cboe, finra) — must come

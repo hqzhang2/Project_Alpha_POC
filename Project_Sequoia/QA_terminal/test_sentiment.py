@@ -157,8 +157,9 @@ class TestDefinitions(unittest.TestCase):
         with patch.object(db, "DB_PATH", path):
             metrics = db.get_metrics()
             try:
-                # 13 after UMich/Conf Board removal (macro, not market sentiment)
-                self.assertEqual(len(metrics), 13)
+                # 14: 13 after UMich/Conf Board removal (macro, not market
+                # sentiment) + social_bull_bear added with the EDGAR/StockTwits batch
+                self.assertEqual(len(metrics), 14)
                 self.assertNotIn("umich", [m["metric"] for m in metrics])
                 self.assertNotIn("conf_board", [m["metric"] for m in metrics])
                 for m in metrics:
@@ -172,7 +173,7 @@ class TestDefinitions(unittest.TestCase):
         with patch.object(db, "DB_PATH", path):
             sentiment.seed()
             sentiment.seed()
-            self.assertEqual(len(db.get_metrics()), 13)
+            self.assertEqual(len(db.get_metrics()), 14)
             os.unlink(path)
 
     def test_market_metrics_are_market_scope(self):
@@ -194,7 +195,7 @@ class TestUnifiedFetch(unittest.TestCase):
         with patch.object(db, "DB_PATH", path):
             try:
                 self.assertEqual(sentiment.get_sentiment(), [])  # no readings yet
-                self.assertEqual(len(sentiment.get_metrics()), 13)  # seeded definitions
+                self.assertEqual(len(sentiment.get_metrics()), 14)  # seeded definitions
             finally:
                 os.unlink(path)
 

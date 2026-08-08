@@ -116,6 +116,53 @@
             margin-top: 4px;
             font-size: 16px;
         }
+        /* ---- per-ticker sentiment chips (EDGAR insider + StockTwits) ---- */
+        .sent-chips { display: flex; gap: 6px; margin-top: 8px; }
+        .chip { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 10px; cursor: pointer;
+                border: 1px solid transparent; user-select: none; }
+        .chip:hover { filter: brightness(1.2); }
+        .chip .caret { font-size: 8px; opacity: 0.7; margin-left: 3px; }
+        .chip.ins { background: rgba(63,185,80,0.15); color: #3fb950; border-color: rgba(63,185,80,0.4); }
+        .chip.ins.bear { background: rgba(248,81,73,0.15); color: #f85149; border-color: rgba(248,81,73,0.4); }
+        .chip.ins.flat { background: rgba(139,148,158,0.15); color: #8b949e; border-color: rgba(139,148,158,0.4); }
+        .chip.soc { background: rgba(248,81,73,0.15); color: #f85149; border-color: rgba(248,81,73,0.4); }
+        .chip.soc.bull { background: rgba(63,185,80,0.15); color: #3fb950; border-color: rgba(63,185,80,0.4); }
+        .chip.soc.flat { background: rgba(139,148,158,0.15); color: #8b949e; border-color: rgba(139,148,158,0.4); }
+        /* ---- drill-down modals ---- */
+        .overlay { display: none; position: fixed; inset: 0; background: rgba(1,4,9,0.7); z-index: 100;
+                   align-items: center; justify-content: center; }
+        .overlay.open { display: flex; }
+        .modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; width: 560px; max-width: 92vw;
+                 max-height: 84vh; overflow-y: auto; box-shadow: 0 12px 48px rgba(0,0,0,0.6); }
+        .m-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
+                  border-bottom: 1px solid #21262d; position: sticky; top: 0; background: #161b22; }
+        .m-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+        .m-title .tkr { color: #8b949e; font-weight: 400; }
+        .m-close { background: none; border: none; color: #8b949e; font-size: 18px; cursor: pointer; padding: 0 4px; }
+        .m-close:hover { color: #e6edf3; }
+        .m-body { padding: 16px 18px; }
+        .m-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+        .kpi { background: #0d1117; border-radius: 8px; padding: 10px 12px; }
+        .kpi .k-lbl { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+        .kpi .k-val { font-size: 18px; font-weight: 700; margin-top: 2px; }
+        .kpi .k-sub { font-size: 10px; color: #8b949e; margin-top: 1px; }
+        .pos { color: #3fb950; } .neg { color: #f85149; }
+        .m-sec { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.08em; margin: 14px 0 6px; }
+        .m-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .m-table th { text-align: left; color: #8b949e; font-size: 10px; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid #21262d; }
+        .m-table td { padding: 7px 8px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+        .m-table tr:last-child td { border-bottom: none; }
+        .m-table tr:hover td { background: #21262d; }
+        .pill { font-size: 9px; font-weight: 700; padding: 1px 7px; border-radius: 9px; }
+        .pill.buy { background: rgba(63,185,80,0.15); color: #3fb950; }
+        .pill.sell { background: rgba(248,81,73,0.15); color: #f85149; }
+        .bars { display: flex; gap: 3px; align-items: flex-end; height: 34px; margin: 8px 0 2px; }
+        .bars i { flex: 1; background: #30363d; border-radius: 2px; display: block; }
+        .bars i.up { background: #3fb950; } .bars i.dn { background: #f85149; }
+        .bar-axis { display: flex; justify-content: space-between; font-size: 9px; color: #8b949e; }
+        .m-foot { padding: 10px 18px 14px; border-top: 1px solid #21262d; font-size: 11px; color: #8b949e; }
+        .m-foot b { color: #c9d1d9; }
+        .m-empty { color: #8b949e; font-size: 12px; padding: 12px 0; }
         .quote-header .price-block {
             text-align: right;
         }
@@ -251,6 +298,10 @@
                 <div>
                     <div class="ticker" id="qtTicker">--</div>
                     <div class="name" id="qtName">Select a ticker</div>
+                    <div class="sent-chips">
+                        <span class="chip ins" id="chipIns" onclick="openSentModal('ins')">INS —<span class="caret">▼</span></span>
+                        <span class="chip soc" id="chipSoc" onclick="openSentModal('soc')">SOC —<span class="caret">▼</span></span>
+                    </div>
                 </div>
                 <div class="price-block">
                     <div class="price" id="qtPrice">--</div>
@@ -319,6 +370,30 @@
                 </div>
                 </div>
                 </div>
+
+        <!-- Insider drill-down modal -->
+        <div class="overlay" id="ovIns" onclick="closeSentModal('ins')">
+            <div class="modal" onclick="event.stopPropagation()">
+                <div class="m-head">
+                    <div class="m-title">Insider Activity <span class="tkr" id="insTkr">· —</span></div>
+                    <button class="m-close" onclick="closeSentModal('ins')">✕</button>
+                </div>
+                <div class="m-body" id="insBody"><div class="m-empty">No insider data yet — accruing.</div></div>
+                <div class="m-foot">Form 4 filings from SEC EDGAR · 90d window · P buys − S sells at market price · <b>raw $, not market-cap normalized</b></div>
+            </div>
+        </div>
+
+        <!-- Social drill-down modal -->
+        <div class="overlay" id="ovSoc" onclick="closeSentModal('soc')">
+            <div class="modal" onclick="event.stopPropagation()">
+                <div class="m-head">
+                    <div class="m-title">Social Sentiment <span class="tkr" id="socTkr">· —</span></div>
+                    <button class="m-close" onclick="closeSentModal('soc')">✕</button>
+                </div>
+                <div class="m-body" id="socBody"><div class="m-empty">No social data yet — accruing.</div></div>
+                <div class="m-foot">StockTwits messages mentioning <b id="socTkr2">—</b> · 7d window · spread = (bull − bear) / classified · <b>count = total messages (incl. unclassified)</b></div>
+            </div>
+        </div>
 
 
                 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -426,6 +501,126 @@
                 renderQuote(t);
             }
             fetchChart(t, timeframe);
+            fetchTickerSentiment(t);
+        }
+
+        // ---- per-ticker sentiment: chips + drill-down modals ----
+        let tickerSentiment = {};
+
+        async function fetchTickerSentiment(t) {
+            try {
+                const r = await fetch('/api/sentiment/ticker?ticker=' + encodeURIComponent(t));
+                const d = await r.json();
+                tickerSentiment[t] = d;
+                renderSentChips(t);
+            } catch (e) {
+                console.warn('sentiment fetch failed', e);
+            }
+        }
+
+        function fmtMoneyM(v) {
+            if (v == null) return '—';
+            const abs = Math.abs(v);
+            const s = abs >= 1000 ? (abs / 1000).toFixed(2) + 'B' : abs.toFixed(1) + 'M';
+            return (v < 0 ? '−$' : '+$') + s;
+        }
+
+        function renderSentChips(t) {
+            const d = tickerSentiment[t];
+            if (!d) return;
+            const ins = d.insider || {}, soc = d.social || {};
+            const insEl = document.getElementById('chipIns'), socEl = document.getElementById('chipSoc');
+            // insider chip
+            if (ins.value != null) {
+                insEl.textContent = 'INS ' + fmtMoneyM(ins.value);
+                const cls = ins.sentiment == null ? 'flat' : (ins.sentiment > 0.05 ? '' : ins.sentiment < -0.05 ? 'bear' : 'flat');
+                insEl.className = 'chip ins ' + cls;
+            } else {
+                insEl.textContent = 'INS —';
+                insEl.className = 'chip ins flat';
+            }
+            // social chip
+            if (soc.spread != null) {
+                const s = soc.spread;
+                socEl.textContent = 'SOC ' + (s >= 0 ? '+' : '−') + Math.abs(s).toFixed(2);
+                const cls = soc.sentiment == null ? 'flat' : (soc.sentiment > 0.05 ? 'bull' : soc.sentiment < -0.05 ? '' : 'flat');
+                socEl.className = 'chip soc ' + cls;
+            } else {
+                socEl.textContent = 'SOC —';
+                socEl.className = 'chip soc flat';
+            }
+        }
+
+        function openSentModal(which) {
+            document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
+            const ov = document.getElementById('ov' + (which === 'ins' ? 'Ins' : 'Soc'));
+            const t = currentTicker;
+            const d = tickerSentiment[t] || {};
+            if (which === 'ins') {
+                document.getElementById('insTkr').textContent = '· ' + t + ' · 90d';
+                document.getElementById('insBody').innerHTML = insModalHtml(d.insider || {});
+            } else {
+                document.getElementById('socTkr').textContent = '· ' + t + ' · 7d';
+                document.getElementById('socTkr2').textContent = t;
+                document.getElementById('socBody').innerHTML = socModalHtml(d.social || {});
+            }
+            ov.classList.add('open');
+        }
+
+        function closeSentModal(which) {
+            document.getElementById('ov' + (which === 'ins' ? 'Ins' : 'Soc')).classList.remove('open');
+        }
+
+        function insModalHtml(ins) {
+            if (ins.value == null && !(ins.filings || []).length) {
+                return '<div class="m-empty">No insider data yet — accruing daily.</div>';
+            }
+            const net = ins.value;
+            const buys = (ins.filings || []).filter(f => f.code === 'P').length;
+            const sells = (ins.filings || []).filter(f => f.code === 'S').length;
+            const rows = (ins.filings || []).slice(0, 20).map(f => {
+                const code = f.code === 'P' ? '<span class="pill buy">BUY</span>' : f.code === 'S' ? '<span class="pill sell">SELL</span>' : f.code;
+                const val = f.value != null ? (f.value < 0 ? '<span class="neg">−$' + Math.abs(f.value / 1e6).toFixed(2) + 'M</span>' : '<span class="pos">+$' + (f.value / 1e6).toFixed(2) + 'M</span>') : '—';
+                return '<tr><td>' + (f.filing_date || '—') + '</td><td>' + (f.insider || '—') + '</td><td>' + code + '</td><td>' + (f.shares != null ? Number(f.shares).toLocaleString() : '—') + '</td><td>' + (f.price ? '$' + Number(f.price).toFixed(2) : '—') + '</td><td>' + val + '</td></tr>';
+            }).join('');
+            const netHtml = net != null ? (net < 0 ? '<span class="neg">' + fmtMoneyM(net) + '</span>' : '<span class="pos">' + fmtMoneyM(net) + '</span>') : '—';
+            return `
+                <div class="m-kpis">
+                    <div class="kpi"><div class="k-lbl">Net Buy · 90d</div><div class="k-val">${netHtml}</div><div class="k-sub">P buys − S sells @ market</div></div>
+                    <div class="kpi"><div class="k-lbl">Filings</div><div class="k-val">${ins.count || 0}</div><div class="k-sub">${buys} buy / ${sells} sell</div></div>
+                    <div class="kpi"><div class="k-lbl">As Of</div><div class="k-val" style="font-size:14px">${ins.asof_date || '—'}</div><div class="k-sub">EDGAR · 90d window</div></div>
+                </div>
+                <div class="m-sec">Form 4 transactions (P/S only)</div>
+                <table class="m-table"><tr><th>Date</th><th>Insider</th><th>Type</th><th>Shares</th><th>Price</th><th>Value</th></tr>${rows}</table>`;
+        }
+
+        function socModalHtml(soc) {
+            if (soc.spread == null && !(soc.daily || []).length) {
+                return '<div class="m-empty">No social data yet — accruing daily.</div>';
+            }
+            const s = soc.spread;
+            const spreadHtml = s != null ? (s < 0 ? '<span class="neg">' + (s < 0 ? '−' : '+') + Math.abs(s).toFixed(2) + '</span>' : '<span class="pos">+' + s.toFixed(2) + '</span>') : '—';
+            const daily = (soc.daily || []).slice(0, 7);
+            const bars = daily.slice().reverse().map(d => {
+                if (d.spread == null) return '<i style="height:4px"></i>';
+                const h = Math.min(30, Math.abs(d.spread) * 30 + 4);
+                return '<i class="' + (d.spread >= 0 ? 'up' : 'dn') + '" style="height:' + h.toFixed(0) + 'px" title="' + d.day + ' ' + (d.spread >= 0 ? '+' : '') + d.spread + '"></i>';
+            }).join('');
+            const rows = daily.map(d => {
+                const spr = d.spread == null ? '—' : (d.spread < 0 ? '<span class="neg">' + d.spread.toFixed(2) + '</span>' : '<span class="pos">+' + d.spread.toFixed(2) + '</span>');
+                const split = d.classified ? Math.round(d.bull / d.classified * 100) + '% / ' + Math.round(d.bear / d.classified * 100) + '%' : '—';
+                return '<tr><td>' + d.day + '</td><td>' + d.messages + '</td><td>' + (d.classified || 0) + '</td><td>' + split + '</td><td>' + spr + '</td></tr>';
+            }).join('');
+            return `
+                <div class="m-kpis">
+                    <div class="kpi"><div class="k-lbl">Bull-Bear · 7d</div><div class="k-val">${spreadHtml}</div><div class="k-sub">(bull − bear) / classified</div></div>
+                    <div class="kpi"><div class="k-lbl">Messages</div><div class="k-val">${soc.count || 0}</div><div class="k-sub">7d total volume</div></div>
+                    <div class="kpi"><div class="k-lbl">Classified</div><div class="k-val">${soc.classified || 0}</div><div class="k-sub">${soc.count ? Math.round((soc.classified || 0) / soc.count * 100) + '% of msgs' : '—'}</div></div>
+                </div>
+                <div class="m-sec">Daily spread — last ${daily.length} days</div>
+                <div class="bars">${bars}</div>
+                <div class="m-sec">Volume by day</div>
+                <table class="m-table"><tr><th>Day</th><th>Messages</th><th>Classified</th><th>Bull/Bear</th><th>Spread</th></tr>${rows}</table>`;
         }
         
         // Render quote
@@ -739,8 +934,14 @@
         window.onload = function() {
             setTimeframe('1D');
             fetchQuotes();
+            fetchTickerSentiment(currentTicker);
         };
         setInterval(fetchQuotes, 5000); // Live-ish update every 5 seconds
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.overlay.open').forEach(function(o) { o.classList.remove('open'); });
+            }
+        });
 
     </script>
 </body>

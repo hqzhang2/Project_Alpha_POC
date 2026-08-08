@@ -40,6 +40,34 @@ CREATE TABLE IF NOT EXISTS metric_definitions (
     window         INTEGER,             -- trailing lookback days for percentile methods
     source_default TEXT
 );
+
+-- Per-filing insider detail (drill-down modal). One row per Form 4
+-- transaction line; net buy/sell = sum over the ticker's window.
+CREATE TABLE IF NOT EXISTS insider_filings (
+    ticker      TEXT NOT NULL,
+    filing_date TEXT NOT NULL,          -- YYYY-MM-DD (filing date, ~2d after trade)
+    insider     TEXT,                   -- reporting owner name
+    role        TEXT,                   -- title/role (CFO, Director, ...)
+    code        TEXT NOT NULL,          -- P buy | S sell | M exercise | F tax | ...
+    shares      REAL,
+    price       REAL,
+    value       REAL,                   -- shares * price (signed by code)
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (ticker, filing_date, insider, code, shares, price)
+);
+
+-- Per-day social breakdown (drill-down modal). One row per (ticker, day).
+CREATE TABLE IF NOT EXISTS social_daily (
+    ticker     TEXT NOT NULL,
+    day        TEXT NOT NULL,           -- YYYY-MM-DD
+    messages   INTEGER NOT NULL,        -- total messages that day
+    classified INTEGER NOT NULL,        -- with a Bullish/Bearish tag
+    bull       INTEGER NOT NULL,
+    bear       INTEGER NOT NULL,
+    spread     REAL,                    -- (bull - bear) / classified
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (ticker, day)
+);
 """
 
 
@@ -219,6 +247,84 @@ def latest_reading_date_for(metric, source):
             return row[0]
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Detail tables (drill-down modals): insider_filings + social_daily
+# ---------------------------------------------------------------------------
+
+def replace_filings(ticker, rows):
+    """Replace a ticker's insider_filings rows (per-collection-run snapshot).
+
+    rows: list of dicts {filing_date, insider, role, code, shares, price, value}
+    Returns row count written, or 0 on failure (fail-open).
+    """
+    try:
+        with _connect() as conn:
+            conn.execute("DELETE FROM insider_filings WHERE ticker=?", (ticker,))
+            for r in rows:
+                conn.execute(
+                    "INSERT OR REPLACE INTO insider_filings "
+                    "(ticker, filing_date, insider, role, code, shares, price, value, recorded_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (ticker, r.get("filing_date"), r.get("insider"), r.get("role"), r.get("code"),
+                     r.get("shares"), r.get("price"), r.get("value"),
+                     datetime.datetime.utcnow().isoformat()),
+                )
+        return len(rows)
+    except Exception:
+        return 0
+
+
+def query_filings(ticker, limit=50):
+    """A ticker's insider filings, newest first. Fail-open -> []."""
+    try:
+        with _connect() as conn:
+            rows = conn.execute(
+                "SELECT filing_date, insider, role, code, shares, price, value "
+                "FROM insider_filings WHERE ticker=? ORDER BY filing_date DESC LIMIT ?",
+                (ticker, int(limit)),
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def replace_social_daily(ticker, rows):
+    """Replace a ticker's social_daily rows (per-collection-run snapshot).
+
+    rows: list of dicts {day, messages, classified, bull, bear, spread}
+    Returns row count written, or 0 on failure (fail-open).
+    """
+    try:
+        with _connect() as conn:
+            conn.execute("DELETE FROM social_daily WHERE ticker=?", (ticker,))
+            for r in rows:
+                conn.execute(
+                    "INSERT OR REPLACE INTO social_daily "
+                    "(ticker, day, messages, classified, bull, bear, spread, recorded_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (ticker, r.get("day"), r.get("messages", 0), r.get("classified", 0),
+                     r.get("bull", 0), r.get("bear", 0), r.get("spread"),
+                     datetime.datetime.utcnow().isoformat()),
+                )
+        return len(rows)
+    except Exception:
+        return 0
+
+
+def query_social_daily(ticker, limit=14):
+    """A ticker's per-day social breakdown, newest first. Fail-open -> []."""
+    try:
+        with _connect() as conn:
+            rows = conn.execute(
+                "SELECT day, messages, classified, bull, bear, spread "
+                "FROM social_daily WHERE ticker=? ORDER BY day DESC LIMIT ?",
+                (ticker, int(limit)),
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []
 
 
 # Seed at import so the definitions table is always present.
