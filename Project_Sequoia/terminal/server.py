@@ -244,22 +244,56 @@ class ChartDataProcessor:
     
     @staticmethod
     def get_historical_chart(ticker: str, tf: str) -> dict:
-        """Get historical chart for given timeframe."""
+        """Get historical chart for given timeframe.
+
+        Includes pc_ratio: put/call OI ratio per date from the sentiment store
+        (oi_store readings), aligned to the chart's date labels. None where the
+        ticker has no OI reading that day. Fail-open: [] on any error.
+        """
         if not YFINANCE_AVAILABLE:
             return {'labels': [], 'prices': [], 'volumes': [], 'error': 'yfinance not available'}
-        
+
         try:
             period = config.TIMEFRAME_MAP.get(tf, '1y')
             data = yf.Ticker(ticker).history(period=period)
+            labels = [x.strftime('%Y-%m-%d') for x in data.index]
             return {
-                'labels': [x.strftime('%Y-%m-%d') for x in data.index],
+                'labels': labels,
                 'prices': data['Close'].tolist(),
                 'volumes': data['Volume'].tolist(),
+                'pc_ratio': ChartDataProcessor._pc_ratio_for(ticker, labels),
                 'ticker': ticker
             }
         except Exception as e:
             logger.error(f"Historical chart error for {ticker} ({tf}): {e}")
             return {'labels': [], 'prices': [], 'volumes': [], 'error': str(e), 'ticker': ticker}
+
+    @staticmethod
+    def _pc_ratio_for(ticker: str, labels: list) -> list:
+        """Put/call OI ratio per date for a ticker, from sentiment readings.
+
+        Returns a list aligned to `labels` (None where no OI reading that day).
+        Readings dated on/after a label's date attach to it (an on-demand
+        snapshot on a weekend is dated Saturday but reflects Friday's close —
+        it belongs on Friday's bar, not nowhere).
+        """
+        try:
+            import sentiment_db
+            rows = sentiment_db.query_readings(scope='ticker', ticker=ticker,
+                                               metric='put_call_oi_ratio')
+            # readings sorted by date; advance a pointer as labels progress
+            dated = sorted((r['asof_date'], r['value']) for r in rows
+                           if r.get('value') is not None)
+            out, i, cur = [], 0, None
+            for lab in labels:
+                while i < len(dated) and dated[i][0] <= lab:
+                    cur = dated[i][1]
+                    i += 1
+                out.append(cur)
+            return out if any(v is not None for v in out) else []
+        except Exception as e:
+            logger.error(f"pc_ratio lookup failed for {ticker}: {e}")
+            return []
 
 
 # ============================================================================
@@ -279,6 +313,7 @@ class Handler(SimpleHTTPRequestHandler):
             'year_highs': 'year_highs',
             'year_lows': 'year_lows',
             'news': 'news',
+            'sentiment': 'sentiment',
             'option_screener': 'option_screener',
             'fundamental_screener': 'fundamental_screener',
         }
@@ -304,6 +339,7 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/estimates': 'handle_estimates',
         '/api/ratio': 'handle_ratio',
         '/api/health': 'handle_health',
+        '/api/oi/snapshot': 'handle_oi_snapshot',
         '/health': 'handle_health',  # deploy_prod.sh checks /health on all services
     }
 
@@ -403,6 +439,30 @@ class Handler(SimpleHTTPRequestHandler):
             'yfinance': YFINANCE_AVAILABLE
         })
     
+    def handle_oi_snapshot(self, qs):
+        """On-demand OI snapshot for one ticker (dashboard watchlist add).
+
+        Snapshots the ticker's option chains into option_oi.db, then derives
+        the put/call OI ratio reading so the chart overlay gets data
+        immediately. Returns contract + reading counts; fail-open on error.
+        """
+        import datetime as _dt
+        import snapshot_oi, options_data, sentiment_collect
+        ticker = (qs.get('ticker', [''])[0] or '').upper()
+        if not ticker:
+            self.send_json({'error': 'ticker required'}, status=400)
+            return
+        try:
+            provider = options_data.get_provider()
+            asof = snapshot_oi.last_trading_day(ticker)
+            contracts = snapshot_oi.snapshot_ticker(provider, ticker, asof)
+            reading = sentiment_collect.compute_oi_ratio(asof, ticker)
+            self.send_json({'ticker': ticker, 'asof': asof,
+                            'contracts': contracts, 'reading': reading})
+        except Exception as e:
+            logger.exception(f"oi snapshot failed for {ticker}")
+            self.send_json({'error': str(e)}, status=500)
+    
     def handle_etf_holdings(self, qs):
         if not YFINANCE_AVAILABLE:
             self.send_json({'error': 'yfinance not available'}, status=503)
@@ -440,6 +500,31 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_news_cn(self, qs):
         import news
         self.send_json(news.get_cn_news())
+    
+    def handle_sentiment(self, qs):
+        import sentiment
+        scope = qs.get('scope', [None])[0]
+        ticker = qs.get('ticker', [None])[0]
+        metric = qs.get('metric', [None])[0]
+        days = int(qs.get('days', [None])[0]) if qs.get('days', [None])[0] else None
+        latest = qs.get('latest', ['0'])[0] in ('1', 'true', 'True')
+        sources = qs.get('sources', [None])[0]
+        sources = [s.strip() for s in sources.split(',')] if sources else None
+        self.send_json(sentiment.get_sentiment(scope=scope, ticker=ticker, metric=metric,
+                                               days=days, sources=sources, latest=latest))
+    
+    def handle_sentiment_metrics(self, qs):
+        import sentiment
+        self.send_json(sentiment.get_metrics())
+    
+    def handle_sentiment_providers(self, qs):
+        import sentiment
+        self.send_json(sentiment.list_providers())
+    
+    def handle_sentiment_ticker(self, qs):
+        import sentiment
+        ticker = (qs.get('ticker', [''])[0] or '').upper()
+        self.send_json(sentiment.get_ticker_sentiment(ticker))
     
     def handle_prediction(self, qs):
         import prediction

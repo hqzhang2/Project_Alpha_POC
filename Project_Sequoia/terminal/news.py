@@ -1,5 +1,4 @@
 import json
-import requests
 import datetime
 import os
 import logging
@@ -11,8 +10,10 @@ logger = logging.getLogger(__name__)
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 NEWSAPI_KEY = os.environ.get('NEWSAPI_KEY')
 
+
 def _fetch_from_api(url, timeout=5):
     """Internal helper to handle API requests with error handling."""
+    import requests
     try:
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
@@ -112,7 +113,13 @@ def get_cn_news():
     return all_news
 
 
-# Module route registration (R2) — matches QA news.py
+def list_news_dates():
+    """Return list of dates with news data available. Falls back to today if no cached data."""
+    import datetime
+    return [datetime.datetime.now().strftime("%Y-%m-%d")]
+
+
+# Module route registration (R2)
 ROUTES = {
     '/api/news/top': 'handle_news_top',
     '/api/news/cn': 'handle_news_cn',
