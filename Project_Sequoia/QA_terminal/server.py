@@ -44,7 +44,8 @@ if _bad:
     import sys as _sys
     _sys.path = [p for p in _sys.path if p not in _bad]
 
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
+import email.utils
 import json
 import math
 import os
@@ -104,6 +105,7 @@ except ImportError:
 ENV = os.environ.get('ENV', 'QA')
 PORT = int(os.environ.get('PORT', getattr(config, 'QA_PORT', 9099)))
 HOST = getattr(config, 'HOST', '0.0.0.0')
+DOCROOT = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
 CACHE_TTL = int(os.environ.get('YF_CACHE_TTL', '300'))  # 5 min default
 HEALTH_CHECK_INTERVAL = 30
 
@@ -318,6 +320,7 @@ class ChartDataProcessor:
 
 class Handler(SimpleHTTPRequestHandler):
     """HTTP request handler with API routing."""
+    protocol_version = 'HTTP/1.1'
 
     # Dynamic module route table — built by _discover_module_routes()
     MODULE_ROUTES = {}
@@ -407,8 +410,13 @@ class Handler(SimpleHTTPRequestHandler):
         
         # Serve static files
         filename = path[1:] if path != '/' else 'dashboard.html'
-        if os.path.exists(filename):
-            self.serve_file(filename)
+        # Traversal guard: resolve against the docroot and require containment
+        candidate = os.path.realpath(os.path.join(DOCROOT, filename))
+        if not (candidate == DOCROOT or candidate.startswith(DOCROOT + os.sep)):
+            self.send_error(404, "Not found")
+            return
+        if os.path.exists(candidate):
+            self.serve_file(candidate)
             return
         
         self.send_error(404, "Not found")
@@ -427,10 +435,19 @@ class Handler(SimpleHTTPRequestHandler):
                     nav_end = content.find('</div>', nav_idx)
                     header_end = content.find('</div>', nav_end + 6) + 6
                     content = content[:start] + '<div class="header">' + header_html + '</div>' + content[header_end:]
+            body = content.encode()
+            last_mod = email.utils.formatdate(os.path.getmtime(filename), usegmt=True)
+            if self.headers.get('If-Modified-Since') == last_mod:
+                self.send_response(304)
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Last-Modified', last_mod)
+            self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
-            self.wfile.write(content.encode())
+            self.wfile.write(body)
         else:
             SimpleHTTPRequestHandler.do_GET(self)
     
@@ -439,11 +456,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('X-Frame-Options', 'ALLOWALL')
         super().end_headers()
 
-    def send_json(self, data, status=200):
+    def send_json(self, data, status=200, headers=None):
+        """Send JSON with Content-Length (required for HTTP/1.1 keep-alive;
+        without it clients hang waiting for the body end)."""
+        body = json.dumps(clean_dict(data), cls=SafeJSONEncoder).encode()
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        if headers:
+            for k, v in headers.items():
+                self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(json.dumps(clean_dict(data), cls=SafeJSONEncoder).encode())
+        self.wfile.write(body)
     
     # --- API Handlers ---
     

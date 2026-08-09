@@ -20,6 +20,7 @@ class TestServerExtra(unittest.TestCase):
         self.handler.send_error = MagicMock()
         from io import BytesIO
         self.handler.wfile = BytesIO()
+        self.handler.headers = {}
 
     def test_api_quotes(self):
         with patch('quotes.get_quotes') as mock_get:
@@ -130,6 +131,15 @@ class TestServerExtra(unittest.TestCase):
             self.handler.path = '/'
             self.handler.do_GET()
             self.handler.send_response.assert_called_with(200)
+
+    def test_no_path_traversal(self):
+        """Unnormalized /../ requests must 404 without reaching serve_file."""
+        self.handler.path = '/../terminal/dashboard.html'
+        with patch.object(server.Handler, 'serve_file',
+                          side_effect=AssertionError('serve_file must not be called')) as sf:
+            self.handler.do_GET()
+        self.handler.send_error.assert_called_with(404, "Not found")
+        sf.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()
