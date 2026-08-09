@@ -12,264 +12,544 @@
         .nav { display: flex; gap: 16px; }
         .nav a { color: #8b949e; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
         .nav a.active { background: #21262d; color: #e6edf3; }
-        
+
         .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
-        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 150px; }
+        .search { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 110px; }
         .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .btn:hover { background: #2ea043; }
-        
-        .omain { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
-        
-        .section-title { font-size: 14px; font-weight: 600; color: #58a6ff; text-transform: uppercase; margin-bottom: 12px; border-left: 3px solid #58a6ff; padding-left: 8px; }
-        
-        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-        
-        .table-container { background: #161b22; border-radius: 8px; border: 1px solid #30363d; overflow: hidden; }
+        .btn-secondary { background: #21262d; border: 1px solid #30363d; color: #e6edf3; }
+        .btn-secondary:hover { background: #30363d; }
+        .watchlist-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; min-width: 150px; }
+        .watchlist-bar { display: flex; align-items: center; gap: 8px; }
+        .watchlist-bar label { color: #8b949e; font-size: 12px; }
+        .status { color: #8b949e; font-size: 12px; margin-left: auto; }
+
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+        .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .kpi { background: #161b22; border: 1px solid #30363d; border-left: 3px solid #58a6ff; border-radius: 8px; padding: 12px 16px; }
+        .kpi .k-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; }
+        .kpi .k-value { font-size: 21px; font-weight: 700; margin: 4px 0 2px; font-family: 'Monaco', monospace; }
+        .kpi .k-sub { font-size: 11px; color: #8b949e; }
+
+        .section-title { font-size: 14px; font-weight: 600; color: #58a6ff; text-transform: uppercase; margin-bottom: 10px; border-left: 3px solid #58a6ff; padding-left: 8px; }
+        .section-title .sub { color: #8b949e; font-size: 11px; text-transform: none; font-weight: 400; margin-left: 8px; }
+
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .stack { display: flex; flex-direction: column; gap: 16px; }
+
+        .table-container { background: #161b22; border-radius: 8px; border: 1px solid #30363d; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th { background: #21262d; color: #8b949e; text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 1px solid #30363d; }
-        td { padding: 10px 12px; border-bottom: 1px solid #21262d; }
+        th { background: #21262d; color: #8b949e; text-align: left; padding: 9px 12px; font-weight: 600; text-transform: uppercase; font-size: 11px; border-bottom: 1px solid #30363d; position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
+        th .sort-arrow { display: inline-block; width: 10px; opacity: .4; margin-left: 3px; font-size: 9px; }
+        th.active .sort-arrow { opacity: 1; }
+        td { padding: 9px 12px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+        tbody tr:hover { background: #21262d; }
+        tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
         .num { text-align: right; font-family: 'Monaco', monospace; }
         .positive { color: #3fb950; }
         .negative { color: #f85149; }
-        .highlight { color: #f0883e; font-weight: 600; }
-        
+        .highlight { color: #e6edf3; font-weight: 600; }
+        .ltg-row td { background: rgba(88,166,255,0.06); }
+        .empty td { text-align: center; color: #8b949e; padding: 18px; font-style: italic; }
+        .nq { background: rgba(88,166,255,.15); color: #58a6ff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 8px; vertical-align: 2px; }
+
+        .chart-box { height: 220px; padding: 12px; }
+        .m-legend { margin-top: 4px; padding-top: 8px; border-top: 1px solid #21262d; color: #8b949e; font-size: 11px; line-height: 1.7; }
+
         .loading { padding: 40px; text-align: center; color: #8b949e; }
-        .error { color: #f85149; padding: 20px; }
+        .error { padding: 40px; text-align: center; color: #f85149; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <h1>🛠️ Alpha Terminal</h1>
-            <div class="time" id="time" style="color: #8b949e; font-size: 14px;">--:--:--</div>
-        </div>
-        <div class="nav" style="display: flex; gap: 16px; margin-left: auto;">
-            <a href="dashboard.html">Dashboard</a>
-            <a href="omon.html">OMON</a>
-            <a href="screener.html">Option Screener</a>
-            <a href="ratio.html">Ratio Analysis</a>
-            <a href="financials.html">Financial Analyzer</a>
-            <a href="estimates.html" class="active">Earnings Estimates</a>
-        </div>
-    </div>
-    
+    <div class="header"><div class="nav"></div></div>
+
     <div class="toolbar">
-        <div class="watchlist-bar" style="display: flex; align-items: center; gap: 8px;">
-            <label style="color:#8b949e;font-size:12px;">Watchlist:</label>
-            <select id="watchlistSelect" class="watchlist-select" style="background:#0d1117;color:#e6edf3;border:1px solid #30363d;padding:8px 12px;border-radius:6px;min-width:150px;" onchange="loadFromWatchlist()">
+        <div class="watchlist-bar">
+            <label>Watchlist:</label>
+            <select id="watchlistSelect" class="watchlist-select" onchange="loadFromWatchlist()">
                 <option value="">-- Select --</option>
             </select>
-            <button class="btn" onclick="removeFromWatchlist()" style="padding: 6px 10px; font-size: 14px; background: #f85149; color: white; border: none; font-weight: bold;" title="Remove">-</button>
+            <button class="btn btn-secondary" onclick="removeFromWatchlist()" style="padding:6px 10px;font-size:14px;background:#f85149;color:#fff;border:none;font-weight:bold;" title="Remove">-</button>
         </div>
-        <input type="text" class="search" id="ticker" value="AAPL" placeholder="Ticker" style="margin-left: 12px;">
+        <input type="text" class="search" id="ticker" value="AAPL" placeholder="Ticker">
         <button class="btn" onclick="loadEstimates()">Load EE</button>
-        <button class="btn btn-secondary" onclick="addToWatchlist()" style="padding: 8px 12px;">+</button>
+        <button class="btn btn-secondary" onclick="addToWatchlist()" style="padding:8px 12px;" title="Add to watchlist">+</button>
+        <span class="status" id="status">Enter ticker and click Load EE</span>
     </div>
-    
+
     <div class="omain" id="mainContent">
         <div class="loading">Enter ticker and click Load EE</div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        function updateTime() {
-            const now = new Date();
-            const timeEl = document.getElementById('time');
-            if (timeEl) timeEl.textContent = now.toLocaleTimeString();
-        }
-        setInterval(updateTime, 1000);
-        updateTime();
-
-        async function loadEstimates() {
-            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
-            if (!ticker) return;
-            
-            const container = document.getElementById('mainContent');
-            container.innerHTML = '<div class="loading">Fetching Bloomberg EE Data...</div>';
-            
-            try {
-                const res = await fetch(`/api/estimates?ticker=${ticker}`);
-                const data = await res.json();
-                
-                if (data.error) {
-                    container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
-                    return;
-                }
-                
-                renderEE(data);
-            } catch (e) {
-                container.innerHTML = `<div class="error">Network Error: ${e.message}</div>`;
-            }
-        }
-
-        function renderEE(data) {
-            let html = '';
-            
-            // 1. Consensus Summary Table
-            html += `<div>
-                <div class="section-title">Consensus Estimates (EE Summary)</div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Period</th>
-                                <th class="num">EPS Avg</th>
-                                <th class="num">Low</th>
-                                <th class="num">High</th>
-                                <th class="num">Growth</th>
-                                <th class="num">Analysts</th>
-                                <th class="num">Rev Avg</th>
-                                <th class="num">Rev Growth</th>
-                            </tr>
-                        </thead>
-                        <tbody>`;
-            
-            data.summary.forEach(s => {
-                html += `
-                    <tr>
-                        <td class="highlight">${s.period}</td>
-                        <td class="num highlight">${s.eps_avg?.toFixed(2) || '-'}</td>
-                        <td class="num">${s.eps_low?.toFixed(2) || '-'}</td>
-                        <td class="num">${s.eps_high?.toFixed(2) || '-'}</td>
-                        <td class="num ${s.eps_growth >= 0 ? 'positive' : 'negative'}">${(s.eps_growth * 100).toFixed(1)}%</td>
-                        <td class="num">${s.analysts || '-'}</td>
-                        <td class="num">${fmtLarge(s.rev_avg)}</td>
-                        <td class="num ${s.rev_growth >= 0 ? 'positive' : 'negative'}">${(s.rev_growth * 100).toFixed(1)}%</td>
-                    </tr>`;
-            });
-            html += `</tbody></table></div></div>`;
-
-            // 2. Grid for Trends and History
-            html += `<div class="grid-container">`;
-            
-            // History (Surprise)
-            html += `<div>
-                <div class="section-title">Earnings History & Surprise</div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Quarter</th>
-                                <th class="num">Actual</th>
-                                <th class="num">Estimate</th>
-                                <th class="num">Surprise</th>
-                            </tr>
-                        </thead>
-                        <tbody>`;
-            data.history.forEach(h => {
-                const surprise = h.surprise * 100;
-                // Parse ISO date string and format as YYYY-MM-DD
-                const displayDate = h.quarter ? h.quarter.split('T')[0] : h.quarter;
-                html += `
-                    <tr>
-                        <td>${displayDate}</td>
-                        <td class="num highlight">${h.actual?.toFixed(2) || '-'}</td>
-                        <td class="num">${h.estimate?.toFixed(2) || '-'}</td>
-                        <td class="num ${surprise >= 0 ? 'positive' : 'negative'}">${surprise.toFixed(1)}%</td>
-                    </tr>`;
-            });
-            html += `</tbody></table></div></div>`;
-
-            // Trends
-            html += `<div>
-                <div class="section-title">EPS Revision Trend</div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Period</th>
-                                <th class="num">Current</th>
-                                <th class="num">7D Ago</th>
-                                <th class="num">30D Ago</th>
-                                <th class="num">90D Ago</th>
-                            </tr>
-                        </thead>
-                        <tbody>`;
-            data.trends.forEach(t => {
-                html += `
-                    <tr>
-                        <td class="highlight">${t.period}</td>
-                        <td class="num highlight">${t.current?.toFixed(2) || '-'}</td>
-                        <td class="num">${t['7days']?.toFixed(2) || '-'}</td>
-                        <td class="num">${t['30days']?.toFixed(2) || '-'}</td>
-                        <td class="num">${t['90days']?.toFixed(2) || '-'}</td>
-                    </tr>`;
-            });
-            html += `</tbody></table></div></div>`;
-
-            html += `</div>`; // Close grid
-            
-            document.getElementById('mainContent').innerHTML = html;
-        }
-
-        function fmtLarge(n) {
-            if (n === null || n === undefined) return '-';
-            if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
-            if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
-            if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-            return n.toLocaleString();
-        }
-
-        // Trigger load on enter
-        document.getElementById('ticker').addEventListener('keypress', e => {
-            if (e.key === 'Enter') loadEstimates();
-        });
-
-        // Watchlist logic (persistent localStorage)
-        let watchlist = ['AAPL', 'MSFT', 'GOOGL'];
+        // ---------------- watchlist (shared with dashboard: localStorage 'watchlist') ----------------
+        let watchlist = ['AAPL', 'AMZN', 'GLD', 'GOOGL', 'MSFT', 'NVDA', 'QQQ', 'SMH', 'SPY', 'TSLA', 'XLE'];
         try {
-            if (localStorage.getItem('estimatesWatchlist')) {
-                watchlist = JSON.parse(localStorage.getItem('estimatesWatchlist'));
-            }
-        } catch(e) {}
+            const stored = JSON.parse(localStorage.getItem('watchlist'));
+            if (Array.isArray(stored) && stored.length) watchlist = stored;
+        } catch (e) {}
+        watchlist.sort();
 
         function saveWatchlist() {
-            try { localStorage.setItem('estimatesWatchlist', JSON.stringify(watchlist)); } catch(e) {}
+            try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch (e) {}
             renderWatchlist();
         }
-
         function renderWatchlist() {
             const select = document.getElementById('watchlistSelect');
             const current = document.getElementById('ticker').value.toUpperCase().trim();
             select.innerHTML = '<option value="">-- Select --</option>';
             watchlist.forEach(t => {
                 const opt = document.createElement('option');
-                opt.value = t;
-                opt.textContent = t;
+                opt.value = t; opt.textContent = t;
                 if (t === current) opt.selected = true;
                 select.appendChild(opt);
             });
         }
-
         function loadFromWatchlist() {
-            const ticker = document.getElementById('watchlistSelect').value;
-            if (ticker) {
-                document.getElementById('ticker').value = ticker;
-                loadEstimates();
+            const t = document.getElementById('watchlistSelect').value;
+            if (t) { document.getElementById('ticker').value = t; loadEstimates(); }
+        }
+        function addToWatchlist() {
+            const t = document.getElementById('ticker').value.toUpperCase().trim();
+            if (t && !watchlist.includes(t)) { watchlist.push(t); watchlist.sort(); saveWatchlist(); }
+        }
+        function removeFromWatchlist() {
+            const t = document.getElementById('watchlistSelect').value;
+            if (t) { const i = watchlist.indexOf(t); if (i > -1) { watchlist.splice(i, 1); saveWatchlist(); } }
+        }
+
+        // ---------------- formatting helpers (null-safe) ----------------
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const fmt = (v, d=2) => (v === null || v === undefined || isNaN(v)) ? '-' : Number(v).toFixed(d);
+        const fmtPct = v => (v === null || v === undefined || isNaN(v)) ? '-' : (v * 100).toFixed(1) + '%';
+        const cls = v => (v === null || v === undefined || isNaN(v)) ? '' : (v >= 0 ? 'positive' : 'negative');
+        function fmtLarge(n) {
+            if (n === null || n === undefined || isNaN(n)) return '-';
+            if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+            if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+            return Number(n).toLocaleString();
+        }
+        const PERIOD_ORD = {'0q': 0, '+1q': 1, '0y': 2, '+1y': 3, 'LTG': 4};
+
+        // ---------------- sortable tables ----------------
+        function sortTable(key, tableId) {
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const ths = table.querySelectorAll('th');
+            let asc = true;
+            ths.forEach(th => {
+                if (th.dataset.k === key && th.classList.contains('asc')) asc = false;
+                th.classList.remove('active', 'asc', 'desc');
+            });
+            rows.sort((a, b) => {
+                const av = a.querySelector(`td[data-k="${key}"]`)?.dataset.sort;
+                const bv = b.querySelector(`td[data-k="${key}"]`)?.dataset.sort;
+                const an = (av === undefined || av === '') ? NaN : Number(av);
+                const bn = (bv === undefined || bv === '') ? NaN : Number(bv);
+                let cmp;
+                if (!isNaN(an) && !isNaN(bn)) cmp = an - bn;
+                else cmp = String(av ?? '').localeCompare(String(bv ?? ''));
+                return asc ? cmp : -cmp;
+            });
+            rows.forEach(r => tbody.appendChild(r));
+            const active = table.querySelector(`th[data-k="${key}"]`);
+            active.classList.add('active', asc ? 'asc' : 'desc');
+        }
+
+        // ---------------- main load/render ----------------
+        async function loadEstimates() {
+            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
+            if (!ticker) return;
+            const container = document.getElementById('mainContent');
+            const status = document.getElementById('status');
+            container.innerHTML = '<div class="loading">Fetching Bloomberg EE Data...</div>';
+            status.textContent = ticker + ' · loading…';
+            try {
+                const res = await fetch(`/api/estimates?ticker=${encodeURIComponent(ticker)}`);
+                const data = await res.json();
+                if (data.error) {
+                    container.innerHTML = `<div class="error">Error: ${esc(data.error)}</div>`;
+                    status.textContent = ticker + ' · error';
+                    return;
+                }
+                renderEE(data);
+                status.textContent = ticker + ' · updated ' + new Date().toLocaleTimeString();
+            } catch (e) {
+                container.innerHTML = `<div class="error">Network Error: ${esc(e.message)}</div>`;
+                status.textContent = 'error';
             }
         }
 
-        function addToWatchlist() {
-            const ticker = document.getElementById('ticker').value.toUpperCase().trim();
-            if (ticker && !watchlist.includes(ticker)) {
-                watchlist.push(ticker);
-                watchlist.sort();
-                saveWatchlist();
+        function renderEE(data) {
+            const summary = data.summary || [];
+            const history = data.history || [];
+            const trends = data.trends || [];
+            const revisions = data.revisions || [];
+            const growth = data.growth || [];
+            const recs = data.recommendations || [];
+            const apt = data.price_targets || null;
+            const next = data.next_earnings || null;
+            const ss = data.surprise_stats || null;
+
+            let html = '';
+
+            // ---------------- KPI strip ----------------
+            html += '<div class="kpi-row">';
+            let neVal = '-', neChip = '', neSub = '';
+            if (next && next.date) {
+                const iso = String(next.date);
+                const m = iso.match(/T(\d{2}):(\d{2})/);
+                const hh = m ? +m[1] : 16;
+                const amc = hh >= 15;
+                neVal = iso.slice(0, 10);
+                neChip = `<span class="${amc ? 'positive' : 'negative'}" style="font-size:12px">${amc ? 'AMC' : 'BMO'}</span>`;
+                neSub = next.eps_estimate != null ? 'EPS est $' + fmt(next.eps_estimate) : 'no EPS est';
             }
-        }
-        
-        function removeFromWatchlist() {
-            const ticker = document.getElementById('watchlistSelect').value;
-            if (ticker) {
-                const idx = watchlist.indexOf(ticker);
-                if (idx > -1) {
-                    watchlist.splice(idx, 1);
-                    saveWatchlist();
+            html += `<div class="kpi"><div class="k-label">Next Earnings</div><div class="k-value">${esc(neVal)} ${neChip}</div><div class="k-sub">${esc(neSub)}</div></div>`;
+
+            let ptVal = '-', ptSub = '';
+            if (apt && apt.mean != null) {
+                ptVal = '$' + fmt(apt.mean);
+                const cur = apt.current;
+                if (cur != null && cur > 0) {
+                    const ups = (apt.mean - cur) / cur * 100;
+                    ptSub = `${ups >= 0 ? '▲' : '▼'} ${Math.abs(ups).toFixed(1)}% vs $${fmt(cur)} · ${fmt(apt.high)}/${fmt(apt.low)}`;
+                } else {
+                    ptSub = `high $${fmt(apt.high)} / low $${fmt(apt.low)}`;
                 }
             }
+            html += `<div class="kpi"><div class="k-label">Price Target (mean)</div><div class="k-value">${esc(ptVal)}</div><div class="k-sub">${esc(ptSub)}</div></div>`;
+
+            let rateVal = '-', rateSub = '', rateColor = '#8b949e';
+            if (recs.length) {
+                const r = recs[0];
+                const sb = r.strong_buy || 0, b = r.buy || 0, h = r.hold || 0, s = r.sell || 0, ssx = r.strong_sell || 0;
+                const total = sb + b + h + s + ssx;
+                if (total > 0) {
+                    const score = (5*sb + 4*b + 3*h + 2*s + 1*ssx) / total;
+                    rateVal = score >= 4.5 ? 'Strong Buy' : score >= 3.5 ? 'Buy' : score >= 2.5 ? 'Hold' : score >= 1.5 ? 'Sell' : 'Strong Sell';
+                    rateColor = score >= 3.5 ? '#3fb950' : score >= 2.5 ? '#f0883e' : '#f85149';
+                    rateSub = `score ${score.toFixed(2)} · SB ${sb} / B ${b} / H ${h} / S ${s} / SS ${ssx}`;
+                }
+            }
+            html += `<div class="kpi" style="border-left-color:${rateColor}"><div class="k-label">Consensus Rating</div><div class="k-value" style="color:${rateColor}">${esc(rateVal)}</div><div class="k-sub">${esc(rateSub)}</div></div>`;
+
+            let sqVal = '-', sqSub = '';
+            if (ss) {
+                sqVal = Math.round(ss.beat_rate * 100) + '% beats';
+                sqSub = `avg ${ss.avg_surprise_pct >= 0 ? '+' : ''}${ss.avg_surprise_pct.toFixed(1)}% · streak ${ss.beat_streak} · n=${ss.n}`;
+            }
+            html += `<div class="kpi"><div class="k-label">Surprise Quality</div><div class="k-value">${esc(sqVal)}</div><div class="k-sub">${esc(sqSub)}</div></div>`;
+            html += '</div>';
+
+            // ---------------- ROW 1: history & surprise (left) | growth + recommendations (right) ----------------
+            html += '<div class="grid2">';
+
+            // Left: earnings history + surprise chart
+            html += `<div>
+                <div class="section-title">Earnings History &amp; Surprise <span class="sub">track record</span></div>
+                <div class="table-container"><table id="tblHist">
+                    <thead><tr>
+                        <th>Quarter</th>
+                        <th class="num">Actual</th>
+                        <th class="num">Estimate</th>
+                        <th class="num">Surprise</th>
+                    </tr></thead><tbody>`;
+            if (!history.length) {
+                html += '<tr class="empty"><td colspan="4">No earnings history</td></tr>';
+            }
+            history.forEach(h => {
+                const q = h.quarter ? String(h.quarter).split('T')[0] : h.quarter;
+                html += `<tr>
+                    <td>${esc(q)}</td>
+                    <td class="num highlight">${fmt(h.actual)}</td>
+                    <td class="num">${fmt(h.estimate)}</td>
+                    <td class="num ${cls(h.surprise)}">${fmtPct(h.surprise)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+            if (history.length) {
+                html += '<div class="chart-box"><canvas id="surpriseChart"></canvas></div>';
+            }
+            html += '</div>'; // close history column
+
+            // Right stack: growth (top) + recommendations (bottom)
+            html += '<div class="stack">';
+            html += `<div>
+                <div class="section-title">EPS Growth vs Benchmark</div>
+                <div class="table-container"><table id="tblGrowth">
+                    <thead><tr>
+                        <th style="width:1%">Period</th>
+                        <th class="num">Stock</th>
+                        <th class="num">Index</th>
+                        <th class="num">Δ vs Index</th>
+                    </tr></thead><tbody>`;
+            if (!growth.length) {
+                html += '<tr class="empty"><td colspan="4">No growth estimates</td></tr>';
+            }
+            growth.forEach(g => {
+                const isLtg = g.period === 'LTG';
+                const delta = (g.stock != null && g.index != null) ? g.stock - g.index : null;
+                html += `<tr class="${isLtg ? 'ltg-row' : ''}">
+                    <td class="highlight"${isLtg ? ' title="Long-term growth rate"' : ''}>${esc(g.period)}</td>
+                    <td class="num">${fmtPct(g.stock)}</td>
+                    <td class="num">${fmtPct(g.index)}</td>
+                    <td class="num ${cls(delta)}">${delta == null ? '-' : (delta >= 0 ? '+' : '') + (delta * 100).toFixed(1) + '%'}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+
+            html += `<div>
+                <div class="section-title">Analyst Recommendations</div>
+                <div class="table-container"><table id="tblRec">
+                    <thead><tr>
+                        <th>Period</th>
+                        <th class="num">Strong Buy</th>
+                        <th class="num">Buy</th>
+                        <th class="num">Hold</th>
+                        <th class="num">Sell</th>
+                        <th class="num">Strong Sell</th>
+                        <th class="num">Total</th>
+                    </tr></thead><tbody>`;
+            if (!recs.length) {
+                html += '<tr class="empty"><td colspan="7">No analyst ratings</td></tr>';
+            }
+            recs.forEach(r => {
+                const total = (r.strong_buy||0) + (r.buy||0) + (r.hold||0) + (r.sell||0) + (r.strong_sell||0);
+                html += `<tr>
+                    <td class="highlight">${esc(r.period)}</td>
+                    <td class="num">${r.strong_buy ?? '-'}</td>
+                    <td class="num">${r.buy ?? '-'}</td>
+                    <td class="num">${r.hold ?? '-'}</td>
+                    <td class="num">${r.sell ?? '-'}</td>
+                    <td class="num">${r.strong_sell ?? '-'}</td>
+                    <td class="num">${total || '-'}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+            html += '</div>'; // close right stack
+            html += '</div>'; // close row 1 grid
+
+            // ---------------- ROW 2: Consensus Estimates (EE Summary) ----------------
+            html += `<div>
+                <div class="section-title">Consensus Estimates <span class="sub">next quarter is the value</span></div>
+                <div class="table-container"><table id="tblSummary">
+                    <thead><tr>
+                        <th data-k="period" onclick="sortTable('period','tblSummary')">Period<span class="sort-arrow"></span></th>
+                        <th data-k="eps_avg" class="num" onclick="sortTable('eps_avg','tblSummary')">EPS Avg<span class="sort-arrow"></span></th>
+                        <th data-k="eps_low" class="num" onclick="sortTable('eps_low','tblSummary')">Low<span class="sort-arrow"></span></th>
+                        <th data-k="eps_high" class="num" onclick="sortTable('eps_high','tblSummary')">High<span class="sort-arrow"></span></th>
+                        <th data-k="eps_growth" class="num" onclick="sortTable('eps_growth','tblSummary')">EPS Growth<span class="sort-arrow"></span></th>
+                        <th data-k="analysts" class="num" onclick="sortTable('analysts','tblSummary')">Analysts<span class="sort-arrow"></span></th>
+                        <th data-k="rev_avg" class="num" onclick="sortTable('rev_avg','tblSummary')">Rev Avg<span class="sort-arrow"></span></th>
+                        <th data-k="rev_growth" class="num" onclick="sortTable('rev_growth','tblSummary')">Rev Growth<span class="sort-arrow"></span></th>
+                    </tr></thead><tbody>`;
+            if (!summary.length) {
+                html += '<tr class="empty"><td colspan="8">No consensus data for this ticker</td></tr>';
+            }
+            summary.forEach(s => {
+                const ord = PERIOD_ORD[s.period] !== undefined ? PERIOD_ORD[s.period] : 99;
+                const nextTag = (s.period === '0q' || s.period === '+1q') ? '<span class="nq">NEXT</span>' : '';
+                html += `<tr>
+                    <td class="highlight" data-k="period" data-sort="${ord}">${esc(s.period)}${nextTag}</td>
+                    <td class="num highlight" data-k="eps_avg" data-sort="${s.eps_avg ?? ''}">${fmt(s.eps_avg)}</td>
+                    <td class="num" data-k="eps_low" data-sort="${s.eps_low ?? ''}">${fmt(s.eps_low)}</td>
+                    <td class="num" data-k="eps_high" data-sort="${s.eps_high ?? ''}">${fmt(s.eps_high)}</td>
+                    <td class="num ${cls(s.eps_growth)}" data-k="eps_growth" data-sort="${s.eps_growth ?? ''}">${fmtPct(s.eps_growth)}</td>
+                    <td class="num" data-k="analysts" data-sort="${s.analysts ?? ''}">${s.analysts ?? '-'}</td>
+                    <td class="num" data-k="rev_avg" data-sort="${s.rev_avg ?? ''}">${fmtLarge(s.rev_avg)}</td>
+                    <td class="num ${cls(s.rev_growth)}" data-k="rev_growth" data-sort="${s.rev_growth ?? ''}">${fmtPct(s.rev_growth)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+
+            // ---------------- ROW 3: Revisions — M2 chart (top) + trend & momentum tables (bottom) ----------------
+            html += `<div>
+                <div class="section-title">Revisions <span class="sub">trend · momentum · Δ7/30/90D drift</span></div>
+                <div class="table-container"><div class="chart-box"><canvas id="momChart"></canvas></div></div>
+                <div class="grid2" style="margin-top:16px">`;
+
+            // Trend table (left)
+            html += `<div>
+                <div class="section-title" style="margin-bottom:8px">EPS Revision Trend</div>
+                <div class="table-container"><table id="tblTrend">
+                    <thead><tr>
+                        <th>Period</th>
+                        <th class="num">Current</th>
+                        <th class="num">7D Ago</th>
+                        <th class="num">30D Ago</th>
+                        <th class="num">90D Ago</th>
+                        <th class="num">Δ 7D</th>
+                    </tr></thead><tbody>`;
+            if (!trends.length) {
+                html += '<tr class="empty"><td colspan="6">No revision trend</td></tr>';
+            }
+            trends.forEach(t => {
+                const d7 = (t.current != null && t['7days'] != null) ? t.current - t['7days'] : null;
+                html += `<tr>
+                    <td class="highlight">${esc(t.period)}</td>
+                    <td class="num highlight">${fmt(t.current)}</td>
+                    <td class="num">${fmt(t['7days'])}</td>
+                    <td class="num">${fmt(t['30days'])}</td>
+                    <td class="num">${fmt(t['90days'])}</td>
+                    <td class="num ${cls(d7)}">${d7 == null ? '-' : (d7 >= 0 ? '+' : '') + d7.toFixed(2)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+
+            // Momentum table (right) — with Breadth column
+            html += `<div>
+                <div class="section-title" style="margin-bottom:8px">Revision Momentum <span class="sub">analysts</span></div>
+                <div class="table-container"><table id="tblRev">
+                    <thead><tr>
+                        <th>Period</th>
+                        <th class="num">↑ 7D</th>
+                        <th class="num">↑ 30D</th>
+                        <th class="num">↓ 30D</th>
+                        <th class="num">↓ 7D</th>
+                        <th class="num">Net</th>
+                        <th class="num">Breadth</th>
+                    </tr></thead><tbody>`;
+            if (!revisions.length) {
+                html += '<tr class="empty"><td colspan="7">No revision counts</td></tr>';
+            }
+            revisions.forEach(r => {
+                const breadth = (r.up_30d != null && r.down_30d != null && (r.up_30d + r.down_30d) > 0)
+                    ? (r.up_30d / (r.up_30d + r.down_30d) * 100).toFixed(0) + '%' : '-';
+                html += `<tr>
+                    <td class="highlight">${esc(r.period)}</td>
+                    <td class="num positive">${r.up_7d ?? '-'}</td>
+                    <td class="num positive">${r.up_30d ?? '-'}</td>
+                    <td class="num negative">${r.down_30d ?? '-'}</td>
+                    <td class="num negative">${r.down_7d ?? '-'}</td>
+                    <td class="num ${cls(r.net_30d)}">${r.net_30d == null ? '-' : (r.net_30d >= 0 ? '+' : '') + r.net_30d}</td>
+                    <td class="num ${cls((r.up_30d ?? 0) - (r.down_30d ?? 0))}">${breadth}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+
+            html += '</div>'; // close row 3 grid
+            html += '</div>'; // close row 3 section
+
+            // ---------------- Legend footnote ----------------
+            html += `<div class="m-legend">
+                Periods: <b>0q</b> = current quarter · <b>+1q</b> = next quarter · <b>0y</b> = current fiscal year · <b>+1y</b> = next fiscal year · <b>LTG</b> = long-term growth rate.<br>
+                <b>AMC</b> = after market close · <b>BMO</b> = before market open · <b>Net</b> = ↑30D − ↓30D analyst revisions · <b>Breadth</b> = share of 30D revisions that were up · <b>Δ7/30/90D</b> = consensus drift vs that many days ago (bar shade: 7D solid → 90D faint).<br>
+                Source: Yahoo Finance consensus estimates (indicative, may lag the sell-side; verify against live chains before trading).
+            </div>`;
+
+            document.getElementById('mainContent').innerHTML = html;
+            renderSurpriseChart(history);
+            renderMomentumChart(trends);
         }
 
-        // Init
+        // ---------------- surprise chart (actual vs estimate per quarter) ----------------
+        let surpriseChart = null;
+        function renderSurpriseChart(history) {
+            if (!history.length) return;
+            const canvas = document.getElementById('surpriseChart');
+            if (!canvas) return;
+            if (surpriseChart) { surpriseChart.destroy(); surpriseChart = null; }
+            const labels = history.map(h => String(h.quarter).split('T')[0].slice(5));
+            const actuals = history.map(h => h.actual);
+            const estimates = history.map(h => h.estimate);
+            surpriseChart = new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Actual',
+                            data: actuals,
+                            backgroundColor: actuals.map((a, i) => (a != null && estimates[i] != null && a < estimates[i]) ? 'rgba(248,81,73,.85)' : 'rgba(63,185,80,.85)'),
+                            borderRadius: 2
+                        },
+                        {
+                            label: 'Estimate',
+                            data: estimates,
+                            backgroundColor: 'rgba(88,166,255,.55)',
+                            borderRadius: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: { labels: { color: '#8b949e', boxWidth: 10 } },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y == null ? '—' : ctx.parsed.y.toFixed(2)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+                        y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+                    }
+                }
+            });
+        }
+
+        // ---------------- M2: revision momentum delta bars (Δ7/30/90D per period) ----------------
+        let momChart = null;
+        const WINDOW_ALPHA = {'7days': 1.0, '30days': 0.62, '90days': 0.38};
+        function renderMomentumChart(trends) {
+            const canvas = document.getElementById('momChart');
+            if (!canvas) return;
+            if (momChart) { momChart.destroy(); momChart = null; }
+            const rows = trends.filter(t => t.current != null);
+            if (!rows.length) return;
+            const pct = (cur, ago) => (cur != null && ago != null && ago !== 0) ? (cur - ago) / ago * 100 : null;
+            const labels = rows.map(t => t.period);
+            const barColor = (v, w) => {
+                if (v == null) return 'rgba(139,148,158,.25)';
+                const rgb = v >= 0 ? '63,185,80' : '248,81,73';
+                return `rgba(${rgb},${WINDOW_ALPHA[w]})`;
+            };
+            const datasets = ['7days', '30days', '90days'].map(w => {
+                const vals = rows.map(t => pct(t.current, t[w]));
+                return {
+                    label: 'Δ ' + w.replace('days', 'D'),
+                    data: vals,
+                    backgroundColor: vals.map(v => barColor(v, w)),
+                    borderColor: vals.map(v => v == null ? 'transparent' : (v >= 0 ? 'rgba(63,185,80,1)' : 'rgba(248,81,73,1)')),
+                    borderWidth: 1,
+                    borderRadius: 2
+                };
+            });
+            momChart = new Chart(canvas, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    plugins: {
+                        legend: { labels: { color: '#8b949e', boxWidth: 10 } },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ctx.parsed.y == null ? ctx.dataset.label + ': —' : ctx.dataset.label + ': ' + (ctx.parsed.y >= 0 ? '+' : '') + ctx.parsed.y.toFixed(2) + '%'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+                        y: { ticks: { color: '#8b949e', callback: v => (v >= 0 ? '+' : '') + v + '%' }, grid: { color: '#21262d' }, title: { display: true, text: 'Δ vs ago', color: '#8b949e', font: { size: 11 } } }
+                    }
+                }
+            });
+        }
+
+        // ---------------- init ----------------
+        document.getElementById('ticker').addEventListener('keypress', e => {
+            if (e.key === 'Enter') loadEstimates();
+        });
         renderWatchlist();
     </script>
 </body>
 </html>
+
