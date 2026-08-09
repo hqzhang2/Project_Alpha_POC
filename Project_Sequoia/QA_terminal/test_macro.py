@@ -12,6 +12,7 @@ import os
 import sys
 import threading
 import urllib.request
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -123,6 +124,98 @@ def test_cache_returns_cached(monkeypatch):
     macro.get_series("UNRATE")
     macro.get_series("UNRATE")
     assert calls.count("UNRATE") == 1  # second call served from cache
+
+
+# --------------------------------------------------------------------------- #
+# Treasury yield curve (network-free)
+# --------------------------------------------------------------------------- #
+def test_weekday_rules():
+    assert macro._last_weekday(date(2026, 8, 8)) == date(2026, 8, 7)   # Sat -> Fri
+    assert macro._last_weekday(date(2026, 8, 9)) == date(2026, 8, 7)   # Sun -> Fri
+    assert macro._last_weekday(date(2026, 8, 10)) == date(2026, 8, 10)  # Mon stays
+    assert macro._last_weekday(date(2026, 8, 11)) == date(2026, 8, 11)  # Tue stays
+
+
+def test_month_offset_clamps():
+    assert macro._month_offset(date(2026, 1, 31), 1) == date(2025, 12, 31)
+    assert macro._month_offset(date(2026, 3, 31), 1) == date(2026, 2, 28)  # non-leap
+    assert macro._month_offset(date(2026, 8, 15), 3) == date(2026, 5, 15)
+    assert macro._month_offset(date(2026, 8, 15), 24) == date(2024, 8, 15)
+
+
+def test_fall_backward():
+    days = [date(2026, 8, 3), date(2026, 8, 4), date(2026, 8, 5), date(2026, 8, 6), date(2026, 8, 7)]
+    assert macro._fall_backward(date(2026, 8, 8), days) == date(2026, 8, 7)     # weekend -> Fri
+    assert macro._fall_backward(date(2026, 8, 7), days[:-1]) == date(2026, 8, 6)  # holiday Fri -> Thu
+    assert macro._fall_backward(date(2026, 8, 5), days) == date(2026, 8, 5)     # exact hit
+    assert macro._fall_backward(date(2026, 7, 1), days) is None                  # before data
+
+
+def test_curve_on_accepts_date_datetime_str(monkeypatch):
+    obs = {"DGS1MO": [{"date": "2026-08-06", "value": 3.8}],
+           "DGS30": [{"date": "2026-08-06", "value": 5.2}]}
+    monkeypatch.setattr(macro, "get_series", lambda sid: obs.get(sid, []))
+    for v in (date(2026, 8, 6), datetime(2026, 8, 6), "2026-08-06"):
+        c = macro._curve_on(v)
+        assert c and c["date"] == "2026-08-06" and len(c["points"]) == 2
+    assert macro._curve_on(date(2026, 8, 5)) is None
+
+
+def _fake_dgs(monkeypatch, days_map):
+    """Wire a fake get_series: sid -> {date: value} for yield-curve tests."""
+    def get_series(sid, _orig=macro.get_series):
+        return [{"date": d.isoformat(), "value": v} for d, v in days_map.get(sid, [])]
+    monkeypatch.setattr(macro, "get_series", get_series)
+
+
+def _trading_days_around(end, n, skip=None):
+    """n weekdays ending at `end`, minus any skip dates (holidays)."""
+    days, d = [], end
+    while len(days) < n:
+        if d.weekday() < 5 and d not in (skip or set()):
+            days.append(d)
+        d -= timedelta(days=1)
+    return list(reversed(days))
+
+
+def test_yield_curve_today_omitted_when_no_data(monkeypatch):
+    # today = Sat 2026-08-08 (eff Fri 08-07); FRED data ends 08-06 -> today
+    # omitted, yesterday=08-06 shown; all period-ago anchors fall backward.
+    days = _trading_days_around(date(2026, 8, 6), 750)
+    days_map = {sid: [(d, 4.0 + (d.day % 5) * 0.1) for d in days] for _, sid, _ in macro.TENORS}
+    _fake_dgs(monkeypatch, days_map)
+
+    class FakeNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 8, 12, 0, 0, tzinfo=tz)
+    monkeypatch.setattr(macro, "datetime", FakeNow)
+
+    yc = macro.get_yield_curve()
+    assert "today" not in yc["curves"]                      # Fri 08-07 has no data
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-06"
+    for k in ("1W", "1M", "3M", "6M", "1Y", "2Y"):
+        assert k in yc["curves"]                            # fall backward always finds one
+    assert yc["curves"]["YTD"]["date"].startswith("2026-")  # first of year
+    assert yc["tenors"] == ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"]
+
+
+def test_yield_curve_yesterday_omitted_on_friday_holiday(monkeypatch):
+    # today = Mon 2026-08-10; Fri 08-07 is a holiday (no data) -> yesterday
+    # omitted (never substituted); today (Mon) present.
+    days = _trading_days_around(date(2026, 8, 10), 400, skip={date(2026, 8, 7)})
+    days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
+    _fake_dgs(monkeypatch, days_map)
+
+    class FakeNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 10, 12, 0, 0, tzinfo=tz)
+    monkeypatch.setattr(macro, "datetime", FakeNow)
+
+    yc = macro.get_yield_curve()
+    assert "today" in yc["curves"]
+    assert "yesterday" not in yc["curves"]
 
 
 # --------------------------------------------------------------------------- #

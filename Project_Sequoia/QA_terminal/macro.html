@@ -33,6 +33,20 @@
 
   .section { padding: 16px 24px 24px; }
 
+  /* treasury yield curve panel (Credit & Financial Conditions tab) */
+  .yc-panel { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 12px 16px 8px; margin-bottom: 14px; }
+  .yc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .yc-title { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .05em; }
+  .yc-title b { color: #e6edf3; }
+  .yc-legend { display: flex; gap: 14px; font-size: 11px; color: #8b949e; flex-wrap: wrap; }
+  .yc-legend .sw { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .yc-toggle { display: flex; gap: 2px; }
+  .yc-toggle button { background: none; border: 1px solid transparent; color: #8b949e; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+  .yc-toggle button:hover { color: #e6edf3; }
+  .yc-toggle button.on { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+  .yc-chart { position: relative; height: 260px; }
+  .yc-foot { font-size: 10px; color: #8b949e; margin-top: 6px; }
+
   /* KPI strip */
   .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 14px; }
   .kpi { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
@@ -131,6 +145,9 @@ let charts = [];
 let mdChart = null;
 let mdItem = null;
 let latestDate = null;
+let ycData = null;   // yield-curve payload from /api/macro
+let ycChart = null;  // the treasury yield curve Chart instance
+let ycScale = 'linear';  // 'linear' | 'log' (Bloomberg-style toggle)
 
 function dCls(v){ return v > 0.0001 ? 'delta-up' : (v < -0.0001 ? 'delta-dn' : 'delta-flat'); }
 function fmt(v, unit){ return (v == null) ? '—' : Number(v).toFixed(2) + (unit || ''); }
@@ -169,10 +186,29 @@ function setGroup(k){ activeGroup=k; renderSubtabBar(); renderAll(); if(mdItem) 
 
 function renderAll(){
   charts.forEach(c=>c.destroy()); charts = [];
+  if (ycChart) { ycChart.destroy(); ycChart = null; }
   const group = groups.find(g=>g.key===activeGroup);
   if (!group) return;
   const items = group.items;
   const wrap = document.getElementById('macMain');
+
+  // treasury yield curve panel — only in Credit & Financial Conditions
+  const ycPanel = (activeGroup === 'credit' && ycData && Object.keys(ycData.curves || {}).length)
+    ? `<div class="yc-panel">
+         <div class="yc-head">
+           <div class="yc-title">Treasury Yield Curve · <b>today / yesterday / 1W / ${periodKey}-ago</b> · yield %</div>
+           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+             <div class="yc-toggle">
+               <button id="ycScaleLin" class="${ycScale==='linear'?'on':''}" onclick="setYcScale('linear')">Linear</button>
+               <button id="ycScaleLog" class="${ycScale==='log'?'on':''}" onclick="setYcScale('log')">Log</button>
+             </div>
+             <div class="yc-legend" id="ycLegend"></div>
+           </div>
+         </div>
+         <div class="yc-chart"><canvas id="ycChart"></canvas></div>
+         <div class="yc-foot" id="ycFoot"></div>
+       </div>`
+    : '';
 
   // KPI strip
   const kpis = items.map(it => {
@@ -198,7 +234,9 @@ function renderAll(){
       <div class="chart-box"><canvas id="cv-${it.id}"></canvas></div>
     </div>`).join('');
 
-  wrap.innerHTML = `<div class="kpi-strip">${kpis}</div><div class="stack">${panels}</div>`;
+  wrap.innerHTML = `${ycPanel}<div class="kpi-strip">${kpis}</div><div class="stack">${panels}</div>`;
+
+  if (ycPanel) renderYC();
 
   items.forEach((it,i) => {
     const w = sliceObs(it, periodKey);
@@ -226,6 +264,121 @@ function renderAll(){
       }
     }));
   });
+}
+
+// ============ treasury yield curve (Credit & Financial Conditions) ============
+const YC_STYLE = {
+  'today':     { color: '#e6edf3', width: 3, dash: [] },          // bold white
+  'yesterday': { color: '#58a6ff', width: 2, dash: [] },          // solid blue
+  '1W':        { color: '#8b949e', width: 2, dash: [5,3] },       // gray dashed
+};
+const YC_AGO_COLOR = '#f0883e';                                    // period-ago orange
+
+// x-axis tick labels: explicit tenor ladder (1M/6M/1y/2y/5y/7y/10y/20y/30y).
+// 3M skipped for space; 0y/15y/25y dropped. Values are linear-scale years.
+const YC_TICKS = [[1/12,'1M'],[0.5,'6M'],[1,'1y'],[2,'2y'],[5,'5y'],
+                  [7,'7y'],[10,'10y'],[20,'20y'],[30,'30y']];
+
+function ycLabel(k){ return k === 'today' ? 'Today' : k === 'yesterday' ? 'Yesterday' : (k === '1W' ? '1W' : k + ' ago'); }
+
+function setYcScale(k){
+  ycScale = k;
+  const lin = document.getElementById('ycScaleLin'), log = document.getElementById('ycScaleLog');
+  if (lin) lin.className = k === 'linear' ? 'on' : '';
+  if (log) log.className = k === 'log' ? 'on' : '';
+  renderYC();
+}
+
+// vertical crosshair at the hovered tenor; tooltip (mode:index) lists all
+// curves' yields at that tenor (Bloomberg-style)
+const ycCrosshair = {
+  id: 'ycCrosshair',
+  afterDraw(chart){
+    const active = chart.tooltip.getActiveElements();
+    if (!active.length) return;
+    const x = active[0].element.x;
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(139,148,158,0.9)';
+    ctx.setLineDash([3,3]);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+function renderYC(){
+  const curves = ycData.curves;
+  const keys = ['today', 'yesterday', '1W'];
+  if (curves[periodKey] && !keys.includes(periodKey)) keys.push(periodKey);
+  const present = keys.filter(k => curves[k]);
+  if (!present.length) return;
+
+  // legend
+  document.getElementById('ycLegend').innerHTML = present.map(k => {
+    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: 2, dash: [] };
+    return `<span><span class="sw" style="background:${st.color}"></span><span style="color:${st.color}">${ycLabel(k)}</span> <span style="color:#6e7681">${curves[k].date}</span></span>`;
+  }).join('');
+
+  // x = tenor years (LINEAR, max 30 per Hong); y = yield %
+  const labels = ycData.tenors.map(t => {
+    const p = curves[present[0]].points.find(x => x.tenor === t);
+    return p ? p.years : null;
+  });
+  const datasets = present.map(k => {
+    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: 2, dash: [] };
+    return {
+      label: k,
+      data: ycData.tenors.map(t => { const p = curves[k].points.find(x => x.tenor === t); return p ? p.yield : null; }),
+      borderColor: st.color, borderWidth: st.width, borderDash: st.dash,
+      pointRadius: 2.5, pointBackgroundColor: st.color, tension: 0.2, spanGaps: false,
+    };
+  });
+
+  if (ycChart) { ycChart.destroy(); ycChart = null; }
+  ycChart = new Chart(document.getElementById('ycChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    plugins: [ycCrosshair],
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => 'Tenor ' + ycData.tenors[items[0].dataIndex],
+            label: (ctx) => ' ' + ycLabel(ctx.dataset.label) + ': ' + ctx.parsed.y + '%',
+          }
+        }
+      },
+      scales: {
+        x: (ycScale === 'log'
+          ? { type: 'logarithmic', position: 'bottom', min: 0.05, max: 30,   // log(0) undefined
+              afterBuildTicks: (axis) => { axis.ticks = YC_TICKS.map(([v]) => ({ value: v })); },
+              ticks: { color: '#8b949e', font: { size: 10 },
+                       callback: v => { const t = YC_TICKS.find(([x]) => Math.abs(x - v) < 1e-6); return t ? t[1] : ''; } },
+              grid: { color: '#21262d' },
+              title: { display: true, text: 'Tenor (Logarithmic)', color: '#8b949e', font: { size: 10 } } }
+          : { type: 'linear', position: 'bottom', min: 0, max: 30,   // 30y = last tick
+              afterBuildTicks: (axis) => { axis.ticks = YC_TICKS.map(([v]) => ({ value: v })); },
+              ticks: { color: '#8b949e', font: { size: 10 },
+                       callback: v => { const t = YC_TICKS.find(([x]) => Math.abs(x - v) < 1e-6); return t ? t[1] : ''; } },
+              grid: { color: '#21262d' },
+              title: { display: true, text: 'Tenor (linear)', color: '#8b949e', font: { size: 10 } } }),
+        y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' },
+             title: { display: true, text: 'Yield %', color: '#8b949e', font: { size: 10 } } }
+      }
+    }
+  });
+
+  document.getElementById('ycFoot').textContent =
+    'Curves: ' + present.map(k => `${ycLabel(k)} (${curves[k].date})`).join(' · ') + '. ' +
+    (curves.today ? '' : 'Today omitted: resolved day has no FRED DGS data yet — per rule, no substitution. ') +
+    `X-axis ${ycScale === 'log' ? 'logarithmic' : 'linear'}, 30Y = last tick.`;
 }
 
 // ============ drill-down modal ============
@@ -290,6 +443,7 @@ async function loadMacro(){
     const res = await fetch('/api/macro');
     const data = await res.json();
     groups = data.groups || [];
+    ycData = data.yield_curve || null;
     if (!data.configured) {
       document.getElementById('mFoot').textContent =
         'FRED_API_KEY not configured — series show —. Add FRED_API_KEY to the QA/PROD plist env and restart (bootout+bootstrap).';

@@ -15,13 +15,14 @@ Design:
     class in server.py; module registered in _discover_module_routes().
 """
 
+import calendar
 import json
 import logging
 import os
 import threading
 import time
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 logger = logging.getLogger("alpha-terminal.macro")
 
@@ -204,7 +205,129 @@ def get_macro():
             })
         groups.append({"key": g["key"], "name": g["name"], "items": items})
     return {"generated": datetime.now().isoformat(timespec="seconds"),
-            "configured": configured, "groups": groups}
+            "configured": configured, "groups": groups,
+            "yield_curve": get_yield_curve()}
+
+
+# ---------------------------------------------------------------------------
+# Treasury yield curve (Credit & Financial Conditions tab, approved 2026-08).
+# Tenor ladder: FRED constant-maturity set, x-axis tenor in years (linear).
+# Anchors: today / yesterday / 1W always; period-ago (1M..2Y, YTD) per the
+# page's global period selector. Weekend/holiday rules (Hong):
+#   - today = last weekday <= today (Sat/Sun -> Fri); if that day has no data
+#     (holiday), the today curve is OMITTED (no substitution).
+#   - yesterday = last weekday < today's resolved day; omitted if no data.
+#   - 1W / 1M / 3M / 6M / 1Y / 2Y: exact date offset, then FALL BACKWARD to
+#     the last available curve (weekend -> previous Friday, holiday -> walk
+#     back further). Always shown when any history exists.
+#   - YTD: first available curve date in the current year.
+# ---------------------------------------------------------------------------
+TENORS = [
+    ("1M", "DGS1MO", 1 / 12), ("3M", "DGS3MO", 0.25), ("6M", "DGS6MO", 0.5),
+    ("1Y", "DGS1", 1.0), ("2Y", "DGS2", 2.0), ("3Y", "DGS3", 3.0),
+    ("5Y", "DGS5", 5.0), ("7Y", "DGS7", 7.0), ("10Y", "DGS10", 10.0),
+    ("20Y", "DGS20", 20.0), ("30Y", "DGS30", 30.0),
+]
+
+
+def _dgs_map(series_id):
+    """{date: yield} for one FRED constant-maturity series."""
+    return {o["date"]: o["value"] for o in get_series(series_id)}
+
+
+def _trading_days():
+    """Sorted list of dates (datetime.date) with any DGS data."""
+    days = set()
+    for _, sid, _y in TENORS:
+        for o in get_series(sid):
+            try:
+                days.add(datetime.strptime(o["date"], "%Y-%m-%d").date())
+            except (ValueError, TypeError):
+                continue
+    return sorted(days)
+
+
+def _last_weekday(d):
+    while d.weekday() >= 5:  # Sat=5, Sun=6
+        d -= timedelta(days=1)
+    return d
+
+
+def _month_offset(d, months):
+    """d minus N calendar months, day clamped to target month length."""
+    total = d.year * 12 + (d.month - 1) - months
+    y, m = divmod(total, 12)
+    m += 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
+    return datetime(y, m, day).date()
+
+
+def _curve_on(date_val):
+    """{date, points:[{tenor, years, yield}]} for a date, or None."""
+    date_str = date_val.strftime("%Y-%m-%d") if isinstance(date_val, (datetime, date)) else date_val  # noqa: UP038 (py3.9 runtime)
+    points = []
+    for label, sid, years in TENORS:
+        v = _dgs_map(sid).get(date_str)
+        if v is not None:
+            points.append({"tenor": label, "years": round(years, 4), "yield": round(v, 3)})
+    if not points:
+        return None
+    return {"date": date_str, "points": points}
+
+
+def _fall_backward(exact_date, days):
+    """Last available curve date <= exact_date (fall backward per Hong)."""
+    for d in reversed(days):
+        if d <= exact_date:
+            return d
+    return None
+
+
+def get_yield_curve():
+    """Yield-curve payload: tenors + per-anchor curves (only those that exist).
+
+    Keys: today, yesterday, 1W, 1M, 3M, 6M, YTD, 1Y, 2Y. today/yesterday may
+    be absent on holidays (omitted, never substituted); period-ago keys fall
+    backward to the last available curve.
+    """
+    days = _trading_days()
+    if not days:
+        return {"tenors": [t[0] for t in TENORS], "curves": {}}
+    try:
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+    except Exception:
+        today = datetime.now().date()
+
+    today_eff = _last_weekday(today)
+    yest_eff = _last_weekday(today_eff - timedelta(days=1))
+
+    curves = {}
+    today_curve = _curve_on(today_eff.isoformat())
+    if today_curve:
+        curves["today"] = today_curve
+    yest_curve = _curve_on(yest_eff.isoformat())
+    if yest_curve:
+        curves["yesterday"] = yest_curve
+
+    # 1W: exact offset from the effective today, then fall backward
+    w1 = _fall_backward(today_eff - timedelta(days=7), days)
+    if w1:
+        curves["1W"] = _curve_on(w1)
+
+    # period-ago anchors: calendar offset -> fall backward
+    for key, months in (("1M", 1), ("3M", 3), ("6M", 6), ("1Y", 12), ("2Y", 24)):
+        exact = _month_offset(today_eff, months)
+        d = _fall_backward(exact, days)
+        if d:
+            curves[key] = _curve_on(d)
+
+    # YTD: first available curve date in the current year
+    ytd = next((d for d in days if d >= datetime(today_eff.year, 1, 1).date()), None)
+    if ytd:
+        curves["YTD"] = _curve_on(ytd)
+
+    return {"tenors": [t[0] for t in TENORS], "curves": curves}
 
 
 # Module route registration (R2)
