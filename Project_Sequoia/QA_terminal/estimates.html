@@ -283,7 +283,7 @@
                 <div class="section-title">EPS Growth vs Benchmark</div>
                 <div class="table-container"><table id="tblGrowth">
                     <thead><tr>
-                        <th>Period</th>
+                        <th style="width:1%">Period</th>
                         <th class="num">Stock</th>
                         <th class="num">Index</th>
                         <th class="num">Δ vs Index</th>
@@ -295,7 +295,7 @@
                 const isLtg = g.period === 'LTG';
                 const delta = (g.stock != null && g.index != null) ? g.stock - g.index : null;
                 html += `<tr class="${isLtg ? 'ltg-row' : ''}">
-                    <td class="highlight">${esc(g.period)}${isLtg ? ' <span style="color:#8b949e;font-size:11px">(long-term)</span>' : ''}</td>
+                    <td class="highlight"${isLtg ? ' title="Long-term growth rate"' : ''}>${esc(g.period)}</td>
                     <td class="num">${fmtPct(g.stock)}</td>
                     <td class="num">${fmtPct(g.index)}</td>
                     <td class="num ${cls(delta)}">${delta == null ? '-' : (delta >= 0 ? '+' : '') + (delta * 100).toFixed(1) + '%'}</td>
