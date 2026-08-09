@@ -24,28 +24,26 @@
         .watchlist-bar label { color: #8b949e; font-size: 12px; }
         .status { color: #8b949e; font-size: 12px; margin-left: auto; }
 
-        .omain { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+        .omain { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
 
-        /* KPI strip (Bloomberg EE top) */
         .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-        .kpi { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; border-left: 3px solid #58a6ff; }
+        .kpi { background: #161b22; border: 1px solid #30363d; border-left: 3px solid #58a6ff; border-radius: 8px; padding: 12px 16px; }
         .kpi .k-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; }
-        .kpi .k-value { font-size: 22px; font-weight: 700; margin: 4px 0 2px; font-family: 'Monaco', monospace; }
-        .kpi .k-sub { font-size: 12px; color: #8b949e; }
-        .chip { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; vertical-align: 3px; margin-left: 6px; }
-        .chip-amc { background: rgba(88,166,255,.15); color: #58a6ff; }
-        .chip-bmo { background: rgba(63,185,80,.15); color: #3fb950; }
+        .kpi .k-value { font-size: 21px; font-weight: 700; margin: 4px 0 2px; font-family: 'Monaco', monospace; }
+        .kpi .k-sub { font-size: 11px; color: #8b949e; }
 
-        .section-title { font-size: 14px; font-weight: 600; color: #58a6ff; text-transform: uppercase; margin-bottom: 12px; border-left: 3px solid #58a6ff; padding-left: 8px; }
+        .section-title { font-size: 14px; font-weight: 600; color: #58a6ff; text-transform: uppercase; margin-bottom: 10px; border-left: 3px solid #58a6ff; padding-left: 8px; }
+        .section-title .sub { color: #8b949e; font-size: 11px; text-transform: none; font-weight: 400; margin-left: 8px; }
 
-        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .stack { display: flex; flex-direction: column; gap: 16px; }
 
         .table-container { background: #161b22; border-radius: 8px; border: 1px solid #30363d; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th { background: #21262d; color: #8b949e; text-align: left; padding: 10px 12px; font-weight: 600; text-transform: uppercase; font-size: 11px; border-bottom: 1px solid #30363d; position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
+        th { background: #21262d; color: #8b949e; text-align: left; padding: 9px 12px; font-weight: 600; text-transform: uppercase; font-size: 11px; border-bottom: 1px solid #30363d; position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
         th .sort-arrow { display: inline-block; width: 10px; opacity: .4; margin-left: 3px; font-size: 9px; }
         th.active .sort-arrow { opacity: 1; }
-        td { padding: 10px 12px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+        td { padding: 9px 12px; border-bottom: 1px solid #21262d; white-space: nowrap; }
         tbody tr:hover { background: #21262d; }
         tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
         .num { text-align: right; font-family: 'Monaco', monospace; }
@@ -54,8 +52,9 @@
         .highlight { color: #e6edf3; font-weight: 600; }
         .ltg-row td { background: rgba(88,166,255,0.06); }
         .empty td { text-align: center; color: #8b949e; padding: 18px; font-style: italic; }
+        .nq { background: rgba(88,166,255,.15); color: #58a6ff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 8px; vertical-align: 2px; }
 
-        .chart-box { height: 240px; padding: 12px; }
+        .chart-box { height: 220px; padding: 12px; }
         .m-legend { margin-top: 4px; padding-top: 8px; border-top: 1px solid #21262d; color: #8b949e; font-size: 11px; line-height: 1.7; }
 
         .loading { padding: 40px; text-align: center; color: #8b949e; }
@@ -200,8 +199,6 @@
 
             // ---------------- KPI strip ----------------
             html += '<div class="kpi-row">';
-
-            // Next earnings
             let neVal = '-', neChip = '', neSub = '';
             if (next && next.date) {
                 const iso = String(next.date);
@@ -209,26 +206,24 @@
                 const hh = m ? +m[1] : 16;
                 const amc = hh >= 15;
                 neVal = iso.slice(0, 10);
-                neChip = `<span class="chip ${amc ? 'chip-amc' : 'chip-bmo'}">${amc ? 'AMC' : 'BMO'}</span>`;
+                neChip = `<span class="${amc ? 'positive' : 'negative'}" style="font-size:12px">${amc ? 'AMC' : 'BMO'}</span>`;
                 neSub = next.eps_estimate != null ? 'EPS est $' + fmt(next.eps_estimate) : 'no EPS est';
             }
-            html += `<div class="kpi"><div class="k-label">Next Earnings</div><div class="k-value">${esc(neVal)}${neChip}</div><div class="k-sub">${esc(neSub)}</div></div>`;
+            html += `<div class="kpi"><div class="k-label">Next Earnings</div><div class="k-value">${esc(neVal)} ${neChip}</div><div class="k-sub">${esc(neSub)}</div></div>`;
 
-            // Price target
             let ptVal = '-', ptSub = '';
             if (apt && apt.mean != null) {
                 ptVal = '$' + fmt(apt.mean);
                 const cur = apt.current;
                 if (cur != null && cur > 0) {
                     const ups = (apt.mean - cur) / cur * 100;
-                    ptSub = `${ups >= 0 ? '▲' : '▼'} ${Math.abs(ups).toFixed(1)}% vs $${fmt(cur)} · high $${fmt(apt.high)} / low $${fmt(apt.low)}`;
+                    ptSub = `${ups >= 0 ? '▲' : '▼'} ${Math.abs(ups).toFixed(1)}% vs $${fmt(cur)} · ${fmt(apt.high)}/${fmt(apt.low)}`;
                 } else {
                     ptSub = `high $${fmt(apt.high)} / low $${fmt(apt.low)}`;
                 }
             }
             html += `<div class="kpi"><div class="k-label">Price Target (mean)</div><div class="k-value">${esc(ptVal)}</div><div class="k-sub">${esc(ptSub)}</div></div>`;
 
-            // Consensus rating
             let rateVal = '-', rateSub = '', rateColor = '#8b949e';
             if (recs.length) {
                 const r = recs[0];
@@ -238,58 +233,52 @@
                     const score = (5*sb + 4*b + 3*h + 2*s + 1*ssx) / total;
                     rateVal = score >= 4.5 ? 'Strong Buy' : score >= 3.5 ? 'Buy' : score >= 2.5 ? 'Hold' : score >= 1.5 ? 'Sell' : 'Strong Sell';
                     rateColor = score >= 3.5 ? '#3fb950' : score >= 2.5 ? '#f0883e' : '#f85149';
-                    rateSub = `score ${score.toFixed(2)} · SB ${sb} / B ${b} / H ${h} / S ${s} / SS ${ssx} (${total})`;
+                    rateSub = `score ${score.toFixed(2)} · SB ${sb} / B ${b} / H ${h} / S ${s} / SS ${ssx}`;
                 }
             }
             html += `<div class="kpi" style="border-left-color:${rateColor}"><div class="k-label">Consensus Rating</div><div class="k-value" style="color:${rateColor}">${esc(rateVal)}</div><div class="k-sub">${esc(rateSub)}</div></div>`;
 
-            // Surprise quality
             let sqVal = '-', sqSub = '';
             if (ss) {
                 sqVal = Math.round(ss.beat_rate * 100) + '% beats';
                 sqSub = `avg ${ss.avg_surprise_pct >= 0 ? '+' : ''}${ss.avg_surprise_pct.toFixed(1)}% · streak ${ss.beat_streak} · n=${ss.n}`;
             }
             html += `<div class="kpi"><div class="k-label">Surprise Quality</div><div class="k-value">${esc(sqVal)}</div><div class="k-sub">${esc(sqSub)}</div></div>`;
-
             html += '</div>';
 
-            // ---------------- Consensus summary ----------------
+            // ---------------- ROW 1: history & surprise (left) | growth + recommendations (right) ----------------
+            html += '<div class="grid2">';
+
+            // Left: earnings history + surprise chart
             html += `<div>
-                <div class="section-title">Consensus Estimates (EE Summary)</div>
-                <div class="table-container"><table id="tblSummary">
+                <div class="section-title">Earnings History &amp; Surprise <span class="sub">track record</span></div>
+                <div class="table-container"><table id="tblHist">
                     <thead><tr>
-                        <th data-k="period" onclick="sortTable('period','tblSummary')">Period<span class="sort-arrow"></span></th>
-                        <th data-k="eps_avg" class="num" onclick="sortTable('eps_avg','tblSummary')">EPS Avg<span class="sort-arrow"></span></th>
-                        <th data-k="eps_low" class="num" onclick="sortTable('eps_low','tblSummary')">Low<span class="sort-arrow"></span></th>
-                        <th data-k="eps_high" class="num" onclick="sortTable('eps_high','tblSummary')">High<span class="sort-arrow"></span></th>
-                        <th data-k="eps_growth" class="num" onclick="sortTable('eps_growth','tblSummary')">EPS Growth<span class="sort-arrow"></span></th>
-                        <th data-k="analysts" class="num" onclick="sortTable('analysts','tblSummary')">Analysts<span class="sort-arrow"></span></th>
-                        <th data-k="rev_avg" class="num" onclick="sortTable('rev_avg','tblSummary')">Rev Avg<span class="sort-arrow"></span></th>
-                        <th data-k="rev_low" class="num" onclick="sortTable('rev_low','tblSummary')">Rev Low<span class="sort-arrow"></span></th>
-                        <th data-k="rev_high" class="num" onclick="sortTable('rev_high','tblSummary')">Rev High<span class="sort-arrow"></span></th>
-                        <th data-k="rev_growth" class="num" onclick="sortTable('rev_growth','tblSummary')">Rev Growth<span class="sort-arrow"></span></th>
+                        <th>Quarter</th>
+                        <th class="num">Actual</th>
+                        <th class="num">Estimate</th>
+                        <th class="num">Surprise</th>
                     </tr></thead><tbody>`;
-            if (!summary.length) {
-                html += '<tr class="empty"><td colspan="10">No consensus data for this ticker</td></tr>';
+            if (!history.length) {
+                html += '<tr class="empty"><td colspan="4">No earnings history</td></tr>';
             }
-            summary.forEach(s => {
-                const ord = PERIOD_ORD[s.period] !== undefined ? PERIOD_ORD[s.period] : 99;
+            history.forEach(h => {
+                const q = h.quarter ? String(h.quarter).split('T')[0] : h.quarter;
                 html += `<tr>
-                    <td class="highlight" data-k="period" data-sort="${ord}">${esc(s.period)}</td>
-                    <td class="num highlight" data-k="eps_avg" data-sort="${s.eps_avg ?? ''}">${fmt(s.eps_avg)}</td>
-                    <td class="num" data-k="eps_low" data-sort="${s.eps_low ?? ''}">${fmt(s.eps_low)}</td>
-                    <td class="num" data-k="eps_high" data-sort="${s.eps_high ?? ''}">${fmt(s.eps_high)}</td>
-                    <td class="num ${cls(s.eps_growth)}" data-k="eps_growth" data-sort="${s.eps_growth ?? ''}">${fmtPct(s.eps_growth)}</td>
-                    <td class="num" data-k="analysts" data-sort="${s.analysts ?? ''}">${s.analysts ?? '-'}</td>
-                    <td class="num" data-k="rev_avg" data-sort="${s.rev_avg ?? ''}">${fmtLarge(s.rev_avg)}</td>
-                    <td class="num" data-k="rev_low" data-sort="${s.rev_low ?? ''}">${fmtLarge(s.rev_low)}</td>
-                    <td class="num" data-k="rev_high" data-sort="${s.rev_high ?? ''}">${fmtLarge(s.rev_high)}</td>
-                    <td class="num ${cls(s.rev_growth)}" data-k="rev_growth" data-sort="${s.rev_growth ?? ''}">${fmtPct(s.rev_growth)}</td>
+                    <td>${esc(q)}</td>
+                    <td class="num highlight">${fmt(h.actual)}</td>
+                    <td class="num">${fmt(h.estimate)}</td>
+                    <td class="num ${cls(h.surprise)}">${fmtPct(h.surprise)}</td>
                 </tr>`;
             });
-            html += '</tbody></table></div></div>';
+            html += '</tbody></table>';
+            if (history.length) {
+                html += '<div class="chart-box"><canvas id="surpriseChart"></canvas></div>';
+            }
+            html += '</div>';
 
-            // ---------------- Growth vs benchmark ----------------
+            // Right stack: growth (top) + recommendations (bottom)
+            html += '<div class="stack">';
             html += `<div>
                 <div class="section-title">EPS Growth vs Benchmark</div>
                 <div class="table-container"><table id="tblGrowth">
@@ -314,93 +303,6 @@
             });
             html += '</tbody></table></div></div>';
 
-            html += '<div class="grid-container">';
-
-            // ---------------- History + surprise chart ----------------
-            html += `<div>
-                <div class="section-title">Earnings History &amp; Surprise</div>
-                <div class="table-container"><table id="tblHist">
-                    <thead><tr>
-                        <th>Quarter</th>
-                        <th class="num">Actual</th>
-                        <th class="num">Estimate</th>
-                        <th class="num">Surprise</th>
-                    </tr></thead><tbody>`;
-            if (!history.length) {
-                html += '<tr class="empty"><td colspan="4">No earnings history</td></tr>';
-            }
-            history.forEach(h => {
-                const q = h.quarter ? String(h.quarter).split('T')[0] : h.quarter;
-                html += `<tr>
-                    <td>${esc(q)}</td>
-                    <td class="num highlight">${fmt(h.actual)}</td>
-                    <td class="num">${fmt(h.estimate)}</td>
-                    <td class="num ${cls(h.surprise)}">${fmtPct(h.surprise)}</td>
-                </tr>`;
-            });
-            html += '</tbody></table></div>';
-            if (history.length) {
-                html += '<div class="chart-box"><canvas id="surpriseChart"></canvas></div>';
-            }
-            html += '</div>';
-
-            // ---------------- Trends + revisions ----------------
-            html += `<div>
-                <div class="section-title">EPS Revision Trend</div>
-                <div class="table-container"><table id="tblTrend">
-                    <thead><tr>
-                        <th>Period</th>
-                        <th class="num">Current</th>
-                        <th class="num">7D Ago</th>
-                        <th class="num">30D Ago</th>
-                        <th class="num">90D Ago</th>
-                        <th class="num">Δ 7D</th>
-                    </tr></thead><tbody>`;
-            if (!trends.length) {
-                html += '<tr class="empty"><td colspan="6">No revision trend</td></tr>';
-            }
-            trends.forEach(t => {
-                const d7 = (t.current != null && t['7days'] != null) ? t.current - t['7days'] : null;
-                html += `<tr>
-                    <td class="highlight">${esc(t.period)}</td>
-                    <td class="num highlight">${fmt(t.current)}</td>
-                    <td class="num">${fmt(t['7days'])}</td>
-                    <td class="num">${fmt(t['30days'])}</td>
-                    <td class="num">${fmt(t['90days'])}</td>
-                    <td class="num ${cls(d7)}">${d7 == null ? '-' : (d7 >= 0 ? '+' : '') + d7.toFixed(2)}</td>
-                </tr>`;
-            });
-            html += '</tbody></table></div>';
-
-            html += `<div>
-                <div class="section-title">Revision Momentum (Analysts)</div>
-                <div class="table-container"><table id="tblRev">
-                    <thead><tr>
-                        <th>Period</th>
-                        <th class="num">↑ 7D</th>
-                        <th class="num">↑ 30D</th>
-                        <th class="num">↓ 30D</th>
-                        <th class="num">↓ 7D</th>
-                        <th class="num">Net 30D</th>
-                    </tr></thead><tbody>`;
-            if (!revisions.length) {
-                html += '<tr class="empty"><td colspan="6">No revision counts</td></tr>';
-            }
-            revisions.forEach(r => {
-                html += `<tr>
-                    <td class="highlight">${esc(r.period)}</td>
-                    <td class="num positive">${r.up_7d ?? '-'}</td>
-                    <td class="num positive">${r.up_30d ?? '-'}</td>
-                    <td class="num negative">${r.down_30d ?? '-'}</td>
-                    <td class="num negative">${r.down_7d ?? '-'}</td>
-                    <td class="num ${cls(r.net_30d)}">${r.net_30d == null ? '-' : (r.net_30d >= 0 ? '+' : '') + r.net_30d}</td>
-                </tr>`;
-            });
-            html += '</tbody></table></div></div>';
-
-            html += '</div>'; // close grid
-
-            // ---------------- Recommendations ----------------
             html += `<div>
                 <div class="section-title">Analyst Recommendations</div>
                 <div class="table-container"><table id="tblRec">
@@ -429,19 +331,123 @@
                 </tr>`;
             });
             html += '</tbody></table></div></div>';
+            html += '</div>'; // close right stack
+            html += '</div>'; // close row 1 grid
+
+            // ---------------- ROW 2: Consensus Estimates (EE Summary) ----------------
+            html += `<div>
+                <div class="section-title">Consensus Estimates <span class="sub">next quarter is the value</span></div>
+                <div class="table-container"><table id="tblSummary">
+                    <thead><tr>
+                        <th data-k="period" onclick="sortTable('period','tblSummary')">Period<span class="sort-arrow"></span></th>
+                        <th data-k="eps_avg" class="num" onclick="sortTable('eps_avg','tblSummary')">EPS Avg<span class="sort-arrow"></span></th>
+                        <th data-k="eps_low" class="num" onclick="sortTable('eps_low','tblSummary')">Low<span class="sort-arrow"></span></th>
+                        <th data-k="eps_high" class="num" onclick="sortTable('eps_high','tblSummary')">High<span class="sort-arrow"></span></th>
+                        <th data-k="eps_growth" class="num" onclick="sortTable('eps_growth','tblSummary')">EPS Growth<span class="sort-arrow"></span></th>
+                        <th data-k="analysts" class="num" onclick="sortTable('analysts','tblSummary')">Analysts<span class="sort-arrow"></span></th>
+                        <th data-k="rev_avg" class="num" onclick="sortTable('rev_avg','tblSummary')">Rev Avg<span class="sort-arrow"></span></th>
+                        <th data-k="rev_growth" class="num" onclick="sortTable('rev_growth','tblSummary')">Rev Growth<span class="sort-arrow"></span></th>
+                    </tr></thead><tbody>`;
+            if (!summary.length) {
+                html += '<tr class="empty"><td colspan="8">No consensus data for this ticker</td></tr>';
+            }
+            summary.forEach(s => {
+                const ord = PERIOD_ORD[s.period] !== undefined ? PERIOD_ORD[s.period] : 99;
+                const nextTag = (s.period === '0q' || s.period === '+1q') ? '<span class="nq">NEXT</span>' : '';
+                html += `<tr>
+                    <td class="highlight" data-k="period" data-sort="${ord}">${esc(s.period)}${nextTag}</td>
+                    <td class="num highlight" data-k="eps_avg" data-sort="${s.eps_avg ?? ''}">${fmt(s.eps_avg)}</td>
+                    <td class="num" data-k="eps_low" data-sort="${s.eps_low ?? ''}">${fmt(s.eps_low)}</td>
+                    <td class="num" data-k="eps_high" data-sort="${s.eps_high ?? ''}">${fmt(s.eps_high)}</td>
+                    <td class="num ${cls(s.eps_growth)}" data-k="eps_growth" data-sort="${s.eps_growth ?? ''}">${fmtPct(s.eps_growth)}</td>
+                    <td class="num" data-k="analysts" data-sort="${s.analysts ?? ''}">${s.analysts ?? '-'}</td>
+                    <td class="num" data-k="rev_avg" data-sort="${s.rev_avg ?? ''}">${fmtLarge(s.rev_avg)}</td>
+                    <td class="num ${cls(s.rev_growth)}" data-k="rev_growth" data-sort="${s.rev_growth ?? ''}">${fmtPct(s.rev_growth)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+
+            // ---------------- ROW 3: Revisions — M2 chart (top) + trend & momentum tables (bottom) ----------------
+            html += `<div>
+                <div class="section-title">Revisions <span class="sub">trend · momentum · Δ7/30/90D drift</span></div>
+                <div class="table-container"><div class="chart-box"><canvas id="momChart"></canvas></div></div>
+                <div class="grid2" style="margin-top:16px">`;
+
+            // Trend table (left)
+            html += `<div>
+                <div class="section-title" style="margin-bottom:8px">EPS Revision Trend</div>
+                <div class="table-container"><table id="tblTrend">
+                    <thead><tr>
+                        <th>Period</th>
+                        <th class="num">Current</th>
+                        <th class="num">7D Ago</th>
+                        <th class="num">30D Ago</th>
+                        <th class="num">90D Ago</th>
+                        <th class="num">Δ 7D</th>
+                    </tr></thead><tbody>`;
+            if (!trends.length) {
+                html += '<tr class="empty"><td colspan="6">No revision trend</td></tr>';
+            }
+            trends.forEach(t => {
+                const d7 = (t.current != null && t['7days'] != null) ? t.current - t['7days'] : null;
+                html += `<tr>
+                    <td class="highlight">${esc(t.period)}</td>
+                    <td class="num highlight">${fmt(t.current)}</td>
+                    <td class="num">${fmt(t['7days'])}</td>
+                    <td class="num">${fmt(t['30days'])}</td>
+                    <td class="num">${fmt(t['90days'])}</td>
+                    <td class="num ${cls(d7)}">${d7 == null ? '-' : (d7 >= 0 ? '+' : '') + d7.toFixed(2)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+
+            // Momentum table (right) — with Breadth column
+            html += `<div>
+                <div class="section-title" style="margin-bottom:8px">Revision Momentum <span class="sub">analysts</span></div>
+                <div class="table-container"><table id="tblRev">
+                    <thead><tr>
+                        <th>Period</th>
+                        <th class="num">↑ 7D</th>
+                        <th class="num">↑ 30D</th>
+                        <th class="num">↓ 30D</th>
+                        <th class="num">↓ 7D</th>
+                        <th class="num">Net</th>
+                        <th class="num">Breadth</th>
+                    </tr></thead><tbody>`;
+            if (!revisions.length) {
+                html += '<tr class="empty"><td colspan="7">No revision counts</td></tr>';
+            }
+            revisions.forEach(r => {
+                const breadth = (r.up_30d != null && r.down_30d != null && (r.up_30d + r.down_30d) > 0)
+                    ? (r.up_30d / (r.up_30d + r.down_30d) * 100).toFixed(0) + '%' : '-';
+                html += `<tr>
+                    <td class="highlight">${esc(r.period)}</td>
+                    <td class="num positive">${r.up_7d ?? '-'}</td>
+                    <td class="num positive">${r.up_30d ?? '-'}</td>
+                    <td class="num negative">${r.down_30d ?? '-'}</td>
+                    <td class="num negative">${r.down_7d ?? '-'}</td>
+                    <td class="num ${cls(r.net_30d)}">${r.net_30d == null ? '-' : (r.net_30d >= 0 ? '+' : '') + r.net_30d}</td>
+                    <td class="num ${cls((r.up_30d ?? 0) - (r.down_30d ?? 0))}">${breadth}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div>';
+
+            html += '</div>'; // close row 3 grid
+            html += '</div>'; // close row 3 section
 
             // ---------------- Legend footnote ----------------
             html += `<div class="m-legend">
                 Periods: <b>0q</b> = current quarter · <b>+1q</b> = next quarter · <b>0y</b> = current fiscal year · <b>+1y</b> = next fiscal year · <b>LTG</b> = long-term growth rate.<br>
-                <b>AMC</b> = after market close · <b>BMO</b> = before market open · <b>Net 30D</b> = ↑30D − ↓30D analyst revisions · Consensus score: 5=Strong Buy … 1=Strong Sell.<br>
+                <b>AMC</b> = after market close · <b>BMO</b> = before market open · <b>Net</b> = ↑30D − ↓30D analyst revisions · <b>Breadth</b> = share of 30D revisions that were up · <b>Δ7/30/90D</b> = consensus drift vs that many days ago.<br>
                 Source: Yahoo Finance consensus estimates (indicative, may lag the sell-side; verify against live chains before trading).
             </div>`;
 
             document.getElementById('mainContent').innerHTML = html;
             renderSurpriseChart(history);
+            renderMomentumChart(trends);
         }
 
-        // ---------------- surprise chart ----------------
+        // ---------------- surprise chart (actual vs estimate per quarter) ----------------
         let surpriseChart = null;
         function renderSurpriseChart(history) {
             if (!history.length) return;
@@ -490,6 +496,47 @@
             });
         }
 
+        // ---------------- M2: revision momentum delta bars (Δ7/30/90D per period) ----------------
+        let momChart = null;
+        function renderMomentumChart(trends) {
+            const canvas = document.getElementById('momChart');
+            if (!canvas) return;
+            if (momChart) { momChart.destroy(); momChart = null; }
+            const rows = trends.filter(t => t.current != null);
+            if (!rows.length) return;
+            const pct = (cur, ago) => (cur != null && ago != null && ago !== 0) ? (cur - ago) / ago * 100 : null;
+            const labels = rows.map(t => t.period);
+            const color = v => v >= 0 ? 'rgba(63,185,80,.85)' : 'rgba(248,81,73,.85)';
+            const datasets = ['7days', '30days', '90days'].map(w => {
+                const vals = rows.map(t => pct(t.current, t[w]));
+                return {
+                    label: 'Δ ' + w.replace('days', 'D'),
+                    data: vals,
+                    backgroundColor: vals.map(v => v == null ? 'rgba(139,148,158,.25)' : color(v)),
+                    borderRadius: 2
+                };
+            });
+            momChart = new Chart(canvas, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    plugins: {
+                        legend: { labels: { color: '#8b949e', boxWidth: 10 } },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ctx.parsed.y == null ? ctx.dataset.label + ': —' : ctx.dataset.label + ': ' + (ctx.parsed.y >= 0 ? '+' : '') + ctx.parsed.y.toFixed(2) + '%'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+                        y: { ticks: { color: '#8b949e', callback: v => (v >= 0 ? '+' : '') + v + '%' }, grid: { color: '#21262d' }, title: { display: true, text: 'Δ vs ago', color: '#8b949e', font: { size: 11 } } }
+                    }
+                }
+            });
+        }
+
         // ---------------- init ----------------
         document.getElementById('ticker').addEventListener('keypress', e => {
             if (e.key === 'Enter') loadEstimates();
@@ -498,3 +545,4 @@
     </script>
 </body>
 </html>
+
