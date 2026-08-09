@@ -274,10 +274,21 @@ const YC_STYLE = {
 };
 const YC_AGO_COLOR = '#f0883e';                                    // period-ago orange
 
-// x-axis tick labels: explicit tenor ladder (1M/6M/1y/2y/5y/7y/10y/20y/30y).
-// 3M skipped for space; 0y/15y/25y dropped. Values are linear-scale years.
-const YC_TICKS = [[1/12,'1M'],[0.5,'6M'],[1,'1y'],[2,'2y'],[5,'5y'],
-                  [7,'7y'],[10,'10y'],[20,'20y'],[30,'30y']];
+// x-axis tick labels: explicit tenor ladder. Linear skips 3M for space;
+// log includes it (Bloomberg-style spread short end). Values are linear-year
+// positions on the x scale.
+const YC_TICKS_LIN = [[1/12,'1M'],[0.5,'6M'],[1,'1y'],[2,'2y'],[3,'3y'],[5,'5y'],
+                      [7,'7y'],[10,'10y'],[20,'20y'],[30,'30y']];
+const YC_TICKS_LOG = [[1/12,'1M'],[0.25,'3M'],[0.5,'6M'],[1,'1y'],[2,'2y'],[3,'3y'],[5,'5y'],
+                      [7,'7y'],[10,'10y'],[20,'20y'],[30,'30y']];
+function ycTickCfg(){
+  const ticks = ycScale === 'log' ? YC_TICKS_LOG : YC_TICKS_LIN;
+  return {
+    afterBuildTicks: (axis) => { axis.ticks = ticks.map(([v]) => ({ value: v })); },
+    ticks: { color: '#8b949e', font: { size: 10 },
+             callback: v => { const t = ticks.find(([x]) => Math.abs(x - v) < 1e-6); return t ? t[1] : ''; } },
+  };
+}
 
 function ycLabel(k){ return k === 'today' ? 'Today' : k === 'yesterday' ? 'Yesterday' : (k === '1W' ? '1W' : k + ' ago'); }
 
@@ -356,19 +367,14 @@ function renderYC(){
         }
       },
       scales: {
-        x: (ycScale === 'log'
-          ? { type: 'logarithmic', position: 'bottom', min: 0.05, max: 30,   // log(0) undefined
-              afterBuildTicks: (axis) => { axis.ticks = YC_TICKS.map(([v]) => ({ value: v })); },
-              ticks: { color: '#8b949e', font: { size: 10 },
-                       callback: v => { const t = YC_TICKS.find(([x]) => Math.abs(x - v) < 1e-6); return t ? t[1] : ''; } },
-              grid: { color: '#21262d' },
-              title: { display: true, text: 'Tenor (Logarithmic)', color: '#8b949e', font: { size: 10 } } }
-          : { type: 'linear', position: 'bottom', min: 0, max: 30,   // 30y = last tick
-              afterBuildTicks: (axis) => { axis.ticks = YC_TICKS.map(([v]) => ({ value: v })); },
-              ticks: { color: '#8b949e', font: { size: 10 },
-                       callback: v => { const t = YC_TICKS.find(([x]) => Math.abs(x - v) < 1e-6); return t ? t[1] : ''; } },
-              grid: { color: '#21262d' },
-              title: { display: true, text: 'Tenor (linear)', color: '#8b949e', font: { size: 10 } } }),
+        x: Object.assign({
+          position: 'bottom', max: 30,   // 30y = last tick
+          grid: { color: '#21262d' },
+          title: { display: true, text: ycScale === 'log' ? 'Tenor (Logarithmic)' : 'Tenor (linear)', color: '#8b949e', font: { size: 10 } }
+        }, ycScale === 'log'
+          ? { type: 'logarithmic', min: 0.05 }   // log(0) undefined
+          : { type: 'linear', min: 0 },
+          ycTickCfg()),
         y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' },
              title: { display: true, text: 'Yield %', color: '#8b949e', font: { size: 10 } } }
       }

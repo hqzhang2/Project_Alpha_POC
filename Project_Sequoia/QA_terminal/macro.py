@@ -3,14 +3,17 @@
 Macro page = 6 categories (Growth & Labor, Inflation, Monetary & Yield
 Curve, Credit & Financial Conditions, External, Markets), each a set of
 FRED time series. Plain data graphs — no sentiment, no NS-5 portfolio
-grading (Hong scope, 2026-08-08).
+grading (Hong scope, 2026-08-08). The Credit subtab additionally carries a
+treasury yield curve panel (today/yesterday/1W + period-ago curves).
 
 Design:
   - FRED v1 API, key from env only (FRED_API_KEY in QA/PROD plists).
   - Fail-open: missing key / API error -> [] per series, never a crash.
   - TTL cache per series (daily 1h, weekly 6h, monthly 24h, quarterly 48h)
-    so the page is cheap on reload.
-  - Computed series: 2s10s spread, BAA-AAA spread, stock-bond 60d corr.
+    so the page is cheap on reload; computed stock-bond corr shares the
+    daily TTL so reloads don't re-hit Yahoo.
+  - Computed series: 2s10s spread, BAA-AAA spread, GDP QoQ annualized,
+    stock-bond 60d corr.
   - R2: ROUTES = {'/api/macro': 'handle_macro'}; handler method on Handler
     class in server.py; module registered in _discover_module_routes().
 """
@@ -140,8 +143,19 @@ def _spread(a_id, b_id, scale=100):
     return out
 
 
+CORR_CACHE_KEY = "SPY-TLT-CORR:corr"  # computed series, Daily TTL
+
+
 def _corr_60d():
-    """Stock–bond 60d rolling correlation from SPY + TLT daily returns."""
+    """Stock–bond 60d rolling correlation from SPY + TLT daily returns.
+
+    Cached like a raw FRED series (Daily TTL) so page reloads don't hit
+    Yahoo's download endpoint every time.
+    """
+    with _lock:
+        cached = _cache.get(CORR_CACHE_KEY)
+        if cached and time.time() - cached[0] < TTL["Daily"]:
+            return cached[1]
     try:
         import yfinance as yf
     except ImportError:
@@ -160,6 +174,8 @@ def _corr_60d():
             corr = w["SPY"].corr(w["TLT"])
             if corr == corr:  # not NaN
                 out.append({"date": str(ret.index[i])[:10], "value": round(corr, 3)})
+        with _lock:
+            _cache[CORR_CACHE_KEY] = (time.time(), out)
         return out
     except Exception as e:
         logger.warning("stock-bond corr failed (fail-open): %s", e)
@@ -230,19 +246,19 @@ TENORS = [
 ]
 
 
-def _dgs_map(series_id):
-    """{date: yield} for one FRED constant-maturity series."""
-    return {o["date"]: o["value"] for o in get_series(series_id)}
+def _tenor_maps():
+    """{sid: {date_str: yield}} for every tenor, computed once per request."""
+    return {sid: {o["date"]: o["value"] for o in get_series(sid)} for _, sid, _y in TENORS}
 
 
-def _trading_days():
+def _trading_days(maps):
     """Sorted list of dates (datetime.date) with any DGS data."""
     days = set()
     for _, sid, _y in TENORS:
-        for o in get_series(sid):
+        for date_str in maps[sid]:
             try:
-                days.add(datetime.strptime(o["date"], "%Y-%m-%d").date())
-            except (ValueError, TypeError):
+                days.add(date.fromisoformat(date_str))
+            except ValueError:
                 continue
     return sorted(days)
 
@@ -262,12 +278,12 @@ def _month_offset(d, months):
     return datetime(y, m, day).date()
 
 
-def _curve_on(date_val):
+def _curve_on(day, maps):
     """{date, points:[{tenor, years, yield}]} for a date, or None."""
-    date_str = date_val.strftime("%Y-%m-%d") if isinstance(date_val, (datetime, date)) else date_val  # noqa: UP038 (py3.9 runtime)
+    date_str = day.isoformat()
     points = []
     for label, sid, years in TENORS:
-        v = _dgs_map(sid).get(date_str)
+        v = maps[sid].get(date_str)
         if v is not None:
             points.append({"tenor": label, "years": round(years, 4), "yield": round(v, 3)})
     if not points:
@@ -290,7 +306,8 @@ def get_yield_curve():
     be absent on holidays (omitted, never substituted); period-ago keys fall
     backward to the last available curve.
     """
-    days = _trading_days()
+    maps = _tenor_maps()
+    days = _trading_days(maps)
     if not days:
         return {"tenors": [t[0] for t in TENORS], "curves": {}}
     try:
@@ -303,29 +320,29 @@ def get_yield_curve():
     yest_eff = _last_weekday(today_eff - timedelta(days=1))
 
     curves = {}
-    today_curve = _curve_on(today_eff.isoformat())
+    today_curve = _curve_on(today_eff, maps)
     if today_curve:
         curves["today"] = today_curve
-    yest_curve = _curve_on(yest_eff.isoformat())
+    yest_curve = _curve_on(yest_eff, maps)
     if yest_curve:
         curves["yesterday"] = yest_curve
 
     # 1W: exact offset from the effective today, then fall backward
     w1 = _fall_backward(today_eff - timedelta(days=7), days)
     if w1:
-        curves["1W"] = _curve_on(w1)
+        curves["1W"] = _curve_on(w1, maps)
 
     # period-ago anchors: calendar offset -> fall backward
     for key, months in (("1M", 1), ("3M", 3), ("6M", 6), ("1Y", 12), ("2Y", 24)):
         exact = _month_offset(today_eff, months)
         d = _fall_backward(exact, days)
         if d:
-            curves[key] = _curve_on(d)
+            curves[key] = _curve_on(d, maps)
 
     # YTD: first available curve date in the current year
     ytd = next((d for d in days if d >= datetime(today_eff.year, 1, 1).date()), None)
     if ytd:
-        curves["YTD"] = _curve_on(ytd)
+        curves["YTD"] = _curve_on(ytd, maps)
 
     return {"tenors": [t[0] for t in TENORS], "curves": curves}
 

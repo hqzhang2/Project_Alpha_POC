@@ -151,14 +151,14 @@ def test_fall_backward():
     assert macro._fall_backward(date(2026, 7, 1), days) is None                  # before data
 
 
-def test_curve_on_accepts_date_datetime_str(monkeypatch):
+def test_curve_on_accepts_date(monkeypatch):
     obs = {"DGS1MO": [{"date": "2026-08-06", "value": 3.8}],
            "DGS30": [{"date": "2026-08-06", "value": 5.2}]}
     monkeypatch.setattr(macro, "get_series", lambda sid: obs.get(sid, []))
-    for v in (date(2026, 8, 6), datetime(2026, 8, 6), "2026-08-06"):
-        c = macro._curve_on(v)
-        assert c and c["date"] == "2026-08-06" and len(c["points"]) == 2
-    assert macro._curve_on(date(2026, 8, 5)) is None
+    maps = macro._tenor_maps()
+    c = macro._curve_on(date(2026, 8, 6), maps)
+    assert c and c["date"] == "2026-08-06" and len(c["points"]) == 2
+    assert macro._curve_on(date(2026, 8, 5), maps) is None
 
 
 def _fake_dgs(monkeypatch, days_map):
@@ -216,6 +216,30 @@ def test_yield_curve_yesterday_omitted_on_friday_holiday(monkeypatch):
     yc = macro.get_yield_curve()
     assert "today" in yc["curves"]
     assert "yesterday" not in yc["curves"]
+
+
+def test_corr_60d_cached(monkeypatch):
+    """P1 refactor: stock-bond corr is TTL-cached — second call must not
+    re-download from Yahoo (one download per Daily TTL window)."""
+    import numpy as np
+    import pandas as pd
+    calls = []
+
+    class FakeYf:
+        @staticmethod
+        def download(*a, **k):
+            calls.append(1)
+            idx = pd.date_range("2024-08-01", periods=200, freq="B")
+            rng = np.random.default_rng(0)
+            close = pd.DataFrame({"SPY": 100 + np.cumsum(rng.normal(0, 1, 200)),
+                                  "TLT": 100 + np.cumsum(rng.normal(0, 1, 200))}, index=idx)
+            return pd.concat({"Close": close}, axis=1)  # yfinance MultiIndex shape
+
+    monkeypatch.setitem(sys.modules, "yfinance", FakeYf())
+    out1 = macro._corr_60d()
+    out2 = macro._corr_60d()
+    assert len(calls) == 1          # second call served from cache
+    assert out1 and out1 == out2    # same payload, non-empty
 
 
 # --------------------------------------------------------------------------- #
