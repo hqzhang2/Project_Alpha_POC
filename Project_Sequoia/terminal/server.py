@@ -53,6 +53,7 @@ import sys
 import signal
 import time
 import threading
+import queue
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 import logging
@@ -156,6 +157,42 @@ class TTLCache:
 
 
 _quote_cache = TTLCache(ttl_seconds=CACHE_TTL)
+
+# ============================================================================
+# Off-thread OI snapshot worker
+# ============================================================================
+#
+# Watchlist adds used to snapshot option chains SYNCHRONOUSLY on the request
+# thread — 4 expiries of yfinance chain downloads ≈ 8-25s of terminal freeze.
+# Now the handler enqueues and returns immediately; the worker does the chain
+# work in the background and stores the result for a status poll.
+
+_oi_queue = queue.Queue()
+_oi_results = {}
+_oi_lock = threading.Lock()
+
+
+def _oi_worker():
+    while True:
+        ticker = _oi_queue.get()
+        try:
+            import snapshot_oi, options_data, sentiment_collect
+            provider = options_data.get_provider()
+            asof = snapshot_oi.last_trading_day(ticker)
+            contracts = snapshot_oi.snapshot_ticker(provider, ticker, asof)
+            reading = sentiment_collect.compute_oi_ratio(asof, ticker)
+            with _oi_lock:
+                _oi_results[ticker] = {'status': 'done', 'asof': asof,
+                                       'contracts': contracts, 'reading': reading}
+        except Exception as e:
+            logger.exception(f"oi snapshot failed for {ticker}")
+            with _oi_lock:
+                _oi_results[ticker] = {'status': 'error', 'error': str(e)}
+        finally:
+            _oi_queue.task_done()
+
+
+threading.Thread(target=_oi_worker, daemon=True, name='oi-snapshot-worker').start()
 
 # ============================================================================
 # Utility Functions
@@ -482,26 +519,23 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_oi_snapshot(self, qs):
         """On-demand OI snapshot for one ticker (dashboard watchlist add).
 
-        Snapshots the ticker's option chains into option_oi.db, then derives
-        the put/call OI ratio reading so the chart overlay gets data
-        immediately. Returns contract + reading counts; fail-open on error.
+        Enqueues the snapshot to the background worker and returns
+        immediately — a synchronous chain download used to occupy the request
+        thread for 8-25s. The JS refetches the chart ~30s later to pick up
+        the P/C reading. GET ?action=status&ticker=X polls the worker result.
         """
-        import datetime as _dt
-        import snapshot_oi, options_data, sentiment_collect
         ticker = (qs.get('ticker', [''])[0] or '').upper()
         if not ticker:
             self.send_json({'error': 'ticker required'}, status=400)
             return
-        try:
-            provider = options_data.get_provider()
-            asof = snapshot_oi.last_trading_day(ticker)
-            contracts = snapshot_oi.snapshot_ticker(provider, ticker, asof)
-            reading = sentiment_collect.compute_oi_ratio(asof, ticker)
-            self.send_json({'ticker': ticker, 'asof': asof,
-                            'contracts': contracts, 'reading': reading})
-        except Exception as e:
-            logger.exception(f"oi snapshot failed for {ticker}")
-            self.send_json({'error': str(e)}, status=500)
+        if qs.get('action', [None])[0] == 'status':
+            with _oi_lock:
+                self.send_json({'ticker': ticker, **_oi_results.get(ticker, {'status': 'pending'})})
+            return
+        with _oi_lock:
+            _oi_results.pop(ticker, None)
+        _oi_queue.put(ticker)
+        self.send_json({'ticker': ticker, 'status': 'started'})
     
     def handle_etf_holdings(self, qs):
         if not YFINANCE_AVAILABLE:

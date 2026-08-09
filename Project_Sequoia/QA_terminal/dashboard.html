@@ -718,14 +718,19 @@
         // On-demand OI snapshot when a NEW ticker joins the watchlist: snapshots
         // its option chains + derives the put/call ratio reading so the chart
         // P/C overlay appears without waiting for the 16:30 ET daily job.
-        // Fire-and-forget; chart refresh happens after it completes.
+        // The server enqueues this on a background worker and returns
+        // immediately; refetch the chart once ~30s later to pick up the
+        // reading once the chain download completes.
         async function snapshotOiOnDemand(t) {
             try {
                 const r = await fetch('/api/oi/snapshot?ticker=' + encodeURIComponent(t));
                 const d = await r.json();
                 if (d.reading) {
-                    // new ratio reading exists — reload the chart to show the overlay
+                    // reading already exists (e.g. status poll) — show overlay now
                     fetchChart(currentTicker, timeframe);
+                } else if (d.status === 'started') {
+                    // background worker is downloading chains (~10-30s)
+                    setTimeout(function() { fetchChart(currentTicker, timeframe); }, 30000);
                 }
             } catch (e) {
                 console.warn('on-demand OI snapshot failed for', t, e);

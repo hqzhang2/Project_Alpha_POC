@@ -22,6 +22,7 @@ class TestServerExtra(unittest.TestCase):
         self.handler.wfile = BytesIO()
         self.handler.headers = {}
         server._quote_cache.clear()
+        server._oi_results.clear()
 
     def test_api_quotes(self):
         with patch('quotes.get_quotes') as mock_get:
@@ -141,6 +142,23 @@ class TestServerExtra(unittest.TestCase):
             self.handler.path = '/api/sec/financials?ticker=AAPL'
             self.handler.do_GET()
             self.handler.send_json.assert_called()
+
+    def test_api_oi_snapshot_enqueues(self):
+        """Watchlist-add OI snapshot must return immediately and enqueue —
+        never snapshot chains synchronously on the request thread."""
+        with patch('server._oi_queue') as mock_q:
+            mock_q.put = MagicMock()
+            self.handler.path = '/api/oi/snapshot?ticker=AAPL'
+            self.handler.do_GET()
+            self.handler.send_json.assert_called_with({'ticker': 'AAPL', 'status': 'started'})
+            mock_q.put.assert_called_once_with('AAPL')
+
+    def test_api_oi_snapshot_status(self):
+        server._oi_results['AAPL'] = {'status': 'done', 'reading': 1.25}
+        self.handler.path = '/api/oi/snapshot?action=status&ticker=AAPL'
+        self.handler.do_GET()
+        self.handler.send_json.assert_called_with(
+            {'ticker': 'AAPL', 'status': 'done', 'reading': 1.25})
 
     def test_api_not_found(self):
         self.handler.path = '/api/nonexistent'
