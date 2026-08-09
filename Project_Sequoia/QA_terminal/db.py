@@ -234,6 +234,33 @@ def list_dates():
         conn.close()
 
 
+def get_sector_trend(table_name, pct_col, op):
+    """Per-date sector counts for the trend chart.
+
+    table_name: 'year_highs' or 'year_lows' (whitelisted — never user input).
+    pct_col: 'pct_off' (highs) or 'pct_from_low' (lows).
+    op: '>=' (highs) or '<=' (lows) — must match the page's displayed-count
+        filter so the trend TOTAL legend equals the page status count.
+    Returns rows [{date, sector, count}] sorted by date asc, count desc.
+    """
+    if table_name not in ("year_highs", "year_lows"):
+        raise ValueError(f"bad table: {table_name}")
+    if op not in (">=", "<="):
+        raise ValueError(f"bad op: {op}")
+    init_db()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            f"SELECT date, sector, COUNT(*) AS count "
+            f"FROM {table_name} "
+            f"WHERE {pct_col} IS NOT NULL AND {pct_col} {op} 0 "
+            f"GROUP BY date, sector ORDER BY date ASC, count DESC"
+        )
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def list_lows_dates():
     """Distinct snapshot dates from year_lows, newest first."""
     init_db()

@@ -316,6 +316,7 @@ class Handler(SimpleHTTPRequestHandler):
             'sentiment': 'sentiment',
             'option_screener': 'option_screener',
             'fundamental_screener': 'fundamental_screener',
+            'macro': 'macro',
         }
         routes = {}
         for mod_name, import_path in modules.items():
@@ -682,6 +683,21 @@ class Handler(SimpleHTTPRequestHandler):
                 target = dates[0]
                 rows = db.get_year_lows(target)
         self.send_json({'date': target, 'count': len(rows), 'results': rows})
+
+    def handle_year_highs_trend(self, qs):
+        """Per-date sector counts for the 52W-high trend chart."""
+        import year_highs
+        self.send_json({'results': year_highs.get_trend()})
+
+    def handle_year_lows_trend(self, qs):
+        """Per-date sector counts for the 52W-low trend chart."""
+        import year_lows
+        self.send_json({'results': year_lows.get_trend()})
+
+    def handle_macro(self, qs):
+        """Macro economics page payload (6 categories, FRED + computed series)."""
+        import macro
+        self.send_json(macro.get_macro())
     
     def handle_sec_financials(self, qs):
         import sec_financials
