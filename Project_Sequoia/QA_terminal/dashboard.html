@@ -775,11 +775,13 @@
         }
         
         // Fetch chart
+        let chartSeq = 0;
         async function fetchChart(t, tf) {
+            const seq = ++chartSeq;
             try {
                 const res = await fetch(`/api/chart?ticker=${t}&tf=${tf}`);
                 const data = await res.json();
-                renderChart(data);
+                if (seq === chartSeq) renderChart(data);  // ignore stale responses
             } catch (e) {
                 console.error('Chart error:', e);
             }

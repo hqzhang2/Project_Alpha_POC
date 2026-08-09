@@ -23,6 +23,9 @@ class TestServerExtra(unittest.TestCase):
         self.handler.headers = {}
         server._quote_cache.clear()
         server._oi_results.clear()
+        server._chart_cache_1d.clear()
+        server._chart_cache_hist.clear()
+        server._chart_1d_last.clear()
 
     def test_api_quotes(self):
         with patch('quotes.get_quotes') as mock_get:
@@ -91,6 +94,38 @@ class TestServerExtra(unittest.TestCase):
             self.handler.path = '/api/chart?ticker=AAPL&tf=1M'
             self.handler.do_GET()
             self.handler.send_json.assert_called()
+
+    def test_api_chart_hist_cached(self):
+        """Second chart request within TTL must not hit the provider again."""
+        with patch('server.ChartDataProcessor.get_historical_chart') as mock_chart:
+            mock_chart.return_value = {'labels': ['2026-01-01'], 'prices': [100.0], 'volumes': [1]}
+            self.handler.path = '/api/chart?ticker=ZZCHRT&tf=1Y'
+            self.handler.do_GET()
+            self.handler.do_GET()
+            self.assertEqual(mock_chart.call_count, 1)
+
+    def test_api_chart_1d_empty_falls_back_to_last_session(self):
+        """Empty 1D result (weekend/closed) serves the last real session."""
+        with patch('server.ChartDataProcessor.get_1d_chart') as mock_chart:
+            mock_chart.return_value = {'labels': ['09:30'], 'prices': [None] * 391, 'volumes': []}
+            server._chart_1d_last.set('ZZWKND', {'labels': ['09:30'], 'prices': [100.0], 'volumes': []})
+            self.handler.path = '/api/chart?ticker=ZZWKND&tf=1D'
+            self.handler.do_GET()
+            self.handler.send_json.assert_called_with(
+                {'labels': ['09:30'], 'prices': [100.0], 'volumes': []})
+
+    def test_get_1d_chart_falls_back_to_last_session_in_window(self):
+        """When today has no bars (weekend/holiday), get_1d_chart serves the
+        most recent session from the 5d window instead of a blank chart."""
+        import pandas as pd
+        with patch('server.yf.Ticker') as mock_ticker:
+            idx = pd.date_range('2026-08-07 09:30', periods=10, freq='5min')  # Friday only
+            df = pd.DataFrame({'Close': [100.0] * 10, 'Volume': [1] * 10}, index=idx)
+            mock_ticker.return_value.history.return_value = df
+            mock_ticker.return_value.info = {'previousClose': 100.0}
+            data = server.ChartDataProcessor.get_1d_chart('ZZFRIDAY')
+            filled = [p for p in (data.get('prices') or []) if p is not None]
+            self.assertGreater(len(filled), 0)
 
     def test_api_sec_watchlist(self):
         with patch('sec_financials.get_watchlist') as mock_get:

@@ -157,6 +157,9 @@ class TTLCache:
 
 
 _quote_cache = TTLCache(ttl_seconds=CACHE_TTL)
+_chart_cache_1d = TTLCache(ttl_seconds=60)        # intraday chart (live-ish)
+_chart_cache_hist = TTLCache(ttl_seconds=300)     # historical charts
+_chart_1d_last = TTLCache(ttl_seconds=7 * 86400)  # last non-empty 1D session (weekend fallback)
 
 # ============================================================================
 # Off-thread OI snapshot worker
@@ -262,8 +265,15 @@ class ChartDataProcessor:
             if data.empty:
                 return {'labels': [], 'prices': [], 'volumes': [], 'error': 'No data', 'ticker': ticker}
             
-            # Filter to today's market hours (09:30-16:00 ET)
+            # Filter to today's market hours (09:30-16:00 ET). When the market
+            # is closed (weekend/holiday) today has no bars — fall back to the
+            # most recent session in the 5d window so the chart isn't blank.
+            data_full = data
             data = data[data.index.date == today]
+            if data.empty:
+                last_day = data_full.index[-1].date()
+                data = data_full[data_full.index.date == last_day]
+                today = last_day
             if not data.empty:
                 data = data.between_time('09:30', '16:00')
             
@@ -675,10 +685,28 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_chart(self, qs):
         ticker = qs.get('ticker', ['SPY'])[0]
         tf = qs.get('tf', ['1D'])[0]
+        key = f"{ticker}|{tf}"
+        cached = _chart_cache_1d.get(key) if tf == '1D' else _chart_cache_hist.get(key)
+        if cached is not None:
+            self.send_json(cached)
+            return
         if tf == '1D':
             data = ChartDataProcessor.get_1d_chart(ticker)
+            has_data = bool(data.get('prices')) and any(v is not None for v in data['prices'])
+            if has_data:
+                _chart_cache_1d.set(key, data)
+                _chart_1d_last.set(ticker, data)   # remember the last real session
+            else:
+                # Market closed / weekend: show the last real session instead
+                # of a blank chart (and don't waste the two Yahoo calls again).
+                last = _chart_1d_last.get(ticker)
+                if last is not None:
+                    self.send_json(last)
+                    return
         else:
             data = ChartDataProcessor.get_historical_chart(ticker, tf)
+            if data.get('prices'):
+                _chart_cache_hist.set(key, data)
         self.send_json(data)
     
     def handle_estimates(self, qs):
