@@ -109,6 +109,22 @@ def _ed_frame():
     }, index=idx)
 
 
+def _ed_full_frame():
+    """Upcoming print + 4 past prints (descending recency, like yfinance)."""
+    idx = pd.DatetimeIndex([
+        pd.Timestamp('2026-10-29 16:00:00-0400', tz='America/New_York'),
+        pd.Timestamp('2026-07-30 16:00:00-0400', tz='America/New_York'),
+        pd.Timestamp('2026-04-30 16:00:00-0400', tz='America/New_York'),
+        pd.Timestamp('2026-01-29 16:00:00-0400', tz='America/New_York'),
+        pd.Timestamp('2025-10-30 16:00:00-0400', tz='America/New_York'),
+    ])
+    return pd.DataFrame({
+        'EPS Estimate': [1.98, 1.89, 1.94, 2.05, 1.77],
+        'Reported EPS': [float('nan'), 2.02, 2.01, 2.84, 1.85],
+        'Surprise(%)': [float('nan'), 6.74, 3.5, 6.3, 4.5],
+    }, index=idx)
+
+
 def _ticker(attrs=None, fail=()):
     return FakeTicker(attrs, fail)
 
@@ -307,6 +323,50 @@ def test_price_targets(monkeypatch):
     apt = est.get_estimates('AAPL')['price_targets']
     assert apt['mean'] == 238.0
     assert apt['current'] == 210.0
+
+
+# --------------------------------------------------------------------------- #
+# Revision history chart data
+# --------------------------------------------------------------------------- #
+def test_revision_chart_prints_chronological(monkeypatch):
+    _install(monkeypatch, {'earnings_dates': _ed_full_frame()})
+    rc = est.get_estimates('AAPL')['revision_chart']
+    dates = [p['date'][:10] for p in rc['prints']]
+    assert dates == ['2025-10-30', '2026-01-29', '2026-04-30', '2026-07-30']
+    assert rc['prints'][-1]['actual'] == pytest.approx(2.02)
+    assert rc['prints'][-1]['estimate'] == pytest.approx(1.89)  # final pre-print
+    assert rc['prints'][0]['actual'] == pytest.approx(1.85)
+
+
+def test_revision_chart_forward_and_snapshots(monkeypatch):
+    _install(monkeypatch, {'earnings_dates': _ed_full_frame()})
+    rc = est.get_estimates('AAPL')['revision_chart']
+    assert rc['forward'][0]['date'].startswith('2026-10-29')  # nearest print first
+    assert rc['forward'][0]['estimate'] == pytest.approx(1.98)
+    assert rc['forward'][0]['estimated'] is False
+    # +1q extension at ESTIMATED print date = 0q + median cadence (91d here)
+    assert rc['forward'][1]['date'] == '2027-01-28'
+    assert rc['forward'][1]['estimate'] == pytest.approx(2.90908)
+    assert rc['forward'][1]['estimated'] is True
+    by_p = {s['period']: s for s in rc['snapshots']}
+    assert by_p['0q']['points'][0] == {'days_ago': 90, 'value': pytest.approx(2.05)}
+    assert by_p['0q']['points'][-1] == {'days_ago': 0, 'value': pytest.approx(1.97549)}
+    assert by_p['+1q']['points'][0]['days_ago'] == 90
+
+
+def test_revision_chart_no_plus1q_without_history(monkeypatch):
+    """No reported prints (young ticker) -> no cadence -> no estimated +1q."""
+    _install(monkeypatch)  # default _ed_frame: single upcoming row only
+    rc = est.get_estimates('AAPL')['revision_chart']
+    assert rc['prints'] == []
+    assert len(rc['forward']) == 1  # 0q only, no +1q projection
+    assert rc['forward'][0]['estimated'] is False
+
+
+def test_revision_chart_no_data(monkeypatch):
+    _install(monkeypatch, {'earnings_dates': None, 'eps_trend': None})
+    rc = est.get_estimates('AAPL')['revision_chart']
+    assert rc == {'prints': [], 'forward': [], 'snapshots': []}
 
 
 # --------------------------------------------------------------------------- #

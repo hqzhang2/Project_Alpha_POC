@@ -253,6 +253,15 @@
 
             html += '</div>';
 
+            // ---------------- Revision history chart (Bloomberg EE style) ----------------
+            const rc = data.revision_chart || {prints: [], forward: [], snapshots: []};
+            if (rc.prints.length || rc.forward.length || rc.snapshots.length) {
+                html += `<div>
+                    <div class="section-title">Earnings Revision History</div>
+                    <div class="table-container"><div class="chart-box" style="height:260px"><canvas id="revisionChart"></canvas></div></div>
+                </div>`;
+            }
+
             // ---------------- Consensus summary ----------------
             html += `<div>
                 <div class="section-title">Consensus Estimates (EE Summary)</div>
@@ -434,11 +443,93 @@
             html += `<div class="m-legend">
                 Periods: <b>0q</b> = current quarter · <b>+1q</b> = next quarter · <b>0y</b> = current fiscal year · <b>+1y</b> = next fiscal year · <b>LTG</b> = long-term growth rate.<br>
                 <b>AMC</b> = after market close · <b>BMO</b> = before market open · <b>Net 30D</b> = ↑30D − ↓30D analyst revisions · Consensus score: 5=Strong Buy … 1=Strong Sell.<br>
+                Revision chart: <b>▲</b> = estimated print date (median print cadence) · <b>Rev path</b> = consensus at 90/30/7 days ago.<br>
                 Source: Yahoo Finance consensus estimates (indicative, may lag the sell-side; verify against live chains before trading).
             </div>`;
 
             document.getElementById('mainContent').innerHTML = html;
             renderSurpriseChart(history);
+            renderRevisionChart(rc);
+        }
+
+        // ---------------- revision history chart ----------------
+        let revisionChartInst = null;
+        const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        function renderRevisionChart(rc) {
+            const canvas = document.getElementById('revisionChart');
+            if (!canvas) return;
+            if (revisionChartInst) { revisionChartInst.destroy(); revisionChartInst = null; }
+            const fmtD = iso => String(iso).slice(0, 10);
+            const daysAgo = n => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+            const dates = new Set();
+            rc.prints.forEach(p => dates.add(fmtD(p.date)));
+            rc.forward.forEach(f => dates.add(fmtD(f.date)));
+            rc.snapshots.forEach(s => s.points.forEach(pt => dates.add(daysAgo(pt.days_ago))));
+            const labels = Array.from(dates).sort();
+            const span = (src, key) => {
+                const arr = new Array(labels.length).fill(null);
+                src.forEach(p => { const i = labels.indexOf(fmtD(p.date)); if (i > -1) arr[i] = p[key]; });
+                return arr;
+            };
+            const datasets = [];
+            if (rc.prints.length) {
+                datasets.push({
+                    label: 'Actual EPS',
+                    data: span(rc.prints, 'actual'),
+                    borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,.15)',
+                    borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#3fb950',
+                    stepped: 'before', tension: 0
+                });
+            }
+            if (rc.prints.length || rc.forward.length) {
+                const estData = new Array(labels.length).fill(null);
+                rc.prints.forEach(p => { const i = labels.indexOf(fmtD(p.date)); if (i > -1) estData[i] = p.estimate; });
+                rc.forward.forEach(f => { const i = labels.indexOf(fmtD(f.date)); if (i > -1) estData[i] = f.estimate; });
+                const isEst = l => rc.forward.some(f => f.estimated && fmtD(f.date) === l);
+                datasets.push({
+                    label: 'Estimate',
+                    data: estData,
+                    borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,.12)',
+                    borderWidth: 2, borderDash: [6, 4],
+                    pointRadius: labels.map(l => isEst(l) ? 5 : 3),
+                    pointStyle: labels.map(l => isEst(l) ? 'triangle' : 'circle'),
+                    pointBackgroundColor: '#58a6ff', tension: 0
+                });
+            }
+            const SNAP_COLORS = {'0q': '#f0883e', '+1q': '#c9a6ff'};
+            rc.snapshots.forEach(s => {
+                const data = new Array(labels.length).fill(null);
+                s.points.forEach(pt => { const i = labels.indexOf(daysAgo(pt.days_ago)); if (i > -1) data[i] = pt.value; });
+                datasets.push({
+                    label: 'Rev path ' + s.period,
+                    data,
+                    borderColor: SNAP_COLORS[s.period] || '#888',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1.5, borderDash: [2, 2], pointRadius: 3,
+                    pointStyle: 'rectRot', tension: 0
+                });
+            });
+            revisionChartInst = new Chart(canvas, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    plugins: {
+                        legend: { labels: { color: '#8b949e', boxWidth: 10 } },
+                        tooltip: { callbacks: {
+                            title: items => items.length ? items[0].label : '',
+                            label: ctx => ctx.parsed.y == null ? ctx.dataset.label + ': —' : ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2)
+                        } }
+                    },
+                    scales: {
+                        x: { offset: true,
+                             ticks: { color: '#8b949e', maxRotation: 0, autoSkip: true, maxTicksLimit: 10,
+                                callback: v => { const lbl = labels[v]; if (!lbl || lbl.length !== 10) return ''; return MONTHS[+lbl.slice(5, 7) - 1] + ' ' + lbl.slice(8, 10); } },
+                             grid: { color: '#21262d' } },
+                        y: { ticks: { color: '#8b949e', callback: v => '$' + v }, grid: { color: '#21262d' } }
+                    }
+                }
+            });
         }
 
         // ---------------- surprise chart ----------------

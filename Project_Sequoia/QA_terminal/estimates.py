@@ -20,6 +20,7 @@ Design notes:
 """
 import math
 import time
+from datetime import date, timedelta
 
 CACHE_TTL = 3600  # seconds; consensus estimates move slowly
 
@@ -254,6 +255,74 @@ def _surprise_stats(history):
     }
 
 
+def _revision_chart(t):
+    """Time-axis revision data (Bloomberg EE style, quarterly only).
+
+    - prints: actual EPS + final pre-print consensus at each past print date
+      (last 4 actuals, ~12 months, chronological)
+    - forward: consensus estimates for upcoming prints (0q/+1q, ~6 months)
+    - snapshots: 90/30/7-day consensus history per forward period from
+      eps_trend — the only true revision history yfinance exposes
+
+    Full per-quarter estimate trajectories (the Bloomberg fan) need a paid
+    estimates feed; this is the honest yfinance-only subset.
+    """
+    ed = _attr(t, 'earnings_dates')
+    trend = _attr(t, 'eps_trend')
+    ee = _attr(t, 'earnings_estimate')
+    prints, forward = [], []
+    dates = []
+    if ed is not None and not ed.empty:
+        for idx in ed.index:
+            reported = _cell(ed, idx, 'Reported EPS')
+            estimate = _cell(ed, idx, 'EPS Estimate')
+            if reported is not None:
+                prints.append({"date": _iso(idx), "actual": reported,
+                               "estimate": estimate})
+                dates.append(idx)
+            elif estimate is not None:
+                forward.append({"date": _iso(idx), "estimate": estimate,
+                                "estimated": False})
+        prints = prints[:4]      # yfinance returns ~25 rows; last 4 actuals
+        prints.reverse()         # chronological for the x-axis
+        forward.reverse()        # nearest upcoming print first
+    # +1q extension at an ESTIMATED print date (median cadence of past
+    # prints) — yfinance only lists the next print, so the +1q anchor date
+    # is projected; flagged `estimated: True` for the UI.
+    if ee is not None and '+1q' in ee.index and len(dates) >= 2:
+        e1q = _cell(ee, '+1q', 'avg')
+        if e1q is not None and forward:
+            dts = sorted(dates)
+            gaps = sorted((dts[i + 1] - dts[i]).days
+                          for i in range(len(dts) - 1))
+            cadence = gaps[len(gaps) // 2]  # upper median, no import needed
+            anchor = forward[0]['date']     # 0q print date (ISO)
+            try:
+                est_date = date.fromisoformat(anchor[:10]) + timedelta(days=cadence)
+            except ValueError:
+                est_date = None
+            if est_date is not None:
+                forward.append({"date": est_date.isoformat(),
+                                "estimate": e1q, "estimated": True})
+    snapshots = []
+    if trend is not None and not trend.empty:
+        for period in ('0q', '+1q'):
+            if period not in trend.index:
+                continue
+            points = []
+            for days, col in ((90, '90daysAgo'), (30, '30daysAgo'),
+                              (7, '7daysAgo')):
+                v = _cell(trend, period, col)
+                if v is not None:
+                    points.append({"days_ago": days, "value": v})
+            cur = _cell(trend, period, 'current')
+            if cur is not None:
+                points.append({"days_ago": 0, "value": cur})
+            if points:
+                snapshots.append({"period": period, "points": points})
+    return {"prints": prints, "forward": forward, "snapshots": snapshots}
+
+
 # --------------------------------------------------------------------------- #
 # Fetch + cache
 # --------------------------------------------------------------------------- #
@@ -277,6 +346,7 @@ def _fetch_estimates(ticker):
         "price_targets": _price_targets(t),
         "next_earnings": _next_earnings(t),
         "surprise_stats": _surprise_stats(history),
+        "revision_chart": _revision_chart(t),
     }
 
 
