@@ -271,11 +271,11 @@
                     <td class="num ${cls(h.surprise)}">${fmtPct(h.surprise)}</td>
                 </tr>`;
             });
-            html += '</tbody></table>';
+            html += '</tbody></table></div>';
             if (history.length) {
                 html += '<div class="chart-box"><canvas id="surpriseChart"></canvas></div>';
             }
-            html += '</div>';
+            html += '</div>'; // close history column
 
             // Right stack: growth (top) + recommendations (bottom)
             html += '<div class="stack">';
