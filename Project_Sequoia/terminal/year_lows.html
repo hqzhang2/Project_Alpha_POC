@@ -96,6 +96,41 @@
         .yl-table td { color: #c9d1d9; }
         .yl-empty, .yl-error { color: #8b949e; padding: 16px; }
         .yl-error { color: #f85149; }
+
+        /* ---- Trend Analysis modal (Variant B, approved 2026-08) ---- */
+        .trend-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 13px; font-weight: 600;
+                     padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+        .trend-btn:hover { background: #30363d; color: #e6edf3; }
+        .tr-overlay { display: none; position: fixed; inset: 0; background: rgba(1,4,9,0.72); z-index: 100;
+                      align-items: center; justify-content: center; }
+        .tr-overlay.open { display: flex; }
+        .tr-modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; width: 960px; max-width: 94vw;
+                    max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 12px 48px rgba(0,0,0,0.6); }
+        .tr-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
+                   border-bottom: 1px solid #21262d; }
+        .tr-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+        .tr-title .tr-tkr { color: #8b949e; font-weight: 400; }
+        .tr-close { background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer; padding: 0 4px; }
+        .tr-close:hover { color: #e6edf3; }
+        .tr-body { padding: 12px 18px 0; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+        .tr-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+        .tr-tab { background: none; border: 1px solid transparent; color: #8b949e; font-size: 12px; font-weight: 600;
+                  padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+        .tr-tab:hover { color: #e6edf3; }
+        .tr-tab.on { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+        .tr-chart-box { position: relative; height: 380px; }
+        .tr-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 0 6px; }
+        .tr-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #8b949e;
+                   background: #0d1117; border: 1px solid #21262d; border-radius: 12px; padding: 3px 10px 3px 7px;
+                   cursor: pointer; user-select: none; }
+        .tr-chip:hover { border-color: #30363d; color: #c9d1d9; }
+        .tr-chip .sw { width: 9px; height: 9px; border-radius: 2px; }
+        .tr-chip .cnt { color: #8b949e; font-weight: 400; }
+        .tr-chip.focus { color: #e6edf3; border-color: currentColor; background: #161b22; }
+        .tr-chip.focus .cnt { color: currentColor; }
+        .tr-chip.total { border-style: dashed; }
+        .tr-empty { color: #8b949e; font-size: 13px; padding: 20px 4px; }
+        .tr-foot { padding: 10px 18px 14px; border-top: 1px solid #21262d; font-size: 10px; color: #8b949e; }
     </style>
 </head>
 <body>
@@ -106,6 +141,7 @@
         <span class="date-label">Session:</span>
         <input type="date" id="ylDate" onchange="ylLoad()" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;cursor:pointer;width:150px;">
         <span class="status" id="ylStatus"></span>
+        <button class="trend-btn" onclick="trOpen()">📊 Trend Analysis</button>
     </div>
 
     <div class="yl-section">
@@ -129,6 +165,23 @@
                 <div class="yl-empty" id="ylEmpty" style="display:none;">No 52-week lows stored for this session.</div>
                 <div class="yl-error" id="ylError" style="display:none;"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- ======= Trend Analysis modal (Variant B, approved 2026-08) ======= -->
+    <div class="tr-overlay" id="trOverlay" onclick="if(event.target===this)trClose()">
+        <div class="tr-modal" onclick="event.stopPropagation()">
+            <div class="tr-head">
+                <div class="tr-title">Trend Analysis · <span class="tr-tkr" id="trSub">names at 52W low by sector</span></div>
+                <button class="tr-close" onclick="trClose()" title="Close (Esc)">✕</button>
+            </div>
+            <div class="tr-body">
+                <div class="tr-tabs" id="trTabs"></div>
+                <div class="tr-chart-box"><canvas id="trChart"></canvas></div>
+                <div class="tr-legend" id="trLegend"></div>
+            </div>
+            <div class="tr-foot">Click a sector line (or chip) to bring it to the front — click again to clear.
+                Live data from stored daily snapshots — longer windows fill as the 5pm ET collector accrues history.</div>
         </div>
     </div>
 
@@ -250,6 +303,172 @@
             }
             ylLoad();
         })();
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // ================= Trend Analysis modal (Variant B, approved 2026-08) =================
+        const TR_SECTORS = ['Technology','Financial','Healthcare','Industrials','Consumer Cyclical','Basic Materials',
+                            'Communication Services','Real Estate','Consumer Defensive','Energy','Utilities'];
+        const TR_COLORS = { 'Technology':'#58a6ff', 'Financial':'#3fb950', 'Healthcare':'#f0883e',
+                            'Industrials':'#a371f7', 'Consumer Cyclical':'#f85149', 'Basic Materials':'#b5a642',
+                            'Communication Services':'#39c5cf', 'Real Estate':'#f778ba', 'Consumer Defensive':'#d29922',
+                            'Energy':'#e3b341', 'Utilities':'#7ee787' };
+        const TR_TOTAL_COLOR = '#e6edf3';
+        const TR_WINDOWS = [['1M',30],['3M',90],['6M',180],['YTD',0],['1Y',365],['2Y',730]]; // calendar days back; YTD=0 special
+        let trChart = null;
+        let trWindowKey = '3M';
+        let trFocus = null;
+        let trPivoted = null; // { dates:[], series:{sector:[...]}, total:[...], colors:{sector:color} }
+
+        function trColor(sector) { return TR_COLORS[sector] || '#8b949e'; }
+
+        function trPivot(rows) {
+            // rows: [{date, sector, count}]
+            const dateSet = [...new Set(rows.map(r => r.date))].sort();
+            const series = {};
+            const total = new Array(dateSet.length).fill(0);
+            const colors = {};
+            TR_SECTORS.forEach(s => { series[s] = new Array(dateSet.length).fill(0); colors[s] = TR_COLORS[s]; });
+            const extras = new Set();
+            rows.forEach(r => { if (!(r.sector in TR_COLORS)) extras.add(r.sector); });
+            let extraIdx = 0;
+            const EXTRA_COLORS = ['#79c0ff','#ffa657','#bc8cff','#76e4c4','#f0b429'];
+            extras.forEach(s => { series[s] = new Array(dateSet.length).fill(0); colors[s] = EXTRA_COLORS[extraIdx++ % EXTRA_COLORS.length]; });
+            rows.forEach(r => {
+                const di = dateSet.indexOf(r.date);
+                if (di < 0) return;
+                series[r.sector][di] = (series[r.sector][di] || 0) + r.count;
+                total[di] += r.count;
+            });
+            return { dates: dateSet, series, total, colors };
+        }
+
+        function trWindowStart(dates) {
+            // calendar-day cutoff: YTD = Jan 1 of latest date's year; else N days back
+            const latest = dates[dates.length - 1];
+            if (trWindowKey === 'YTD') return latest.slice(0, 4) + '-01-01';
+            const days = (TR_WINDOWS.find(w => w[0] === trWindowKey) || TR_WINDOWS[1])[1];
+            const d = new Date(latest + 'T00:00:00Z');
+            d.setUTCDate(d.getUTCDate() - days);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function trChartConfig(startIdx) {
+            const labels = trPivoted.dates.slice(startIdx);
+            const datasets = Object.keys(trPivoted.series).map(s => ({
+                label: s, data: trPivoted.series[s].slice(startIdx), borderColor: trPivoted.colors[s],
+                backgroundColor: trPivoted.colors[s], borderWidth: 1, pointRadius: 0, tension: 0.25, spanGaps: true
+            }));
+            datasets.push({ label: 'TOTAL', data: trPivoted.total.slice(startIdx), borderColor: TR_TOTAL_COLOR,
+                backgroundColor: TR_TOTAL_COLOR, borderWidth: 2.5, pointRadius: 0, tension: 0.25, spanGaps: true,
+                borderDash: [6, 3] });
+            return {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    interaction: { mode: 'index', intersect: false },
+                    onClick: (ev, els) => {
+                        if (els.length) { const lbl = trChart.data.datasets[els[0].datasetIndex].label; trFocusByLabel(lbl); }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { mode: 'index', intersect: false,
+                            callbacks: { title: (items) => items[0] ? items[0].label : '',
+                                label: (ctx) => ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y == null ? '—' : ctx.parsed.y) } }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#8b949e', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: '#21262d' } },
+                        y: { beginAtZero: true, ticks: { color: '#8b949e', precision: 0, font: { size: 10 } },
+                             grid: { color: '#21262d' }, title: { display: true, text: 'Names at 52W Low',
+                                color: '#8b949e', font: { size: 10 } } }
+                    }
+                }
+            };
+        }
+
+        function trRebuild() {
+            if (!trPivoted || !trPivoted.dates.length) return;
+            const cut = trWindowStart(trPivoted.dates);
+            let startIdx = trPivoted.dates.findIndex(d => d >= cut);
+            if (startIdx < 0) startIdx = 0;
+            if (trChart) { trChart.destroy(); trChart = null; }
+            trChart = new Chart(document.getElementById('trChart'), trChartConfig(startIdx));
+            trApplyFocus(trFocus);
+            trRenderLegend(startIdx);
+        }
+
+        function trFocusByLabel(label) {
+            trFocus = (trFocus === label) ? null : label;
+            trApplyFocus(trFocus);
+        }
+        function trApplyFocus(label) {
+            if (!trChart) return;
+            const ds = trChart.data.datasets;
+            ds.forEach(d => {
+                const on = (label === null) || (d.label === label);
+                d.borderWidth = (d.label === 'TOTAL') ? (on ? 2.5 : 1) : (on ? 3 : 1);
+                d.borderColor = on ? (d.label === 'TOTAL' ? TR_TOTAL_COLOR : trPivoted.colors[d.label]) : 'rgba(139,148,158,0.18)';
+                d.pointRadius = on ? 2 : 0;
+                d.pointBackgroundColor = on ? (d.label === 'TOTAL' ? TR_TOTAL_COLOR : trPivoted.colors[d.label]) : 'transparent';
+            });
+            if (label !== null) {
+                const i = ds.findIndex(d => d.label === label);
+                if (i > -1) ds.push(ds.splice(i, 1)[0]);
+            }
+            trChart.update();
+            const cut = trWindowStart(trPivoted.dates);
+            let startIdx = trPivoted.dates.findIndex(d => d >= cut);
+            if (startIdx < 0) startIdx = 0;
+            trRenderLegend(startIdx);
+        }
+
+        function trRenderLegend(startIdx) {
+            const wrap = document.getElementById('trLegend');
+            const li = trPivoted.dates.length - 1;
+            const chips = Object.keys(trPivoted.series).map(s => {
+                const c = trPivoted.colors[s], on = (trFocus === s);
+                return `<span class="tr-chip${on ? ' focus' : ''}" style="${on ? `border-color:${c};color:${c}` : ''}" onclick="trFocusByLabel('${s}')">
+                    <span class="sw" style="background:${c}"></span>${s} <span class="cnt">${trPivoted.series[s][li]}</span></span>`;
+            });
+            const totOn = (trFocus === 'TOTAL');
+            chips.push(`<span class="tr-chip total${totOn ? ' focus' : ''}" style="${totOn ? `border-color:${TR_TOTAL_COLOR};color:${TR_TOTAL_COLOR}` : ''}" onclick="trFocusByLabel('TOTAL')">
+                <span class="sw" style="background:${TR_TOTAL_COLOR}"></span>TOTAL <span class="cnt">${trPivoted.total[li]}</span></span>`);
+            wrap.innerHTML = chips.join('');
+        }
+
+        function trRenderTabs() {
+            document.getElementById('trTabs').innerHTML = TR_WINDOWS.map(([k]) =>
+                `<button class="tr-tab${k === trWindowKey ? ' on' : ''}" onclick="trSetWindow('${k}')">${k}</button>`).join('');
+        }
+        function trSetWindow(k) { trWindowKey = k; trRenderTabs(); trRebuild(); }
+
+        function trClose() {
+            document.getElementById('trOverlay').classList.remove('open');
+        }
+
+        async function trOpen() {
+            document.getElementById('trOverlay').classList.add('open');
+            trRenderTabs();
+            const legendEl = document.getElementById('trLegend');
+            legendEl.innerHTML = '<div class="tr-empty">Loading trend…</div>';
+            try {
+                const res = await fetch('/api/year-lows/trend');
+                const data = await res.json();
+                const rows = data.results || [];
+                if (!rows.length) {
+                    legendEl.innerHTML = '<div class="tr-empty">No 52-week-low snapshots stored yet — history accrues via the 5pm ET collector.</div>';
+                    return;
+                }
+                trPivoted = trPivot(rows);
+                trRebuild();
+            } catch (e) {
+                legendEl.innerHTML = '<div class="tr-empty" style="color:#f85149">Failed to load trend: ' + e.message + '</div>';
+            }
+        }
+
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') trClose(); });
     </script>
 </body>
 </html>

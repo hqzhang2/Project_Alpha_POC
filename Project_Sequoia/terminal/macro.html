@@ -1,277 +1,478 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Macro Indicators | Alpha Terminal</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0d1117;
-            color: #e6edf3;
-            min-height: 100vh;
-        }
-        .header {
-            background: #161b22;
-            padding: 16px 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #30363d;
-        }
-        .header h1 { font-size: 20px; font-weight: 600; }
-        .header h1 span { color: #58a6ff; }
-        .nav { display: flex; gap: 16px; }
-        .nav a { color: #8b949e; text-decoration: none; font-size: 14px; }
-        .nav a:hover, .nav a.active { color: #58a6ff; }
-        
-        .content { padding: 24px; }
-        
-        .indicators-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 16px;
-            margin-top: 24px;
-        }
-        
-        .indicator-card {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 20px;
-        }
-        
-        .indicator-card h3 {
-            font-size: 14px;
-            color: #8b949e;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .indicator-card .value {
-            font-size: 32px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        
-        .indicator-card .value.positive { color: #3fb950; }
-        .indicator-card .value.negative { color: #f85149; }
-        
-        .indicator-card .change {
-            font-size: 13px;
-            color: #8b949e;
-        }
-        
-        .indicator-card .change.positive { color: #3fb950; }
-        .indicator-card .change.negative { color: #f85149; }
-        
-        .indicator-card .date {
-            font-size: 12px;
-            color: #6b7280;
-            margin-top: 8px;
-        }
-        
-        .indicator-card .chart-btn {
-            margin-top: 12px;
-            padding: 6px 12px;
-            background: #21262d;
-            border: 1px solid #30363d;
-            border-radius: 4px;
-            color: #58a6ff;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        
-        .indicator-card .chart-btn:hover {
-            background: #30363d;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #8b949e;
-        }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            z-index: 100;
-            padding: 40px;
-        }
-        
-        .modal.show { display: block; }
-        
-        .modal-content {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 24px;
-            max-width: 900px;
-            margin: 0 auto;
-            max-height: 90vh;
-            overflow: auto;
-        }
-        
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        
-        .modal-header h2 { font-size: 18px; }
-        
-        .close-btn {
-            background: none;
-            border: none;
-            color: #8b949e;
-            font-size: 24px;
-            cursor: pointer;
-        }
-        
-        #historyChart { width: 100%; height: 400px; }
-    </style>
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<meta charset="UTF-8">
+<title>Macro | Alpha Terminal</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: #0d1117; color: #e6edf3; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+
+  .header { background: #161b22; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .nav { display: flex; gap: 2px; }
+  .nav a { color: #8b949e; text-decoration: none; font-size: 13px; padding: 4px 10px; border-radius: 6px; }
+  .nav a.active { background: #21262d; color: #e6edf3; }
+
+  .toolbar { background: #161b22; padding: 12px 24px; display: flex; gap: 14px; align-items: center;
+             border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+  .toolbar h2 { font-size: 18px; font-weight: 600; margin: 0; }
+  .status { color: #8b949e; font-size: 13px; margin-left: auto; }
+
+  .subtab-bar { display: flex; gap: 4px; padding: 12px 24px 0; flex-wrap: wrap; }
+  .subtab { background: none; border: 1px solid transparent; color: #8b949e; font-size: 12px; font-weight: 600;
+            padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+  .subtab:hover { color: #e6edf3; }
+  .subtab.on { background: #21262d; border-color: #30363d; color: #e6edf3; }
+
+  .period-bar { display: flex; gap: 4px; margin-left: auto; }
+  .ptab { background: none; border: 1px solid transparent; color: #8b949e; font-size: 12px; font-weight: 600;
+          padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+  .ptab:hover { color: #e6edf3; }
+  .ptab.on { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+
+  .section { padding: 16px 24px 24px; }
+
+  /* treasury yield curve panel (Credit & Financial Conditions tab) */
+  .yc-panel { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 12px 16px 8px; margin-bottom: 14px; }
+  .yc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .yc-title { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .05em; }
+  .yc-title b { color: #e6edf3; }
+  .yc-legend { display: flex; gap: 14px; font-size: 11px; color: #8b949e; flex-wrap: wrap; }
+  .yc-legend .sw { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .yc-toggle { display: flex; gap: 2px; }
+  .yc-toggle button { background: none; border: 1px solid transparent; color: #8b949e; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+  .yc-toggle button:hover { color: #e6edf3; }
+  .yc-toggle button.on { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+  .yc-chart { position: relative; height: 260px; }
+  .yc-foot { font-size: 10px; color: #8b949e; margin-top: 6px; }
+
+  /* KPI strip */
+  .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .kpi { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  .kpi:hover { border-color: #30363d; }
+  .kpi .k-name { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi .k-val { font-size: 18px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .kpi .k-delta { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .delta-up { color: #3fb950; } .delta-dn { color: #f85149; } .delta-flat { color: #8b949e; }
+
+  /* stacked full-width charts */
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .spanel { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 10px 14px 6px; cursor: pointer; }
+  .spanel:hover { border-color: #30363d; }
+  .spanel-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+  .spanel-name { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .05em; }
+  .spanel-val { font-size: 15px; font-weight: 700; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .spanel-delta { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .chart-box { position: relative; height: 150px; }
+  .m-foot { padding: 8px 24px 14px; font-size: 10px; color: #8b949e; }
+  .m-empty { color: #8b949e; font-size: 13px; padding: 24px; }
+
+  /* drill-down modal (C-style) */
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(1,4,9,0.72); z-index: 100;
+             align-items: center; justify-content: center; }
+  .overlay.open { display: flex; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; width: 860px; max-width: 94vw;
+           box-shadow: 0 12px 48px rgba(0,0,0,0.6); }
+  .m-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #21262d; }
+  .m-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .m-title .tkr { color: #8b949e; font-weight: 400; }
+  .m-close { background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer; padding: 0 4px; }
+  .m-close:hover { color: #e6edf3; }
+  .m-body { padding: 14px 18px 16px; }
+  .mk-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+  .mk { background: #0d1117; border-radius: 8px; padding: 8px 12px; }
+  .mk .mk-lbl { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+  .mk .mk-val { font-size: 16px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .delta-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 12px; }
+  .ds { background: #0d1117; border-radius: 6px; padding: 5px 8px; text-align: center; }
+  .ds .ds-lbl { font-size: 9px; color: #6e7681; text-transform: uppercase; }
+  .ds .ds-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .chart-box-lg { position: relative; height: 280px; }
+  .m-footnote { margin-top: 10px; font-size: 10px; color: #8b949e; }
+</style>
 </head>
 <body>
-    <div class="header">
-        <h1>Alpha Terminal <span>| Macro Indicators</span></h1>
-        <nav class="nav">
-            <a href="dashboard.html">Dashboard</a>
-            <a href="heatmap.html">Heatmap</a>
-            <a href="options.html">Options</a>
-            <a href="screener.html">Screener</a>
-            <a href="estimates.html">Estimates</a>
-            <a href="financials.html">Financials</a>
-            <a href="news.html">News</a>
-            <a href="macro.html" class="active">Macro</a>
-        </nav>
+
+<div class="header"><div class="nav"></div></div>
+
+<div class="toolbar">
+  <h2>🌐 Macro</h2>
+  <div class="period-bar" id="periodBar"></div>
+  <span class="status" id="status">FRED · Yahoo · 6 categories</span>
+</div>
+
+<div class="subtab-bar" id="subtabBar"></div>
+
+<div class="section">
+  <div id="macMain"></div>
+</div>
+<div class="m-foot" id="mFoot">Macro economic data display — FRED + Yahoo series. Click any KPI tile or chart for the full drill-down.
+  Global period selector applies to all subtabs and the modal chart.</div>
+
+<!-- drill-down modal -->
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="m-head">
+      <div class="m-title">Series · <span class="tkr" id="mdName">—</span> <span class="tkr" id="mdId"></span> <span class="tkr" id="mdCad"></span></div>
+      <button class="m-close" onclick="closeModal()">✕</button>
     </div>
-    
-    <div class="content">
-        <h2>US Macroeconomic Indicators</h2>
-        <p style="color: #8b949e; margin-top: 8px;">Latest data from Federal Reserve Economic Data (FRED)</p>
-        
-        <div class="indicators-grid" id="indicators">
-            <div class="loading">Loading...</div>
-        </div>
+    <div class="m-body">
+      <div class="mk-row">
+        <div class="mk"><div class="mk-lbl">Latest</div><div class="mk-val" id="mkLatest">—</div></div>
+        <div class="mk"><div class="mk-lbl">Δ · period</div><div class="mk-val" id="mkDelta">—</div></div>
+        <div class="mk"><div class="mk-lbl">2Y min</div><div class="mk-val" id="mkMin">—</div></div>
+        <div class="mk"><div class="mk-lbl">2Y max</div><div class="mk-val" id="mkMax">—</div></div>
+      </div>
+      <div class="delta-strip" id="deltaStrip"></div>
+      <div class="chart-box-lg"><canvas id="mdChart"></canvas></div>
+      <div class="m-footnote" id="mdFoot"></div>
     </div>
-    
-    <!-- History Modal -->
-    <div class="modal" id="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modalTitle">History</h2>
-                <button class="close-btn" onclick="closeModal()">&times;</button>
-            </div>
-            <div id="historyChart"></div>
-        </div>
-    </div>
-    
-    <script>
-        // FRED series IDs
-        const INDICATORS = [
-            { id: 'CPALTT01USM657N', name: 'CPI (Consumer Price Index)', format: 'pct', period: 'Monthly' },
-            { id: 'PPIFGS', name: 'PPI (Producer Price Index)', format: 'pct', period: 'Monthly' },
-            { id: 'PCEPI', name: 'PCE (Personal Consumption Expenditures)', format: 'pct', period: 'Monthly' },
-            { id: 'UNRATE', name: 'Unemployment Rate', format: 'pct', period: 'Monthly' },
-            { id: 'PAYEMS', name: 'Nonfarm Payrolls', format: 'level', unit: 'K', period: 'Monthly' },
-            { id: 'GDPC1', name: 'Real GDP', format: 'pct', period: 'Quarterly' },
-            { id: 'MORTGAGE30US', name: '30-Year Mortgage Rate', format: 'rate', period: 'Weekly' },
-            { id: 'DFF', name: 'Fed Funds Rate', format: 'rate', period: 'Daily' },
-            { id: 'DTB3', name: '3-Month Treasury Rate', format: 'rate', period: 'Daily' },
-            { id: 'DTB10', name: '10-Year Treasury Yield', format: 'rate', period: 'Daily' },
-            { id: 'TEDRATE', name: 'TED Spread', format: 'rate', period: 'Daily' },
-            { id: 'VIXCLS', name: 'VIX (CBOE Volatility)', format: 'level', period: 'Daily' },
-        ];
-        
-        async function fetchFred(seriesId) {
-            try {
-                const res = await fetch(`/api/fred?series=${seriesId}`);
-                return await res.json();
-            } catch (e) {
-                console.error(e);
-                return null;
-            }
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// ================= Macro page — Variant B (KPI strip + stacked + drill-down) =================
+// Data: /api/macro -> {groups: [{key, name, items: [{id, name, unit, cadence, observations:[{date,value}]}]}]}
+const PERIODS = [['1M',30],['3M',90],['6M',180],['YTD',0],['1Y',365],['2Y',730]];
+const LINE_COLORS = ['#58a6ff','#3fb950','#f0883e','#a371f7','#39c5cf','#f778ba','#e3b341','#7ee787','#f85149'];
+
+let groups = [];
+let activeGroup = null;
+let periodKey = '3M';
+let charts = [];
+let mdChart = null;
+let mdItem = null;
+let latestDate = null;
+let ycData = null;   // yield-curve payload from /api/macro
+let ycChart = null;  // the treasury yield curve Chart instance
+let ycScale = 'linear';  // 'linear' | 'log' (Bloomberg-style toggle)
+
+function dCls(v){ return v > 0.0001 ? 'delta-up' : (v < -0.0001 ? 'delta-dn' : 'delta-flat'); }
+function fmt(v, unit){ return (v == null) ? '—' : Number(v).toFixed(2) + (unit || ''); }
+function deltaStr(v, unit){ if (v == null) return '—'; const s = v > 0 ? '+' : ''; return s + Number(v).toFixed(2) + (unit || ''); }
+
+function periodStart(k){
+  if (latestDate == null) return '1970-01-01';
+  if (k === 'YTD') return latestDate.slice(0,4) + '-01-01';
+  const days = (PERIODS.find(p=>p[0]===k)||PERIODS[1])[1];
+  const d = new Date(latestDate+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()-days);
+  return d.toISOString().slice(0,10);
+}
+function sliceObs(item, k){
+  // observations are oldest-first; window = last N calendar days ending latestDate
+  const cut = periodStart(k);
+  const w = item.observations.filter(o => o.date >= cut);
+  if (w.length >= 2) return w;
+  // sparse cadence (quarterly GDP in a 1M/3M window) -> show last 2 points
+  // so charts never render blank; the tab label stays honest about the window
+  return item.observations.slice(-2);
+}
+function lastObs(obs){ return obs.length ? obs[obs.length-1] : null; }
+function firstObs(obs){ return obs.length ? obs[0] : null; }
+
+function renderPeriodBar(){
+  document.getElementById('periodBar').innerHTML = PERIODS.map(([k]) =>
+    `<button class="ptab${k===periodKey?' on':''}" onclick="setPeriod('${k}')">${k}</button>`).join('');
+}
+function setPeriod(k){ periodKey=k; renderPeriodBar(); renderAll(); if(mdItem) openModal(mdItem.id); }
+
+function renderSubtabBar(){
+  document.getElementById('subtabBar').innerHTML = groups.map(g =>
+    `<button class="subtab${g.key===activeGroup?' on':''}" onclick="setGroup('${g.key}')">${g.name}</button>`).join('');
+}
+function setGroup(k){ activeGroup=k; renderSubtabBar(); renderAll(); if(mdItem) closeModal(); }
+
+function renderAll(){
+  charts.forEach(c=>c.destroy()); charts = [];
+  if (ycChart) { ycChart.destroy(); ycChart = null; }
+  const group = groups.find(g=>g.key===activeGroup);
+  if (!group) return;
+  const items = group.items;
+  const wrap = document.getElementById('macMain');
+
+  // treasury yield curve panel — only in Credit & Financial Conditions
+  const ycPanel = (activeGroup === 'credit' && ycData && Object.keys(ycData.curves || {}).length)
+    ? `<div class="yc-panel">
+         <div class="yc-head">
+           <div class="yc-title">Treasury Yield Curve · <b>today / yesterday / 1W / ${periodKey}-ago</b> · yield %</div>
+           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+             <div class="yc-toggle">
+               <button id="ycScaleLin" class="${ycScale==='linear'?'on':''}" onclick="setYcScale('linear')">Linear</button>
+               <button id="ycScaleLog" class="${ycScale==='log'?'on':''}" onclick="setYcScale('log')">Log</button>
+             </div>
+             <div class="yc-legend" id="ycLegend"></div>
+           </div>
+         </div>
+         <div class="yc-chart"><canvas id="ycChart"></canvas></div>
+         <div class="yc-foot" id="ycFoot"></div>
+       </div>`
+    : '';
+
+  // KPI strip
+  const kpis = items.map(it => {
+    const w = sliceObs(it, periodKey);
+    const last = lastObs(w);
+    const first = firstObs(w);
+    const delta = (last && first) ? last.value - first.value : null;
+    return `<div class="kpi" onclick="openModal('${it.id}')" title="Click for drill-down">
+      <div class="k-name">${it.name}</div>
+      <div class="k-val">${fmt(last ? last.value : null, it.unit)}</div>
+      <div class="k-delta ${dCls(delta)}">${deltaStr(delta, it.unit)} · ${periodKey}</div>
+    </div>`;
+  }).join('');
+
+  // stacked charts
+  const panels = items.map((it,i) => `
+    <div class="spanel" onclick="openModal('${it.id}')">
+      <div class="spanel-head">
+        <span class="spanel-name">${it.name} · ${it.id}</span>
+        <span class="spanel-delta" id="sd-${it.id}"></span>
+        <span class="spanel-val" id="sv-${it.id}"></span>
+      </div>
+      <div class="chart-box"><canvas id="cv-${it.id}"></canvas></div>
+    </div>`).join('');
+
+  wrap.innerHTML = `${ycPanel}<div class="kpi-strip">${kpis}</div><div class="stack">${panels}</div>`;
+
+  if (ycPanel) renderYC();
+
+  items.forEach((it,i) => {
+    const w = sliceObs(it, periodKey);
+    const last = lastObs(w), first = firstObs(w);
+    const delta = (last && first) ? last.value - first.value : null;
+    const dv = document.getElementById('sv-'+it.id);
+    const dd = document.getElementById('sd-'+it.id);
+    if (dv) dv.textContent = fmt(last ? last.value : null, it.unit);
+    if (dd) { dd.textContent = `${deltaStr(delta, it.unit)} · ${periodKey}`; dd.className = 'spanel-delta ' + dCls(delta); }
+    charts.push(new Chart(document.getElementById('cv-'+it.id), {
+      type: 'line',
+      data: { labels: w.map(o=>o.date), datasets: [{
+        label: it.name, data: w.map(o=>o.value), borderColor: LINE_COLORS[i % LINE_COLORS.length],
+        backgroundColor: LINE_COLORS[i % LINE_COLORS.length], borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true
+      }]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        events: [],  // chart hover off — whole panel is the click target
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: (ctx) => ' ' + it.name + ': ' + ctx.parsed.y + it.unit } } },
+        scales: {
+          x: { ticks: { color: '#8b949e', maxTicksLimit: 6, font: { size: 9 } }, grid: { display: false } },
+          y: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } }
         }
-        
-        async function loadIndicators() {
-            const container = document.getElementById('indicators');
-            container.innerHTML = '';
-            
-            for (const ind of INDICATORS) {
-                const data = await fetchFred(ind.id);
-                const card = document.createElement('div');
-                card.className = 'indicator-card';
-                
-                if (data && data.value !== null) {
-                    const val = parseFloat(data.value);
-                    const prev = parseFloat(data.previous || val);
-                    const change = prev ? ((val - prev) / prev * 100) : 0;
-                    const changeClass = change >= 0 ? 'positive' : 'negative';
-                    const valClass = val >= 0 ? 'positive' : 'negative';
-                    
-                    let displayVal = val.toFixed(2);
-                    if (ind.format === 'pct') displayVal += '%';
-                    if (ind.format === 'rate') displayVal += '%';
-                    if (ind.unit === 'K') displayVal = (val / 1000).toFixed(1) + 'M';
-                    
-                    card.innerHTML = `
-                        <h3>${ind.name}</h3>
-                        <div class="value ${valClass}">${displayVal}</div>
-                        <div class="change ${changeClass}">${change >= 0 ? '+' : ''}${change.toFixed(2)}% vs prev</div>
-                        <div class="date">${data.date || 'N/A'} | ${ind.period}</div>
-                        <button class="chart-btn" onclick="showHistory('${ind.id}', '${ind.name}')">📈 View History</button>
-                    `;
-                } else {
-                    card.innerHTML = `
-                        <h3>${ind.name}</h3>
-                        <div class="value">--</div>
-                        <div class="date">Data unavailable</div>
-                    `;
-                }
-                container.appendChild(card);
-            }
+      }
+    }));
+  });
+}
+
+// ============ treasury yield curve (Credit & Financial Conditions) ============
+const YC_STYLE = {
+  'today':     { color: '#e6edf3', width: 3, dash: [] },          // bold white
+  'yesterday': { color: '#58a6ff', width: 2, dash: [] },          // solid blue
+  '1W':        { color: '#8b949e', width: 2, dash: [5,3] },       // gray dashed
+};
+const YC_AGO_COLOR = '#f0883e';                                    // period-ago orange
+
+// x-axis tick labels: explicit tenor ladder. Linear skips 3M for space;
+// log includes it (Bloomberg-style spread short end). Values are linear-year
+// positions on the x scale.
+const YC_TICKS_LIN = [[1/12,'1M'],[0.5,'6M'],[1,'1y'],[2,'2y'],[3,'3y'],[5,'5y'],
+                      [7,'7y'],[10,'10y'],[20,'20y'],[30,'30y']];
+const YC_TICKS_LOG = [[1/12,'1M'],[0.25,'3M'],[0.5,'6M'],[1,'1y'],[2,'2y'],[3,'3y'],[5,'5y'],
+                      [7,'7y'],[10,'10y'],[20,'20y'],[30,'30y']];
+function ycTickCfg(){
+  const ticks = ycScale === 'log' ? YC_TICKS_LOG : YC_TICKS_LIN;
+  return {
+    afterBuildTicks: (axis) => { axis.ticks = ticks.map(([v]) => ({ value: v })); },
+    ticks: { color: '#8b949e', font: { size: 10 },
+             callback: v => { const t = ticks.find(([x]) => Math.abs(x - v) < 1e-6); return t ? t[1] : ''; } },
+  };
+}
+
+function ycLabel(k){ return k === 'today' ? 'Today' : k === 'yesterday' ? 'Yesterday' : (k === '1W' ? '1W' : k + ' ago'); }
+
+function setYcScale(k){
+  ycScale = k;
+  const lin = document.getElementById('ycScaleLin'), log = document.getElementById('ycScaleLog');
+  if (lin) lin.className = k === 'linear' ? 'on' : '';
+  if (log) log.className = k === 'log' ? 'on' : '';
+  renderYC();
+}
+
+// vertical crosshair at the hovered tenor; tooltip (mode:index) lists all
+// curves' yields at that tenor (Bloomberg-style)
+const ycCrosshair = {
+  id: 'ycCrosshair',
+  afterDraw(chart){
+    const active = chart.tooltip.getActiveElements();
+    if (!active.length) return;
+    const x = active[0].element.x;
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(139,148,158,0.9)';
+    ctx.setLineDash([3,3]);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+function renderYC(){
+  const curves = ycData.curves;
+  const keys = ['today', 'yesterday', '1W'];
+  if (curves[periodKey] && !keys.includes(periodKey)) keys.push(periodKey);
+  const present = keys.filter(k => curves[k]);
+  if (!present.length) return;
+
+  // legend
+  document.getElementById('ycLegend').innerHTML = present.map(k => {
+    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: 2, dash: [] };
+    return `<span><span class="sw" style="background:${st.color}"></span><span style="color:${st.color}">${ycLabel(k)}</span> <span style="color:#6e7681">${curves[k].date}</span></span>`;
+  }).join('');
+
+  // x = tenor years (LINEAR, max 30 per Hong); y = yield %
+  const labels = ycData.tenors.map(t => {
+    const p = curves[present[0]].points.find(x => x.tenor === t);
+    return p ? p.years : null;
+  });
+  const datasets = present.map(k => {
+    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: 2, dash: [] };
+    return {
+      label: k,
+      data: ycData.tenors.map(t => { const p = curves[k].points.find(x => x.tenor === t); return p ? p.yield : null; }),
+      borderColor: st.color, borderWidth: st.width, borderDash: st.dash,
+      pointRadius: 2.5, pointBackgroundColor: st.color, tension: 0.2, spanGaps: false,
+    };
+  });
+
+  if (ycChart) { ycChart.destroy(); ycChart = null; }
+  ycChart = new Chart(document.getElementById('ycChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    plugins: [ycCrosshair],
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => 'Tenor ' + ycData.tenors[items[0].dataIndex],
+            label: (ctx) => ' ' + ycLabel(ctx.dataset.label) + ': ' + ctx.parsed.y + '%',
+          }
         }
-        
-        async function showHistory(seriesId, name) {
-            document.getElementById('modalTitle').textContent = name + ' - History';
-            document.getElementById('modal').classList.add('show');
-            
-            const data = await fetchFred(seriesId + '_history');
-            if (data && data.dates) {
-                Plotly.newPlot('historyChart', [{
-                    x: data.dates,
-                    y: data.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: '#58a6ff', width: 2 }
-                }], {
-                    paper_bgcolor: '#161b22',
-                    plot_bgcolor: '#161b22',
-                    xaxis: { color: '#8b949e', gridcolor: '#30363d' },
-                    yaxis: { color: '#8b949e', gridcolor: '#30363d' },
-                    margin: { t: 20, r: 20, b: 40, l: 60 }
-                }, { responsive: true });
-            }
-        }
-        
-        function closeModal() {
-            document.getElementById('modal').classList.remove('show');
-        }
-        
-        document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') closeModal();
-        });
-        
-        loadIndicators();
-    </script>
+      },
+      scales: {
+        x: Object.assign({
+          position: 'bottom', max: 30,   // 30y = last tick
+          grid: { color: '#21262d' },
+          title: { display: true, text: ycScale === 'log' ? 'Tenor (Logarithmic)' : 'Tenor (linear)', color: '#8b949e', font: { size: 10 } }
+        }, ycScale === 'log'
+          ? { type: 'logarithmic', min: 0.05 }   // log(0) undefined
+          : { type: 'linear', min: 0 },
+          ycTickCfg()),
+        y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' },
+             title: { display: true, text: 'Yield %', color: '#8b949e', font: { size: 10 } } }
+      }
+    }
+  });
+
+  document.getElementById('ycFoot').textContent =
+    'Curves: ' + present.map(k => `${ycLabel(k)} (${curves[k].date})`).join(' · ') + '. ' +
+    (curves.today ? '' : 'Today omitted: resolved day has no FRED DGS data yet — per rule, no substitution. ') +
+    `X-axis ${ycScale === 'log' ? 'logarithmic' : 'linear'}, 30Y = last tick.`;
+}
+
+// ============ drill-down modal ============
+function openModal(id){
+  const group = groups.find(g=>g.key===activeGroup);
+  const it = group ? group.items.find(x=>x.id===id) : null;
+  if (!it) return;
+  mdItem = it;
+  document.getElementById('mdName').textContent = it.name;
+  document.getElementById('mdId').textContent = it.id;
+  document.getElementById('mdCad').textContent = '· ' + it.cadence;
+
+  const w = sliceObs(it, periodKey);
+  const last = lastObs(w), first = firstObs(w);
+  const delta = (last && first) ? last.value - first.value : null;
+  const vals = it.observations.map(o=>o.value).filter(v=>v!=null);
+  const mn = vals.length ? Math.min(...vals) : null;
+  const mx = vals.length ? Math.max(...vals) : null;
+  document.getElementById('mkLatest').textContent = fmt(last ? last.value : null, it.unit);
+  document.getElementById('mkDelta').textContent = `${deltaStr(delta, it.unit)} · ${periodKey}`;
+  document.getElementById('mkDelta').style.color = delta > 0 ? '#3fb950' : (delta < 0 ? '#f85149' : '#8b949e');
+  document.getElementById('mkMin').textContent = fmt(mn, it.unit);
+  document.getElementById('mkMax').textContent = fmt(mx, it.unit);
+
+  document.getElementById('deltaStrip').innerHTML = PERIODS.map(([k]) => {
+    const ww = sliceObs(it, k);
+    const l = lastObs(ww), f = firstObs(ww);
+    const d = (l && f) ? l.value - f.value : null;
+    return `<div class="ds"><div class="ds-lbl">${k}</div><div class="ds-val ${dCls(d)}">${deltaStr(d, it.unit)}</div></div>`;
+  }).join('');
+
+  document.getElementById('mdFoot').textContent =
+    `Source: FRED · series ${it.id} · cadence ${it.cadence} · full history shown · delta strip over selected periods`;
+
+  if (mdChart) { mdChart.destroy(); mdChart = null; }
+  mdChart = new Chart(document.getElementById('mdChart'), {
+    type: 'line',
+    data: { labels: w.map(o=>o.date), datasets: [{
+      label: it.name, data: w.map(o=>o.value), borderColor: '#58a6ff', backgroundColor: '#58a6ff',
+      borderWidth: 2, pointRadius: 0, tension: 0.25, spanGaps: true
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => ' ' + it.name + ': ' + ctx.parsed.y + it.unit } } },
+      scales: {
+        x: { ticks: { color: '#8b949e', maxTicksLimit: 6, font: { size: 10 } }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+  document.getElementById('overlay').classList.add('open');
+}
+function closeModal(){ document.getElementById('overlay').classList.remove('open'); mdItem = null; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ============ load ============
+async function loadMacro(){
+  const main = document.getElementById('macMain');
+  main.innerHTML = '<div class="m-empty">Loading macro data…</div>';
+  try {
+    const res = await fetch('/api/macro');
+    const data = await res.json();
+    groups = data.groups || [];
+    ycData = data.yield_curve || null;
+    if (!data.configured) {
+      document.getElementById('mFoot').textContent =
+        'FRED_API_KEY not configured — series show —. Add FRED_API_KEY to the QA/PROD plist env and restart (bootout+bootstrap).';
+    }
+    if (!groups.length) {
+      main.innerHTML = '<div class="m-empty">No macro data available.</div>';
+      return;
+    }
+    // latestDate = newest observation date across all series (period slicing anchor)
+    latestDate = null;
+    groups.forEach(g => g.items.forEach(it => it.observations.forEach(o => {
+      if (latestDate == null || o.date > latestDate) latestDate = o.date;
+    })));
+    activeGroup = groups[0].key;
+    renderPeriodBar();
+    renderSubtabBar();
+    renderAll();
+  } catch (e) {
+    main.innerHTML = `<div class="m-empty" style="color:#f85149">Failed to load macro data: ${e.message}</div>`;
+  }
+}
+
+loadMacro();
+</script>
 </body>
 </html>
