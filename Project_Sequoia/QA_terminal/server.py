@@ -426,6 +426,15 @@ class Handler(SimpleHTTPRequestHandler):
     }
     
     def do_GET(self):
+        _start = time.time()
+        try:
+            self._route()
+        finally:
+            _dur = time.time() - _start
+            if _dur >= 1.0:
+                logger.info("slow request: %s took %.2fs", self.path, _dur)
+
+    def _route(self):
         parsed = urlparse(self.path)
         path, qs = parsed.path, parse_qs(parsed.query)
         
@@ -593,11 +602,12 @@ class Handler(SimpleHTTPRequestHandler):
         key = ','.join(tickers)
         cached = _quote_cache.get(key)
         if cached is not None:
-            self.send_json(cached, headers={'X-Cache': 'HIT'})
+            data, ts = cached
+            self.send_json(data, headers={'X-Cache': 'HIT', 'X-Quotes-Ts': str(ts)})
             return
         data = get_quotes(list(tickers))
-        _quote_cache.set(key, data)
-        self.send_json(data, headers={'X-Cache': 'MISS'})
+        _quote_cache.set(key, (data, time.time()))
+        self.send_json(data, headers={'X-Cache': 'MISS', 'X-Quotes-Ts': str(time.time())})
     
     def handle_news_top(self, qs):
         import news

@@ -58,6 +58,17 @@ class TestServerExtra(unittest.TestCase):
             self.handler.do_GET()
             mock_get.assert_called_once_with(['AAPL'])
 
+    def test_api_quotes_sends_timestamp_header(self):
+        """The /api/quotes response carries X-Quotes-Ts (cache set time) so the
+        UI can show 'as of' and flag staleness."""
+        with patch('quotes.get_quotes') as mock_get:
+            mock_get.return_value = {'ZZTS': {'ticker': 'ZZTS', 'price': 1.0}}
+            self.handler.path = '/api/quotes?tickers=ZZTS'
+            self.handler.do_GET()
+            call = self.handler.send_json.call_args
+            self.assertIn('X-Quotes-Ts', call.kwargs['headers'])
+            self.assertIn('X-Cache', call.kwargs['headers'])
+
     def test_api_options(self):
         with patch('options.get_options_chain') as mock_chain:
             mock_chain.return_value = {'calls': [], 'puts': []}

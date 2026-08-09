@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alpha Terminal</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d1117'/%3E%3Cpath d='M3 11 L7 7 L9 9 L13 4' stroke='%233fb950' stroke-width='2' fill='none'/%3E%3C/svg%3E">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -281,6 +282,10 @@
     <div class="toolbar">
         <input type="text" class="search" id="search" placeholder="Search ticker...">
         <button class="btn" onclick="addTicker()">Load</button>
+        <span id="quotesAsOf" style="color: #8b949e; font-size: 12px; margin-left: auto;"></span>
+    </div>
+    <div id="staleBanner" style="display: none; background: rgba(248,81,73,0.1); color: #f85149; padding: 6px 24px; font-size: 12px; border-bottom: 1px solid rgba(248,81,73,0.33);">
+        ⚠ Live quotes stale — last update: <span id="staleBannerTime">never</span>
     </div>
     
     <div class="main">
@@ -396,7 +401,7 @@
         </div>
 
 
-                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <script src="chart.js"></script>
     <script>
         let quotes = {};
         let watchlist = [];
@@ -435,6 +440,7 @@
         
         // Fetch quotes
         let quotesFetching = false;
+        let lastQuoteTs = null;
         async function fetchQuotes() {
             if (quotesFetching) return; // single-flight: skip if a poll is in flight
             quotesFetching = true;
@@ -446,6 +452,13 @@
             try {
                 const res = await fetch(`/api/quotes?tickers=${tickers}`);
                 const newQuotes = await res.json();
+                const ts = res.headers.get('X-Quotes-Ts');
+                if (ts) {
+                    lastQuoteTs = Number(ts);
+                    document.getElementById('quotesAsOf').textContent =
+                        'As of ' + new Date(lastQuoteTs * 1000).toLocaleTimeString();
+                }
+                document.getElementById('staleBanner').style.display = 'none';
                 
                 // Process for "flash" updates
                 Object.keys(newQuotes).forEach(ticker => {
@@ -461,6 +474,9 @@
                 renderQuote(currentTicker);
             } catch (e) {
                 console.error('Fetch error:', e);
+                document.getElementById('staleBannerTime').textContent =
+                    lastQuoteTs ? new Date(lastQuoteTs * 1000).toLocaleTimeString() : 'never';
+                document.getElementById('staleBanner').style.display = 'block';
             } finally {
                 quotesFetching = false;
             }
@@ -647,10 +663,10 @@
             const q = quotes[t] || {};
             document.getElementById('qtTicker').textContent = t;
             document.getElementById('qtName').textContent = q.name || '--';
-            document.getElementById('qtPrice').textContent = q.price ? '$' + q.price.toFixed(2) : '--';
+            document.getElementById('qtPrice').textContent = q.price != null ? '$' + q.price.toFixed(2) : '--';
             
             const changeEl = document.getElementById('qtChange');
-            if (q.change != null) {
+            if (q.change != null && q.change_pct != null) {
                 const sign = q.change >= 0 ? '+' : '';
                 changeEl.textContent = sign + q.change.toFixed(2) + ' (' + sign + q.change_pct.toFixed(2) + '%)';
                 changeEl.className = 'change ' + (q.change >= 0 ? 'positive' : 'negative');
@@ -659,15 +675,15 @@
                 changeEl.className = 'change';
             }
             
-            document.getElementById('qtOpen').textContent = q.open ? '$' + q.open.toFixed(2) : '--';
-            document.getElementById('qtHigh').textContent = q.high ? '$' + q.high.toFixed(2) : '--';
-            document.getElementById('qtLow').textContent = q.low ? '$' + q.low.toFixed(2) : '--';
-            document.getElementById('qtVolume').textContent = q.volume ? formatNumber(q.volume) : '--';
-            document.getElementById('qt52wHigh').textContent = q['52w_high'] ? '$' + q['52w_high'].toFixed(2) : '--';
-            document.getElementById('qt52wLow').textContent = q['52w_low'] ? '$' + q['52w_low'].toFixed(2) : '--';
-            document.getElementById('qtMktCap').textContent = q.market_cap ? formatNumber(q.market_cap) : '--';
-            document.getElementById('qtPE').textContent = q.pe_ratio ? q.pe_ratio.toFixed(2) : '--';
-            document.getElementById('qtDivYield').textContent = q.dividend_yield ? q.dividend_yield.toFixed(2) + '%' : '--';
+            document.getElementById('qtOpen').textContent = q.open != null ? '$' + q.open.toFixed(2) : '--';
+            document.getElementById('qtHigh').textContent = q.high != null ? '$' + q.high.toFixed(2) : '--';
+            document.getElementById('qtLow').textContent = q.low != null ? '$' + q.low.toFixed(2) : '--';
+            document.getElementById('qtVolume').textContent = q.volume != null ? formatNumber(q.volume) : '--';
+            document.getElementById('qt52wHigh').textContent = q['52w_high'] != null ? '$' + q['52w_high'].toFixed(2) : '--';
+            document.getElementById('qt52wLow').textContent = q['52w_low'] != null ? '$' + q['52w_low'].toFixed(2) : '--';
+            document.getElementById('qtMktCap').textContent = q.market_cap != null ? formatNumber(q.market_cap) : '--';
+            document.getElementById('qtPE').textContent = q.pe_ratio != null ? q.pe_ratio.toFixed(2) : '--';
+            document.getElementById('qtDivYield').textContent = q.dividend_yield != null ? q.dividend_yield.toFixed(2) + '%' : '--';
             
             // Update chart performance header for current timeframe
             updatePerformanceDisplay(timeframe);
@@ -781,7 +797,7 @@
             const perfEl = document.getElementById('chartPerf');
             if (!perfEl || !q) return;
             
-            const ret = q['ret_' + tf.toLowerCase().replace('ytd', 'ytd').replace('1d', '1d').replace('1w', '1w').replace('1m', '1m').replace('3m', '3m').replace('1y', '1y').replace('5y', '5y')];
+            const ret = q['ret_' + tf.toLowerCase()];
             if (ret !== undefined) {
                 const cls = ret >= 0 ? 'positive' : 'negative';
                 perfEl.innerHTML = `<span class="${cls}">${ret >= 0 ? '▲' : '▼'} ${Math.abs(ret).toFixed(2)}%</span>`;
