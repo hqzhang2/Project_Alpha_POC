@@ -466,10 +466,24 @@
             }
         }
         
+        // Escape user/external strings before innerHTML injection (tickers are
+        // free text from the add box; insider names arrive from EDGAR)
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        
+        // Restrict watchlist symbols to sane ticker characters
+        function validTicker(t) {
+            return /^[A-Za-z0-9.\-^=]{1,10}$/.test(t);
+        }
+        
         // Render watchlist
         function renderWatchlist() {
             const el = document.getElementById('watchlist');
             el.innerHTML = watchlist.map(t => {
+                const safe = esc(t);
                 const q = quotes[t] || {};
                 const price = q.price ? q.price.toFixed(2) : '--';
                 const change = q.change_pct ? q.change_pct.toFixed(2) + '%' : '--';
@@ -477,8 +491,8 @@
                 const flash = q.flash || '';
                 
                 return `
-                    <div class="watchlist-item ${t === currentTicker ? 'active' : ''} ${flash}" onclick="selectTicker('${t}')">
-                        <span class="ticker">${t}</span>
+                    <div class="watchlist-item ${t === currentTicker ? 'active' : ''} ${flash}" onclick="selectTicker('${safe}')">
+                        <span class="ticker">${safe}</span>
                         <div style="display: flex; align-items: center;">
                             <span class="price">${price}</span>
                             <span class="change ${cls}" style="margin-left: 8px;">${change}</span>
@@ -586,7 +600,7 @@
             const rows = (ins.filings || []).slice(0, 20).map(f => {
                 const code = f.code === 'P' ? '<span class="pill buy">BUY</span>' : f.code === 'S' ? '<span class="pill sell">SELL</span>' : f.code;
                 const val = f.value != null ? (f.value < 0 ? '<span class="neg">−$' + Math.abs(f.value / 1e6).toFixed(2) + 'M</span>' : '<span class="pos">+$' + (f.value / 1e6).toFixed(2) + 'M</span>') : '—';
-                return '<tr><td>' + (f.filing_date || '—') + '</td><td>' + (f.insider || '—') + '</td><td>' + code + '</td><td>' + (f.shares != null ? Number(f.shares).toLocaleString() : '—') + '</td><td>' + (f.price ? '$' + Number(f.price).toFixed(2) : '—') + '</td><td>' + val + '</td></tr>';
+                return '<tr><td>' + esc(f.filing_date) + '</td><td>' + esc(f.insider) + '</td><td>' + code + '</td><td>' + (f.shares != null ? Number(f.shares).toLocaleString() : '—') + '</td><td>' + (f.price ? '$' + Number(f.price).toFixed(2) : '—') + '</td><td>' + val + '</td></tr>';
             }).join('');
             const netHtml = net != null ? (net < 0 ? '<span class="neg">' + fmtMoneyM(net) + '</span>' : '<span class="pos">' + fmtMoneyM(net) + '</span>') : '—';
             return `
@@ -609,12 +623,12 @@
             const bars = daily.slice().reverse().map(d => {
                 if (d.spread == null) return '<i style="height:4px"></i>';
                 const h = Math.min(30, Math.abs(d.spread) * 30 + 4);
-                return '<i class="' + (d.spread >= 0 ? 'up' : 'dn') + '" style="height:' + h.toFixed(0) + 'px" title="' + d.day + ' ' + (d.spread >= 0 ? '+' : '') + d.spread + '"></i>';
+                return '<i class="' + (d.spread >= 0 ? 'up' : 'dn') + '" style="height:' + h.toFixed(0) + 'px" title="' + esc(d.day) + ' ' + (d.spread >= 0 ? '+' : '') + d.spread + '"></i>';
             }).join('');
             const rows = daily.map(d => {
                 const spr = d.spread == null ? '—' : (d.spread < 0 ? '<span class="neg">' + d.spread.toFixed(2) + '</span>' : '<span class="pos">+' + d.spread.toFixed(2) + '</span>');
                 const split = d.classified ? Math.round(d.bull / d.classified * 100) + '% / ' + Math.round(d.bear / d.classified * 100) + '%' : '—';
-                return '<tr><td>' + d.day + '</td><td>' + d.messages + '</td><td>' + (d.classified || 0) + '</td><td>' + split + '</td><td>' + spr + '</td></tr>';
+                return '<tr><td>' + esc(d.day) + '</td><td>' + d.messages + '</td><td>' + (d.classified || 0) + '</td><td>' + split + '</td><td>' + spr + '</td></tr>';
             }).join('');
             return `
                 <div class="m-kpis">
@@ -682,7 +696,7 @@
         function addToWatchlistFromSearch() {
             const input = document.getElementById('search');
             const t = input.value.toUpperCase().trim();
-            if (t && !watchlist.includes(t)) {
+            if (t && validTicker(t) && !watchlist.includes(t)) {
                 watchlist.push(t);
                 watchlist.sort();
                 try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
@@ -705,7 +719,7 @@
         function addToWatchlist() {
             const input = document.getElementById('addTickerInput');
             const t = input.value.toUpperCase().trim();
-            if (t && !watchlist.includes(t)) {
+            if (t && validTicker(t) && !watchlist.includes(t)) {
                 watchlist.push(t);
                 watchlist.sort();
                 try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}

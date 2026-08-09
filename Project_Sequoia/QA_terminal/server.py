@@ -218,6 +218,16 @@ def _is_bad_float(x):
     return math.isnan(f) or math.isinf(f)
 
 
+def _cors_allowed(origin):
+    """CORS is only served to localhost origins (the portal on :8000 embeds
+    this dashboard via iframe). Remote origins must NOT be able to read
+    localhost APIs (DNS-rebinding / drive-by fetch protection)."""
+    if not origin:
+        return False
+    return (origin.startswith('http://localhost:')
+            or origin.startswith('http://127.0.0.1:'))
+
+
 def clean_dict(d):
     """Recursively clean dict of NaN/inf values (incl. numpy float64)."""
     if not isinstance(d, dict):
@@ -499,7 +509,9 @@ class Handler(SimpleHTTPRequestHandler):
             SimpleHTTPRequestHandler.do_GET(self)
     
     def end_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin = self.headers.get('Origin')
+        if _cors_allowed(origin):
+            self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('X-Frame-Options', 'ALLOWALL')
         super().end_headers()
 

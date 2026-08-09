@@ -200,6 +200,17 @@ class TestServerExtra(unittest.TestCase):
         self.handler.do_GET()
         self.handler.send_error.assert_called_with(404, "API not found")
 
+    def test_cors_allowlist(self):
+        """CORS must only be served to localhost origins (portal iframe); a
+        remote origin must not be able to read localhost APIs."""
+        self.assertTrue(server._cors_allowed('http://localhost:8000'))
+        self.assertTrue(server._cors_allowed('http://127.0.0.1:8000'))
+        self.assertTrue(server._cors_allowed('http://localhost:9999'))
+        self.assertFalse(server._cors_allowed('http://evil.example.com'))
+        self.assertFalse(server._cors_allowed('https://localhost:8000'))
+        self.assertFalse(server._cors_allowed(None))
+        self.assertFalse(server._cors_allowed(''))
+
     def test_static_html(self):
         with patch('os.path.exists') as mock_exists, \
              patch('builtins.open', unittest.mock.mock_open(read_data='<html><div class="header"></div></html>')), \
