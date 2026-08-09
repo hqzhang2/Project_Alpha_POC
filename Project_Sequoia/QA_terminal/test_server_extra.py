@@ -21,6 +21,7 @@ class TestServerExtra(unittest.TestCase):
         from io import BytesIO
         self.handler.wfile = BytesIO()
         self.handler.headers = {}
+        server._quote_cache.clear()
 
     def test_api_quotes(self):
         with patch('quotes.get_quotes') as mock_get:
@@ -28,6 +29,30 @@ class TestServerExtra(unittest.TestCase):
             self.handler.path = '/api/quotes?tickers=AAPL'
             self.handler.do_GET()
             self.handler.send_json.assert_called()
+
+    def test_api_quotes_served_from_cache(self):
+        """Second request within TTL must not call the provider again."""
+        with patch('quotes.get_quotes') as mock_get:
+            mock_get.return_value = {'ZZTEST': {'ticker': 'ZZTEST', 'price': 1.0}}
+            self.handler.path = '/api/quotes?tickers=ZZTEST'
+            self.handler.do_GET()
+            self.handler.do_GET()
+            self.assertEqual(mock_get.call_count, 1)
+
+    def test_api_quotes_cap_and_empty(self):
+        self.handler.path = '/api/quotes?tickers=' + ','.join('T%d' % i for i in range(60))
+        self.handler.do_GET()
+        self.handler.send_json.assert_called_with({'error': 'too many tickers (max 50)'}, status=400)
+        self.handler.path = '/api/quotes?tickers='
+        self.handler.do_GET()
+        self.handler.send_json.assert_called_with({'error': 'tickers required'}, status=400)
+
+    def test_api_quotes_dedupes_and_uppercases(self):
+        with patch('quotes.get_quotes') as mock_get:
+            mock_get.return_value = {'AAPL': {'ticker': 'AAPL'}}
+            self.handler.path = '/api/quotes?tickers=aapl,AAPL'
+            self.handler.do_GET()
+            mock_get.assert_called_once_with(['AAPL'])
 
     def test_api_options(self):
         with patch('options.get_options_chain') as mock_chain:

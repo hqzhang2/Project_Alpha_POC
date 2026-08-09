@@ -106,7 +106,7 @@ ENV = os.environ.get('ENV', 'QA')
 PORT = int(os.environ.get('PORT', getattr(config, 'QA_PORT', 9099)))
 HOST = getattr(config, 'HOST', '0.0.0.0')
 DOCROOT = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
-CACHE_TTL = int(os.environ.get('YF_CACHE_TTL', '300'))  # 5 min default
+CACHE_TTL = int(os.environ.get('YF_CACHE_TTL', '60'))  # 60s default; 15s poll stays fresh
 HEALTH_CHECK_INTERVAL = 30
 
 # ============================================================================
@@ -526,8 +526,22 @@ class Handler(SimpleHTTPRequestHandler):
     
     def handle_quotes(self, qs):
         from quotes import get_quotes
-        tickers = qs.get('tickers', ['SPY'])[0].split(',')
-        self.send_json(get_quotes(tickers))
+        raw = (qs.get('tickers') or [''])[0]
+        tickers = sorted({t.strip().upper() for t in raw.split(',') if t.strip()})
+        if not tickers:
+            self.send_json({'error': 'tickers required'}, status=400)
+            return
+        if len(tickers) > 50:
+            self.send_json({'error': 'too many tickers (max 50)'}, status=400)
+            return
+        key = ','.join(tickers)
+        cached = _quote_cache.get(key)
+        if cached is not None:
+            self.send_json(cached, headers={'X-Cache': 'HIT'})
+            return
+        data = get_quotes(list(tickers))
+        _quote_cache.set(key, data)
+        self.send_json(data, headers={'X-Cache': 'MISS'})
     
     def handle_news_top(self, qs):
         import news
@@ -852,6 +866,16 @@ class Handler(SimpleHTTPRequestHandler):
 # Server Management
 # ============================================================================
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that treats routine client aborts (browser closing
+    mid-response) as non-errors — no traceback spam in the logs."""
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class AlphaTerminalServer:
     def __init__(self, host=HOST, port=PORT):
         self.host = host
@@ -863,7 +887,7 @@ class AlphaTerminalServer:
     def start(self):
         """Start the HTTP server in a background thread."""
         Handler._discover_module_routes()
-        self.server = HTTPServer((self.host, self.port), Handler)
+        self.server = QuietThreadingHTTPServer((self.host, self.port), Handler)
         self.server_thread = threading.Thread(target=self._serve, daemon=True)
         self.server_thread.start()
         logger.info(f"Alpha Terminal ({ENV}): http://{self.host}:{self.port}")

@@ -1,12 +1,19 @@
 """
 Yahoo Finance Quote Fetcher
 KAN-19: Yahoo Finance Quote Integration
+
+Batched history (2026-08-09): return percentages for the whole watchlist now
+come from ONE `yf.download(tickers, period='5y')` call instead of one 5y
+history fetch per ticker. Display fields still come from per-ticker `info`
+(5s-cached). Falls back to per-ticker history if the batch download fails.
 """
 import json
 import math
 import time
 from datetime import datetime, timedelta
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
+import pandas as pd
 import yfinance
 import sys
 import traceback
@@ -38,8 +45,96 @@ def safe_ret(price_now, price_past):
         return None
 
 
-def get_quote(ticker: str, use_cache: bool = True) -> dict:
-    """Fetch single quote with caching."""
+def _download_batch(tickers, period="5y"):
+    """One batched 5y daily history download for all tickers.
+
+    Returns the yf.download frame, or None on failure (caller falls back to
+    per-ticker history). Single network round-trip instead of one per ticker.
+    """
+    if not tickers:
+        return None
+    try:
+        frame = yfinance.download(
+            tickers, period=period, group_by="ticker",
+            auto_adjust=False, progress=False, threads=False,
+        )
+        if frame is None or frame.empty:
+            return None
+        return frame
+    except Exception as e:
+        print(f"[quotes] batch download failed for {len(tickers)} tickers: {e}",
+              file=sys.stderr)
+        return None
+
+
+def _batch_series(batch, ticker):
+    """Extract one ticker's OHLCV frame from a yf.download batch.
+
+    Multi-ticker batches have MultiIndex columns (ticker, field); single-ticker
+    batches have plain columns. Returns None when the ticker is absent.
+    """
+    if batch is None:
+        return None
+    try:
+        if getattr(batch.columns, "nlevels", 1) > 1:
+            return batch[ticker]
+        return batch
+    except (KeyError, AttributeError):
+        return None
+
+
+def _compute_returns(hist, latest_price=None):
+    """Compute the 9 return percentages from a Close series.
+
+    Relative lookback windows (7/30/90/180/365/730/1825 days) + calendar-year
+    YTD, anchored to 'now' — never goes stale like the old hardcoded dates.
+    """
+    rets = {"ret_1d": None, "ret_1w": None, "ret_1m": None, "ret_3m": None,
+            "ret_6m": None, "ret_ytd": None, "ret_1y": None, "ret_2y": None,
+            "ret_5y": None}
+    if hist is None or len(hist) == 0:
+        return rets
+    try:
+        close = hist["Close"].dropna()
+        if close.empty:
+            return rets
+        latest = latest_price if latest_price is not None else float(close.iloc[-1])
+        if not latest:
+            return rets
+        prev_close = safe_float(close.iloc[-2]) if len(close) > 1 else latest
+        rets["ret_1d"] = safe_ret(latest, prev_close)
+
+        tz = hist.index.tz
+        now_local = datetime.now(tz) if tz else datetime.now()
+
+        def lookback(days):
+            seg = close[close.index >= now_local - timedelta(days=days)]
+            return safe_ret(latest, safe_float(seg.iloc[0])) if len(seg) > 1 else None
+
+        rets["ret_1w"] = lookback(7)
+        rets["ret_1m"] = lookback(30)
+        rets["ret_3m"] = lookback(90)
+        rets["ret_6m"] = lookback(180)
+
+        ytd_start_ts = pd.Timestamp(now_local.year, 1, 1, tz=tz)
+        ytd_start = close[close.index >= ytd_start_ts]
+        rets["ret_ytd"] = safe_ret(latest, safe_float(ytd_start.iloc[0])) if len(ytd_start) > 1 else None
+
+        rets["ret_1y"] = lookback(365)
+        rets["ret_2y"] = lookback(730)
+        rets["ret_5y"] = lookback(1825)
+    except Exception as e:
+        print(f"[ERROR _compute_returns] {type(e).__name__}: {e}", file=sys.stderr)
+    return rets
+
+
+def get_quote(ticker: str, use_cache: bool = True, _batch=None) -> dict:
+    """Fetch single quote with caching.
+
+    `_batch` (optional): a shared yf.download frame from get_quotes. When
+    provided, the per-ticker 5y history fetch is skipped and the return
+    percentages are computed from the batch.
+    """
     ticker_upper = ticker.upper()
     now = time.time()
     
@@ -52,56 +147,16 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
         ticker_obj = yfinance.Ticker(ticker)
         info = ticker_obj.info
         
-        # Initialize return values as None
-        ret_1d = ret_1w = ret_1m = ret_3m = ret_6m = ret_ytd = ret_1y = ret_2y = ret_5y = None
-        
-        # Get historical data for performance calculation
-        try:
-            hist = ticker_obj.history(period="5y")
-            if len(hist) > 0:
-                latest_price = safe_float(hist['Close'].iloc[-1])
-                if latest_price:
-                    # Calculate returns for each period based on chart timeframes
-                    from datetime import datetime as dt, timedelta
-                    now_local = dt.now(hist.index.tz)
-                    
-                    # 1D (previous close to now - use yesterday's close)
-                    prev_close = safe_float(hist['Close'].iloc[-2]) if len(hist) > 1 else latest_price
-                    ret_1d = safe_ret(latest_price, prev_close)
-                    
-                    # 1W (7 days ago)
-                    one_wk = hist[hist.index >= now_local - timedelta(days=7)]
-                    ret_1w = safe_ret(latest_price, safe_float(one_wk['Close'].iloc[0])) if len(one_wk) > 1 else None
-                    
-                    # 1M (30 days ago)
-                    one_mo = hist[hist.index >= now_local - timedelta(days=30)]
-                    ret_1m = safe_ret(latest_price, safe_float(one_mo['Close'].iloc[0])) if len(one_mo) > 1 else None
-                    
-                    # 3M (90 days ago)
-                    three_mo = hist[hist.index >= now_local - timedelta(days=90)]
-                    ret_3m = safe_ret(latest_price, safe_float(three_mo['Close'].iloc[0])) if len(three_mo) > 1 else None
-                    
-                    # 6M (180 days ago)
-                    six_mo = hist[hist.index >= now_local - timedelta(days=180)]
-                    ret_6m = safe_ret(latest_price, safe_float(six_mo['Close'].iloc[0])) if len(six_mo) > 1 else None
-                    
-                    # YTD performance
-                    ytd_start = hist[hist.index >= '2026-01-01']
-                    ret_ytd = safe_ret(latest_price, safe_float(ytd_start['Close'].iloc[0])) if len(ytd_start) > 1 else None
-                    
-                    # 1Y performance
-                    one_yr = hist[hist.index >= '2025-03-31']
-                    ret_1y = safe_ret(latest_price, safe_float(one_yr['Close'].iloc[0])) if len(one_yr) > 1 else None
-                    
-                    # 2Y performance
-                    two_yr = hist[hist.index >= '2024-03-31']
-                    ret_2y = safe_ret(latest_price, safe_float(two_yr['Close'].iloc[0])) if len(two_yr) > 1 else None
-                    
-                    # 5Y performance
-                    five_yr = hist[hist.index >= '2021-03-31']
-                    ret_5y = safe_ret(latest_price, safe_float(five_yr['Close'].iloc[0])) if len(five_yr) > 1 else None
-        except Exception as e:
-            print(f"[ERROR get_quote history] {type(e).__name__}: {e}", file=sys.stderr)
+        # History: batched frame if provided, otherwise the legacy per-ticker 5y fetch
+        if _batch is not None:
+            hist = _batch_series(_batch, ticker)
+        else:
+            try:
+                hist = ticker_obj.history(period="5y")
+            except Exception as e:
+                print(f"[ERROR get_quote history] {type(e).__name__}: {e}", file=sys.stderr)
+                hist = None
+        rets = _compute_returns(hist)
         
         quote = {
             "ticker": ticker.upper(),
@@ -119,15 +174,15 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
             "dividend_yield": safe_float(info.get("dividendYield")),
             "52w_high": safe_float(info.get("fiftyTwoWeekHigh")),
             "52w_low": safe_float(info.get("fiftyTwoWeekLow")),
-            "ret_1d": ret_1d,
-            "ret_1w": ret_1w,
-            "ret_1m": ret_1m,
-            "ret_3m": ret_3m,
-            "ret_6m": ret_6m,
-            "ret_ytd": ret_ytd,
-            "ret_1y": ret_1y,
-            "ret_2y": ret_2y,
-            "ret_5y": ret_5y,
+            "ret_1d": rets["ret_1d"],
+            "ret_1w": rets["ret_1w"],
+            "ret_1m": rets["ret_1m"],
+            "ret_3m": rets["ret_3m"],
+            "ret_6m": rets["ret_6m"],
+            "ret_ytd": rets["ret_ytd"],
+            "ret_1y": rets["ret_1y"],
+            "ret_2y": rets["ret_2y"],
+            "ret_5y": rets["ret_5y"],
             "timestamp": now
         }
         
@@ -139,16 +194,27 @@ def get_quote(ticker: str, use_cache: bool = True) -> dict:
 
 
 def get_quotes(tickers: list[str], use_cache: bool = True) -> dict[str, dict]:
-    """Fetch multiple quotes."""
+    """Fetch multiple quotes.
+
+    Downloads 5y history ONCE for the whole list (yf.download batch), then
+    per-ticker display fields from `info` (5s-cached) fetched in PARALLEL
+    (small thread pool — 14 sequential .info calls ≈ 3s+; pooled ≈ 0.6s).
+    Falls back to per-ticker history if the batch fails. One history
+    round-trip instead of one per ticker.
+    """
+    tickers = [t.strip().upper() for t in tickers]
+    batch = _download_batch(tickers)
     results = {}
-    for ticker in tickers:
-        try:
-            results[ticker.upper()] = get_quote(ticker, use_cache)
-        except Exception as e:
-            print(f"[ERROR get_quote({ticker})] {type(e).__name__}: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
-            results[ticker.upper()] = {"ticker": ticker.upper(), "error": str(e)}
-        time.sleep(0.1)  # Rate limiting
+    with ThreadPoolExecutor(max_workers=min(6, len(tickers) or 1)) as pool:
+        futures = {pool.submit(get_quote, t, use_cache, batch): t for t in tickers}
+        for fut in futures:
+            ticker = futures[fut]
+            try:
+                results[ticker] = fut.result()
+            except Exception as e:
+                print(f"[ERROR get_quote({ticker})] {type(e).__name__}: {e}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
+                results[ticker] = {"ticker": ticker, "error": str(e)}
     return results
 
 

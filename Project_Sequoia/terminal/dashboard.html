@@ -434,7 +434,10 @@
         updateTime();
         
         // Fetch quotes
+        let quotesFetching = false;
         async function fetchQuotes() {
+            if (quotesFetching) return; // single-flight: skip if a poll is in flight
+            quotesFetching = true;
             let fetchList = [...watchlist];
             if (currentTicker && !fetchList.includes(currentTicker)) {
                 fetchList.push(currentTicker);
@@ -458,6 +461,8 @@
                 renderQuote(currentTicker);
             } catch (e) {
                 console.error('Fetch error:', e);
+            } finally {
+                quotesFetching = false;
             }
         }
         
@@ -958,7 +963,7 @@
             fetchQuotes();
             fetchTickerSentiment(currentTicker);
         };
-        setInterval(fetchQuotes, 5000); // Live-ish update every 5 seconds
+        setInterval(fetchQuotes, 15000); // Live-ish update every 15s (single-flight; server caches 60s)
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 document.querySelectorAll('.overlay.open').forEach(function(o) { o.classList.remove('open'); });
