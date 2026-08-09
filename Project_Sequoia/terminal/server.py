@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal Server - QA Environment
+Alpha Terminal Server - Production
 Refactored for stability, observability, and maintainability.
 """
 
@@ -78,7 +78,6 @@ try:
 except ImportError:
     class ConfigMock:
         DEFAULT_PORT = 9098
-        QA_PORT = 9099
         HOST = '0.0.0.0'
         TIMEFRAME_MAP = {
             '1D': '1d', '1W': '1wk', '1M': '1mo', '3M': '3mo',
@@ -102,7 +101,7 @@ except ImportError:
 # ============================================================================
 
 ENV = os.environ.get('ENV', 'QA')
-PORT = int(os.environ.get('PORT', getattr(config, 'QA_PORT', 9099)))
+PORT = int(os.environ.get('PORT', getattr(config, 'DEFAULT_PORT', 9098)))
 HOST = getattr(config, 'HOST', '0.0.0.0')
 CACHE_TTL = int(os.environ.get('YF_CACHE_TTL', '300'))  # 5 min default
 HEALTH_CHECK_INTERVAL = 30
@@ -160,16 +159,32 @@ _quote_cache = TTLCache(ttl_seconds=CACHE_TTL)
 # Utility Functions
 # ============================================================================
 
+def _is_bad_float(x):
+    """True for NaN/inf, covering both Python float and numpy float64.
+
+    clean_dict's old isinstance(x, float) check missed np.float64 (numpy
+    floats are not Python float subclasses), letting bare NaN literals into
+    JSON responses — browsers reject them (GME earnings estimates broke the
+    whole page: res.json() threw). float() conversion + math.isnan handles
+    every numeric type; non-numerics fall through untouched.
+    """
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return False
+    return math.isnan(f) or math.isinf(f)
+
+
 def clean_dict(d):
-    """Recursively clean dict of NaN/inf values."""
+    """Recursively clean dict of NaN/inf values (incl. numpy float64)."""
     if not isinstance(d, dict):
         return d
     result = {}
     for k, v in d.items():
-        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        if _is_bad_float(v):
             result[k] = None
         elif isinstance(v, list):
-            result[k] = [None if isinstance(x, float) and (math.isnan(x) or math.isinf(x)) else x for x in v]
+            result[k] = [None if _is_bad_float(x) else x for x in v]
         elif isinstance(v, dict):
             result[k] = clean_dict(v)
         else:
@@ -317,6 +332,7 @@ class Handler(SimpleHTTPRequestHandler):
             'option_screener': 'option_screener',
             'fundamental_screener': 'fundamental_screener',
             'macro': 'macro',
+            'estimates': 'estimates',
         }
         routes = {}
         for mod_name, import_path in modules.items():
@@ -337,7 +353,6 @@ class Handler(SimpleHTTPRequestHandler):
         '/api/screen': 'handle_screen',
         '/api/expirations': 'handle_expirations',
         '/api/chart': 'handle_chart',
-        '/api/estimates': 'handle_estimates',
         '/api/ratio': 'handle_ratio',
         '/api/health': 'handle_health',
         '/api/oi/snapshot': 'handle_oi_snapshot',
@@ -596,7 +611,10 @@ class Handler(SimpleHTTPRequestHandler):
     
     def handle_estimates(self, qs):
         import estimates
-        ticker = qs.get('ticker', ['SPY'])[0]
+        ticker = (qs.get('ticker') or [''])[0].strip().upper()
+        if not ticker:
+            self.send_json({"error": "ticker parameter required"}, status=400)
+            return
         self.send_json(estimates.get_estimates(ticker))
     
     def handle_ratio(self, qs):
