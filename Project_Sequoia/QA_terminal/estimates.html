@@ -438,7 +438,7 @@
             // ---------------- Legend footnote ----------------
             html += `<div class="m-legend">
                 Periods: <b>0q</b> = current quarter · <b>+1q</b> = next quarter · <b>0y</b> = current fiscal year · <b>+1y</b> = next fiscal year · <b>LTG</b> = long-term growth rate.<br>
-                <b>AMC</b> = after market close · <b>BMO</b> = before market open · <b>Net</b> = ↑30D − ↓30D analyst revisions · <b>Breadth</b> = share of 30D revisions that were up · <b>Δ7/30/90D</b> = consensus drift vs that many days ago.<br>
+                <b>AMC</b> = after market close · <b>BMO</b> = before market open · <b>Net</b> = ↑30D − ↓30D analyst revisions · <b>Breadth</b> = share of 30D revisions that were up · <b>Δ7/30/90D</b> = consensus drift vs that many days ago (bar shade: 7D solid → 90D faint).<br>
                 Source: Yahoo Finance consensus estimates (indicative, may lag the sell-side; verify against live chains before trading).
             </div>`;
 
@@ -498,6 +498,7 @@
 
         // ---------------- M2: revision momentum delta bars (Δ7/30/90D per period) ----------------
         let momChart = null;
+        const WINDOW_ALPHA = {'7days': 1.0, '30days': 0.62, '90days': 0.38};
         function renderMomentumChart(trends) {
             const canvas = document.getElementById('momChart');
             if (!canvas) return;
@@ -506,13 +507,19 @@
             if (!rows.length) return;
             const pct = (cur, ago) => (cur != null && ago != null && ago !== 0) ? (cur - ago) / ago * 100 : null;
             const labels = rows.map(t => t.period);
-            const color = v => v >= 0 ? 'rgba(63,185,80,.85)' : 'rgba(248,81,73,.85)';
+            const barColor = (v, w) => {
+                if (v == null) return 'rgba(139,148,158,.25)';
+                const rgb = v >= 0 ? '63,185,80' : '248,81,73';
+                return `rgba(${rgb},${WINDOW_ALPHA[w]})`;
+            };
             const datasets = ['7days', '30days', '90days'].map(w => {
                 const vals = rows.map(t => pct(t.current, t[w]));
                 return {
                     label: 'Δ ' + w.replace('days', 'D'),
                     data: vals,
-                    backgroundColor: vals.map(v => v == null ? 'rgba(139,148,158,.25)' : color(v)),
+                    backgroundColor: vals.map(v => barColor(v, w)),
+                    borderColor: vals.map(v => v == null ? 'transparent' : (v >= 0 ? 'rgba(63,185,80,1)' : 'rgba(248,81,73,1)')),
+                    borderWidth: 1,
                     borderRadius: 2
                 };
             });
