@@ -6,8 +6,10 @@ Runs at 5pm ET on weekdays via launchd.
 import sys
 import os
 
-# Add project path
-sys.path.insert(0, '/Users/chuck/Project_Alpha_POC/Project_Sequoia/QA_terminal')
+# Ensure this directory is importable (year_highs/year_lows live beside this
+# file) regardless of where launchd invokes it from. Never point at QA_terminal
+# — a PROD copy importing QA modules is a silent deployment trap.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from year_highs import store_today_snapshot as store_highs
 from year_lows import store_today_snapshot as store_lows
