@@ -420,7 +420,6 @@ function renderYC(){
 
   document.getElementById('ycFoot').textContent =
     'Curves: ' + present.map(k => `${ycLabel(k)} (${curves[k].date})`).join(' · ') + '. ' +
-    (curves.today ? '' : 'Today omitted: resolved day has no FRED DGS data yet — per rule, no substitution. ') +
     `X-axis ${ycScale === 'log' ? 'logarithmic' : 'linear'}, 30Y = last tick.`;
 }
 

@@ -180,7 +180,9 @@ def _trading_days_around(end, n, skip=None):
 
 def test_yield_curve_today_omitted_when_no_data(monkeypatch):
     # today = Sat 2026-08-08 (eff Fri 08-07); FRED data ends 08-06 -> today
-    # omitted, yesterday=08-06 shown; all period-ago anchors fall backward.
+    # FALLS BACK to 08-06 (last available; Hong 2026-08-10 — fall-back, not
+    # omit, so a normal trading day with a FRED publication lag isn't shown
+    # as missing). yesterday = last weekday before resolved today = 08-05.
     days = _trading_days_around(date(2026, 8, 6), 750)
     days_map = {sid: [(d, 4.0 + (d.day % 5) * 0.1) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
@@ -192,8 +194,8 @@ def test_yield_curve_today_omitted_when_no_data(monkeypatch):
     monkeypatch.setattr(macro, "datetime", FakeNow)
 
     yc = macro.get_yield_curve()
-    assert "today" not in yc["curves"]                      # Fri 08-07 has no data
-    assert yc["curves"]["yesterday"]["date"] == "2026-08-06"
+    assert yc["curves"]["today"]["date"] == "2026-08-06"       # fall-back to last available
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-05"   # weekday before resolved today
     for k in ("1W", "1M", "3M", "6M", "1Y", "2Y"):
         assert k in yc["curves"]                            # fall backward always finds one
     assert yc["curves"]["YTD"]["date"].startswith("2026-")  # first of year

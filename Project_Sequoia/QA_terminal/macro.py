@@ -230,9 +230,14 @@ def get_macro():
 # Tenor ladder: FRED constant-maturity set, x-axis tenor in years (linear).
 # Anchors: today / yesterday / 1W always; period-ago (1M..2Y, YTD) per the
 # page's global period selector. Weekend/holiday rules (Hong):
-#   - today = last weekday <= today (Sat/Sun -> Fri); if that day has no data
-#     (holiday), the today curve is OMITTED (no substitution).
-#   - yesterday = last weekday < today's resolved day; omitted if no data.
+#   - today = last available curve date <= last weekday <= today (Sat/Sun ->
+#     Fri; if today's data is not yet published — FRED ingests ~6pm ET — the
+#     most recent available curve is shown, honestly labeled with ITS date).
+#     Updated 2026-08-10 (Hong): fall-back, not omit — a normal trading day
+#     with a publication lag should not look "missing". The payload's per-
+#     curve `date` field keeps the label honest.
+#   - yesterday = last available curve date < today's resolved date; omitted
+#     if no data.
 #   - 1W / 1M / 3M / 6M / 1Y / 2Y: exact date offset, then FALL BACKWARD to
 #     the last available curve (weekend -> previous Friday, holiday -> walk
 #     back further). Always shown when any history exists.
@@ -317,13 +322,19 @@ def get_yield_curve():
         today = datetime.now().date()
 
     today_eff = _last_weekday(today)
-    yest_eff = _last_weekday(today_eff - timedelta(days=1))
+    # today = last available curve date <= today_eff (fall-back, not omit —
+    # FRED lags ~6pm ET on a normal trading day; the curve is labeled with
+    # its real date so the fallback is honest). yesterday = last WEEKDAY
+    # strictly before today's resolved date (never the same day), strict
+    # omit if that weekday has no data (holiday rule unchanged).
+    today_resolved = _fall_backward(today_eff, days)
+    yest_eff = _last_weekday(today_resolved - timedelta(days=1)) if today_resolved else None
 
     curves = {}
-    today_curve = _curve_on(today_eff, maps)
+    today_curve = _curve_on(today_resolved, maps) if today_resolved else None
     if today_curve:
         curves["today"] = today_curve
-    yest_curve = _curve_on(yest_eff, maps)
+    yest_curve = _curve_on(yest_eff, maps) if yest_eff else None
     if yest_curve:
         curves["yesterday"] = yest_curve
 
