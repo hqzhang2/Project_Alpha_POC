@@ -299,6 +299,10 @@ def _compute_derived_series(fred_data: dict, yahoo_data: dict) -> pd.DataFrame:
     # ── Merge all into one daily DataFrame ─────────────────────────
     if not frames:
         return pd.DataFrame()
+    # Normalize: some derived frames are Series (spreads), some are
+    # DataFrames — all must be DataFrames for .join(). Order of frames
+    # depends on data availability, so normalize here, not at append.
+    frames = [f.to_frame() if isinstance(f, pd.Series) else f for f in frames]
     result = frames[0]
     for f in frames[1:]:
         result = result.join(f, how="outer")
