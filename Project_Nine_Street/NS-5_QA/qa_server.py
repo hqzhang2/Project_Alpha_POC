@@ -431,6 +431,42 @@ class Handler(BaseHTTPRequestHandler):
                             combined = list(result.get("tweaks", [])) + list(regime_res.get("tweaks", []))
                             if combined:
                                 result["tweaks"] = combined
+
+                # ── Portfolio composite: base × regime enhancer (v3.3.1) ──
+                # base = mean of active non-regime axis composite scores
+                # (concentration + drift; N/A axes excluded). Regime is an
+                # ENHANCER on the composite (research doc §5.3, Hong 2026-08-10
+                # "straight line"): enhancer ∈ [0.5, 1.0], never pulls the
+                # composite below the other axes' average. Fail-open: regime
+                # not in axes / disabled / N/A → enhancer = 1.0 (no penalty);
+                # no base scores → base/portfolio = None ("N/A"), never crash.
+                base_scores = []
+                conc_res = result.get("concentration")
+                if isinstance(conc_res, dict) and conc_res.get("composite_concentration_score") is not None:
+                    base_scores.append(conc_res["composite_concentration_score"])
+                drift_res = result.get("drift")
+                if isinstance(drift_res, dict) and drift_res.get("composite_drift_score") is not None:
+                    base_scores.append(drift_res["composite_drift_score"])
+                base_score = round(sum(base_scores) / len(base_scores), 2) if base_scores else None
+                base_grade = drift._score_to_letter(
+                    base_score, theta["letter_score_bounds"]) if base_score is not None else "N/A"
+
+                enhancer = 1.0
+                regime_res = result.get("regime")
+                if isinstance(regime_res, dict):
+                    if regime_res.get("composite_regime_grade") != "N/A":
+                        enhancer = regime_res.get("enhancer", 1.0)
+
+                portfolio_score = round(base_score * enhancer, 2) if base_score is not None else None
+                portfolio_grade = drift._score_to_letter(
+                    portfolio_score, theta["letter_score_bounds"]) if portfolio_score is not None else "N/A"
+
+                result["base_composite_score"] = base_score
+                result["base_composite_grade"] = base_grade
+                result["portfolio_composite_score"] = portfolio_score
+                result["portfolio_composite_grade"] = portfolio_grade
+                result["regime_enhancer_applied"] = enhancer
+
                 self._json(result)
             elif self.path.startswith("/api/frontier"):
                 result = _frontier_response(body.get("holdings"),
