@@ -394,6 +394,7 @@ class Handler(SimpleHTTPRequestHandler):
             'fundamental_screener': 'fundamental_screener',
             'macro': 'macro',
             'estimates': 'estimates',
+            'regime': 'regime',
         }
         routes = {}
         for mod_name, import_path in modules.items():
@@ -839,6 +840,20 @@ class Handler(SimpleHTTPRequestHandler):
         """Macro economics page payload (6 categories, FRED + computed series)."""
         import macro
         self.send_json(macro.get_macro())
+
+    def handle_regime(self, qs):
+        """Regime tab payload — latest NS-5 regime classification."""
+        import regime
+        self.send_json(regime.get_regime())
+
+    def handle_regime_history(self, qs):
+        """Regime tab history — {date, regime, confidence, flags} for the calendar."""
+        import regime
+        try:
+            days = int(qs.get('days', ['730'])[0])
+        except (TypeError, ValueError):
+            days = 730
+        self.send_json(regime.get_regime_history(days=days))
     
     def handle_sec_financials(self, qs):
         import sec_financials
