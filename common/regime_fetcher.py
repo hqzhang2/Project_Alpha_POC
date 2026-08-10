@@ -197,7 +197,7 @@ def _compute_derived_series(fred_data: dict, yahoo_data: dict) -> pd.DataFrame:
     cpi = _series_to_daily_df(fred_data.get("CPIAUCSL", []), "CPI_LEVEL")
     if not cpi.empty:
         cpi_monthly = cpi.resample("ME").last()
-        cpi_yoy = cpi_monthly.pct_change(12) * 100  # YoY in %
+        cpi_yoy = cpi_monthly.pct_change(12, fill_method=None) * 100  # YoY in %
         cpi_yoy.columns = ["CPI_YOY"]
         cpi_yoy = _resample_to_daily(cpi_yoy, "ME")
         if not cpi_yoy.empty:
@@ -229,7 +229,7 @@ def _compute_derived_series(fred_data: dict, yahoo_data: dict) -> pd.DataFrame:
 
     # ── CPI_TREND_3M: 3-month Δ of CPI_YOY ─────────────────────────
     if not cpi.empty:
-        cpi_yoy_m = cpi.resample("ME").last().pct_change(12) * 100
+        cpi_yoy_m = cpi.resample("ME").last().pct_change(12, fill_method=None) * 100
         cpi_trend = cpi_yoy_m.diff(3)  # 3-month change in YoY
         cpi_trend.columns = ["CPI_TREND_3M"]
         cpi_trend = _resample_to_daily(cpi_trend, "ME")
