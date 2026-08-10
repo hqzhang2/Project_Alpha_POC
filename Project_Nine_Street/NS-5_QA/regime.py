@@ -118,14 +118,15 @@ def grade_tangency(
     sharpe_current: Optional[float],    # current-regime tangency Sharpe
     theta: dict,
 ) -> dict:
-    """Grade the degradation of the tangency portfolio under the current regime.
+    """Grade the change in tangency portfolio performance under the current regime.
 
     Measurement: current tangency Sharpe / all-regime tangency Sharpe.
-    A value of 1.0 means the tangency portfolio degrades NOT AT ALL;
-    lower values mean the efficient frontier has compressed.
+    A value of 1.0 means the tangency portfolio is UNCHANGED;
+    values above 1.0 mean the regime IMPROVES the tangency (rare —
+    caps at score 5.0/A); lower values mean the frontier has compressed.
 
-    Score mapping:
-      ratio ≥ 0.95  → 5.0  (no degradation)
+    Score mapping (degradation direction; improvement capped at 5.0):
+      ratio ≥ 0.95  → 5.0  (no change, or improvement — capped)
       ratio ≥ 0.80  → 4.0  (slight compression)
       ratio ≥ 0.65  → 3.0  (moderate — Sharpe down ~⅓)
       ratio ≥ 0.50  → 2.0  (significant — half the risk-adjusted return)
@@ -227,6 +228,14 @@ def grade_corr_structure(
     Regime expectation (research doc §2.1):
       R1 (Expansion), R3 (Recession): bonds hedge stocks → corr < 0 expected
       R2 (Overheating), R4 (Stagflation): diversification broken → corr ≥ 0
+
+    DESIGN DECISION (frontier, 2026-08-09): this sub-axis grades against
+    the REGIME expectation, not the policy's assumption. A 60/40 policy
+    presumes negative correlation in all regimes — but the regime axis
+    exists to flag when that assumption is wrong. When R2 says "bonds
+    don't hedge" and the data confirms it (+corr), that's honest —
+    grade A. The policy disconnect is caught by the policy_gap sub-axis
+    (which would grade F for a 60/40 in R2 if risk premia differ enough).
 
     Score:
       5.0 — corr correctly signed, magnitude normal
