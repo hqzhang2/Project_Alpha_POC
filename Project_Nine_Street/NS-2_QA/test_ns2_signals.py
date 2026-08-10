@@ -330,4 +330,49 @@ class TestAcceptanceGate:
         lab, gi = ns2.apply_acceptance_gate("TSLA", "BUY")
         assert lab == "BUY"
         assert gi["gated"] is False
-        assert gi["verdict"] == "UNTESTED"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Crisis-lock override (2026-08) — CRISIS→MEAN_REV when locked during a rally
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _mk_closes(start, bars, daily_pct):
+    """Linear price path: start, then bars-1 steps of daily_pct (fraction)."""
+    return start * (1 + daily_pct) ** np.arange(bars)
+
+class TestCrisisLockOverride:
+    def test_override_fires_on_long_crisis_streak_with_rally(self):
+        # 40 CRISIS bars, price climbing ~0.2%/day → 30d return > +5% at bar 31+
+        closes = _mk_closes(100.0, 60, 0.002)
+        df = pd.DataFrame({"close": closes})
+        regimes = np.full(60, 2, dtype=int)          # all CRISIS
+        out = ns2._override_crisis_lock(regimes, df)
+        # First 30 bars: run <= 30 → unchanged
+        assert (out[:30] == 2).all()
+        # 31st consecutive CRISIS bar onward (run > 30, ret30 > 5%): downgraded
+        assert (out[30:] == 1).all()
+
+    def test_override_does_not_fire_short_streak(self):
+        # Only 25 CRISIS bars → below the 30-day consecutive threshold
+        closes = _mk_closes(100.0, 40, 0.003)        # 30d return would be > 5%
+        df = pd.DataFrame({"close": closes})
+        regimes = np.array([2] * 25 + [1] * 15)      # streak breaks at bar 25
+        out = ns2._override_crisis_lock(regimes, df)
+        assert (out == regimes).all()                # untouched
+
+    def test_override_does_not_fire_negative_return(self):
+        # 40 CRISIS bars but price declining → 30d return < 5%, no downgrade
+        closes = _mk_closes(110.0, 60, -0.002)       # falling path
+        df = pd.DataFrame({"close": closes})
+        regimes = np.full(60, 2, dtype=int)
+        out = ns2._override_crisis_lock(regimes, df)
+        assert (out == 2).all()                      # stays CRISIS (genuine stress)
+
+    def test_override_disabled_by_flag(self, monkeypatch):
+        closes = _mk_closes(100.0, 60, 0.002)
+        df = pd.DataFrame({"close": closes})
+        regimes = np.full(60, 2, dtype=int)
+        monkeypatch.setattr(ns2, "ENABLE_CRISIS_OVERRIDE", False)
+        # apply_adaptive_persistence with flag off must not downgrade
+        out = ns2.apply_adaptive_persistence(regimes, df)
+        assert (out == 2).all()

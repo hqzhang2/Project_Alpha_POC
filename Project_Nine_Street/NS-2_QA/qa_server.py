@@ -71,6 +71,7 @@ HMM_ITERATIONS     = 2000
 HMM_COVARIANCE     = "diag"     # Phase 2: full cov = ~140 params on small data; diag halves it
 HMM_ENSEMBLE_N     = 5          # Improvement #7: ensemble size
 PERSISTENCE_DEFAULT = 3
+ENABLE_CRISIS_OVERRIDE = True   # 2026-08: downgrade CRISIS→MEAN_REV when locked during a rally
 CCI_ENTRY          = 100
 CCI_EXIT           = 0
 CCI_SHORT          = -250       # Relaxed from -300
@@ -346,6 +347,28 @@ def apply_adaptive_persistence(regimes, df, profile=None):
         window = regimes[i - n : i]
         if len(set(window)) == 1 and window[0] != regimes[i]:
             out[i] = window[0]
+    if ENABLE_CRISIS_OVERRIDE:
+        out = _override_crisis_lock(out, df)
+    return out
+
+
+def _override_crisis_lock(regimes, df, consecutive=30, return_thresh=0.05):
+    """2026-08: HMM CRISIS lock fix (see research_2026-08_ns2_no_edge_wave.md).
+
+    After an earnings gap the HMM parks a name in the highest-vol state, which the
+    labeler calls CRISIS — but if the name is actually rallying (trailing 30d return
+    > 5%), that's elevated vol from a gap, not a crisis. Downgrade CRISIS → MEAN_REV
+    so the fade module can trade instead of sitting FLAT at 10% size.
+    """
+    closes = df["close"].values
+    out = regimes.copy()
+    run = 0
+    for i in range(len(regimes)):
+        run = run + 1 if regimes[i] == 2 else 0
+        if run > consecutive and i >= consecutive:
+            ret30 = (closes[i] / closes[i - 30] - 1) if closes[i - 30] > 0 else 0
+            if ret30 > return_thresh:
+                out[i] = 1  # downgrade to MEAN_REV
     return out
 
 

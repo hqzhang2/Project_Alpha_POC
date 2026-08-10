@@ -245,7 +245,7 @@ def verdict(m):
 def main():
     ap = argparse.ArgumentParser(description="NS-2 walk-forward harness")
     ap.add_argument("--tickers", nargs="+",
-                    default=list(ns2.MAG7.keys()) + ["TLT", "MU"])
+                    default=list(ns2.MAG7.keys()) + ["TLT", "MU", "ADBE", "BABA", "XYZ", "SMH"])
     ap.add_argument("--years", type=int, default=4)
     ap.add_argument("--train", type=int, default=378)
     ap.add_argument("--test", type=int, default=21)
