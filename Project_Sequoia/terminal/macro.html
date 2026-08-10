@@ -35,16 +35,19 @@
 
   /* treasury yield curve panel (Credit & Financial Conditions tab) */
   .yc-panel { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 12px 16px 8px; margin-bottom: 14px; }
+  .yc-live { color: #d29922; font-size: 10px; font-weight: 700; letter-spacing: .5px; border: 1px solid #d29922; border-radius: 3px; padding: 0 3px; margin-left: 2px; vertical-align: 1px; }
   .yc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
   .yc-title { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .05em; }
   .yc-title b { color: #e6edf3; }
-  .yc-legend { display: flex; gap: 14px; font-size: 11px; color: #8b949e; flex-wrap: wrap; }
-  .yc-legend .sw { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .yc-legend { display: flex; gap: 18px; font-size: 11px; color: #8b949e; flex-wrap: wrap; }
+  .yc-legend .sw { display: inline-block; width: 22px; height: 2px; border-radius: 1px; margin-right: 5px; vertical-align: middle; }
+  .yc-legend .lg-name { font-weight: 600; }
+  .yc-legend .lg-date { color: #6e7681; }
   .yc-toggle { display: flex; gap: 2px; }
   .yc-toggle button { background: none; border: 1px solid transparent; color: #8b949e; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
   .yc-toggle button:hover { color: #e6edf3; }
   .yc-toggle button.on { background: #0d1117; border-color: #30363d; color: #e6edf3; }
-  .yc-chart { position: relative; height: 260px; }
+  .yc-chart { position: relative; height: 340px; }
   .yc-foot { font-size: 10px; color: #8b949e; margin-top: 6px; }
 
   /* KPI strip */
@@ -305,11 +308,12 @@ function renderAll(){
 
 // ============ treasury yield curve (Credit & Financial Conditions) ============
 const YC_STYLE = {
-  'today':     { color: '#e6edf3', width: 3, dash: [] },          // bold white
-  'yesterday': { color: '#58a6ff', width: 2, dash: [] },          // solid blue
-  '1W':        { color: '#8b949e', width: 2, dash: [5,3] },       // gray dashed
+  'today':     { color: '#e6edf3', width: 2, dash: [] },          // bold white
+  'yesterday': { color: '#58a6ff', width: 1.5, dash: [] },        // solid blue
+  '1W':        { color: '#8b949e', width: 1.5, dash: [5,3] },     // gray dashed
 };
 const YC_AGO_COLOR = '#f0883e';                                    // period-ago orange
+const YC_AGO_WIDTH = 1.5;
 
 // x-axis tick labels: explicit tenor ladder. Linear skips 3M for space;
 // log includes it (Bloomberg-style spread short end). Values are linear-year
@@ -365,24 +369,38 @@ function renderYC(){
   const present = keys.filter(k => curves[k]);
   if (!present.length) return;
 
-  // legend
+  // legend — swatch mirrors the actual line (solid vs dashed), name in the
+  // line color, date in muted gray so each entry maps 1:1 to the chart
   document.getElementById('ycLegend').innerHTML = present.map(k => {
-    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: 2, dash: [] };
-    return `<span><span class="sw" style="background:${st.color}"></span><span style="color:${st.color}">${ycLabel(k)}</span> <span style="color:#6e7681">${curves[k].date}</span></span>`;
+    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: YC_AGO_WIDTH, dash: [] };
+    const isLive = curves[k].source === 'yahoo';
+    const dashBg = st.dash.length
+      ? `background:repeating-linear-gradient(90deg, ${st.color} 0 ${st.dash[0]}px, transparent ${st.dash[0]}px ${st.dash[0] + (st.dash[1] || st.dash[0])}px)`
+      : `background:${st.color}`;
+    return `<span><span class="sw" style="${dashBg}"></span>` +
+      `<span class="lg-name" style="color:${st.color}">${ycLabel(k)}</span> ` +
+      `<span class="lg-date">${curves[k].date}</span>` +
+      (isLive ? ' <span class="yc-live">LIVE</span>' : '') + `</span>`;
   }).join('');
 
   // x = tenor years (LINEAR, max 30 per Hong); y = yield %
+  // Labels from the UNION of present curves — a sparse live today (Yahoo,
+  // 4 tenors) must not collapse the full FRED curves' x positions.
   const labels = ycData.tenors.map(t => {
-    const p = curves[present[0]].points.find(x => x.tenor === t);
-    return p ? p.years : null;
+    for (const k of present) {
+      const p = curves[k].points.find(x => x.tenor === t);
+      if (p) return p.years;
+    }
+    return null;
   });
   const datasets = present.map(k => {
-    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: 2, dash: [] };
+    const st = YC_STYLE[k] || { color: YC_AGO_COLOR, width: YC_AGO_WIDTH, dash: [] };
     return {
       label: k,
       data: ycData.tenors.map(t => { const p = curves[k].points.find(x => x.tenor === t); return p ? p.yield : null; }),
       borderColor: st.color, borderWidth: st.width, borderDash: st.dash,
-      pointRadius: 2.5, pointBackgroundColor: st.color, tension: 0.2, spanGaps: false,
+      pointRadius: 2, pointBackgroundColor: st.color, tension: 0.2,
+      spanGaps: curves[k].source === 'yahoo',  // live curve: connect its 4 sparse tenors
     };
   });
 
@@ -420,7 +438,6 @@ function renderYC(){
 
   document.getElementById('ycFoot').textContent =
     'Curves: ' + present.map(k => `${ycLabel(k)} (${curves[k].date})`).join(' · ') + '. ' +
-    (curves.today ? '' : 'Today omitted: resolved day has no FRED DGS data yet — per rule, no substitution. ') +
     `X-axis ${ycScale === 'log' ? 'logarithmic' : 'linear'}, 30Y = last tick.`;
 }
 
@@ -465,13 +482,14 @@ function openModal(id){
     }]},
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (ctx) => ' ' + it.name + ': ' + ctx.parsed.y + it.unit } } },
+      interaction: { mode: 'index', intersect: false },   // crosshair tracks hovered date
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ' ' + it.name + ': ' + ctx.parsed.y + it.unit } } },
       scales: {
         x: { ticks: { color: '#8b949e', maxTicksLimit: 6, font: { size: 10 } }, grid: { color: '#21262d' } },
         y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } }
       }
-    }
+    },
+    plugins: [ycCrosshair]   // same vertical crosshair as the yield-curve panel
   });
   document.getElementById('overlay').classList.add('open');
 }
