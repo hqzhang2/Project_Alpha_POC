@@ -217,6 +217,14 @@ THETA_DEFAULTS = {
 }
 
 # ── Regime axis (Phase 1b) — imported from shared regime_model ──────
+# The shared common/ package lives at the repo root; the service runs
+# with env -u PYTHONPATH, so bootstrap the root explicitly (house
+# pattern: run_weekly_refresh.py inserts its own parent).
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parent.parent.parent
+if str(_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_ROOT))
 try:
     from common.regime_model import REGIME_THETA as _REGIME_THETA
     THETA_DEFAULTS["regime"] = _REGIME_THETA
