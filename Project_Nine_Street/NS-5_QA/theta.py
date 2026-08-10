@@ -216,6 +216,13 @@ THETA_DEFAULTS = {
     "tax": None,
 }
 
+# ── Regime axis (Phase 1b) — imported from shared regime_model ──────
+try:
+    from common.regime_model import REGIME_THETA as _REGIME_THETA
+    THETA_DEFAULTS["regime"] = _REGIME_THETA
+except ImportError:
+    pass
+
 # =============================================================================
 # TAX_DEFAULTS — the recommended tax profile for axis activation.
 # Pass `tax=theta.TAX_DEFAULTS` to load_theta() to enable the tax axis.

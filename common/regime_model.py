@@ -20,7 +20,6 @@ Module: Project_Alpha_POC/common/regime_model.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -29,7 +28,7 @@ import pandas as pd
 # CPI line: Federal Reserve target (2.0%). Calibration confirmed 60/40
 # split over 2010-2026 — honest, not cosmetic. PMI excluded by Hong.
 
-REGIME_THETA: Dict = {
+REGIME_THETA: dict = {
     "gdp_growth_threshold": 2.0,           # 2% QoQ annualized
     "unemployment_rising_threshold": 0.3,  # pp Δ over 3 months
     "inflation_target_cpi": 2.0,           # CPI 2% — Federal Reserve target
@@ -52,10 +51,10 @@ class RegimeResult:
     """Single-day classification output."""
     regime: str          # R1 | R2 | R3 | R4
     confidence: float    # 0.0–1.0
-    flags: List[str]     # e.g. ['late cycle', 'credit stress']
+    flags: list[str]     # e.g. ['late cycle', 'credit stress']
     growth_above: bool
     inflation_above: bool
-    diagnostics: Dict = field(default_factory=dict)
+    diagnostics: dict = field(default_factory=dict)
 
 
 class RegimeClassifier:
@@ -82,11 +81,11 @@ class RegimeClassifier:
         # RegimeResult(regime='R2', confidence=0.90, ...)
     """
 
-    def __init__(self, theta: Optional[Dict] = None):
+    def __init__(self, theta: dict | None = None):
         self.t = theta or REGIME_THETA
 
     # ── Step 1: primary classification ──────────────────────────────
-    def _growth_above(self, data: Dict) -> bool:
+    def _growth_above(self, data: dict) -> bool:
         """GDP ≥ threshold OR unemployment stable/falling (no PMI)."""
         gdp = data.get("GDP_QOQ_ANN")
         if gdp is not None and not np.isnan(gdp):
@@ -99,7 +98,7 @@ class RegimeClassifier:
                 return True
         return False
 
-    def _inflation_above(self, data: Dict) -> bool:
+    def _inflation_above(self, data: dict) -> bool:
         """CPI ≥ threshold AND trend flat/rising."""
         cpi = data.get("CPI_YOY")
         if cpi is None or np.isnan(cpi):
@@ -112,7 +111,7 @@ class RegimeClassifier:
         # "Flat/rising" = not falling more than 0.05pp in 3 months
         return trend >= -0.05
 
-    def _primary(self, ga: bool, ia: bool) -> Tuple[str, float]:
+    def _primary(self, ga: bool, ia: bool) -> tuple[str, float]:
         if ga and not ia:
             return "R1", 1.0
         elif ga and ia:
@@ -124,7 +123,7 @@ class RegimeClassifier:
 
     # ── Step 2: monetary overlay ────────────────────────────────────
     def _monetary_overlay(self, regime: str, confidence: float,
-                          data: Dict) -> Tuple[float, List[str]]:
+                          data: dict) -> tuple[float, list[str]]:
         flags = []
         curve = data.get("2S10S")
         if curve is None or np.isnan(curve):
@@ -144,7 +143,7 @@ class RegimeClassifier:
         return confidence, flags
 
     # ── Step 3: credit confirmation ─────────────────────────────────
-    def _credit_check(self, regime: str, data: Dict) -> List[str]:
+    def _credit_check(self, regime: str, data: dict) -> list[str]:
         flags = []
         baa_aaa = data.get("BAA_AAA")
         if baa_aaa is not None and not np.isnan(baa_aaa):
@@ -159,7 +158,7 @@ class RegimeClassifier:
         return flags
 
     # ── Step 4: external ────────────────────────────────────────────
-    def _external_check(self, regime: str, data: Dict) -> List[str]:
+    def _external_check(self, regime: str, data: dict) -> list[str]:
         flags = []
         wti = data.get("DCOILWTICO")
         if wti is not None and not np.isnan(wti):
@@ -173,7 +172,7 @@ class RegimeClassifier:
         return flags
 
     # ── Step 5: market confirmation (never reclassifies) ────────────
-    def _market_check(self, regime: str, data: Dict) -> List[str]:
+    def _market_check(self, regime: str, data: dict) -> list[str]:
         flags = []
         vix = data.get("VIX")
         if vix is not None and not np.isnan(vix):
@@ -188,7 +187,7 @@ class RegimeClassifier:
         return flags
 
     # ── Public API ──────────────────────────────────────────────────
-    def classify(self, data: Dict) -> RegimeResult:
+    def classify(self, data: dict) -> RegimeResult:
         """Classify a single day's macro data. t-1 data only.
 
         Args:
@@ -205,7 +204,7 @@ class RegimeClassifier:
         ga = self._growth_above(data)
         ia = self._inflation_above(data)
         regime, confidence = self._primary(ga, ia)
-        all_flags: List[str] = []
+        all_flags: list[str] = []
 
         # Step 2
         confidence, mf = self._monetary_overlay(regime, confidence, data)
@@ -227,9 +226,9 @@ class RegimeClassifier:
             growth_above=ga,
             inflation_above=ia,
             diagnostics={
-                "cpi_yoy": data.get("CPI_YOY", None),
-                "gdp_qoq": data.get("GDP_QOQ_ANN", None),
-                "unrate_3m_chg": data.get("UNRATE_3M_CHG", None),
+                "cpi_yoy": data.get("CPI_YOY"),
+                "gdp_qoq": data.get("GDP_QOQ_ANN"),
+                "unrate_3m_chg": data.get("UNRATE_3M_CHG"),
                 "curve_bp": round(data["2S10S"] * 100, 1)
                     if data.get("2S10S") is not None
                     and not np.isnan(data["2S10S"]) else None,
@@ -263,7 +262,7 @@ class RegimeClassifier:
 def filter_regime_returns(
     returns: pd.DataFrame,
     regime_history: pd.DataFrame,
-    current_regime: Optional[str] = None,
+    current_regime: str | None = None,
     min_days: int = 60,
 ) -> pd.DataFrame:
     """Filter daily returns to the current regime's trading days.
@@ -299,7 +298,7 @@ def filter_regime_returns(
 
 def current_regime_from_history(
     regime_history: pd.DataFrame,
-) -> Optional[str]:
+) -> str | None:
     """Return the most recent regime label from history, or None if empty."""
     if regime_history.empty:
         return None
