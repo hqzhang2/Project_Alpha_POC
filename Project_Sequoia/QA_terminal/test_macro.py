@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import threading
+import time
 import urllib.request
 from datetime import date, datetime, timedelta
 
@@ -23,8 +24,11 @@ import macro
 
 @pytest.fixture(autouse=True)
 def _fresh_cache(monkeypatch):
-    """Module-level _cache leaks across tests — give each test a clean one."""
+    """Module-level _cache leaks across tests — give each test a clean one.
+    Also disable the background pre-warm daemon: it would otherwise start on
+    the first get_macro() call and race the per-test _cache reset."""
     monkeypatch.setattr(macro, "_cache", {})
+    monkeypatch.setattr(macro, "_prewarm_enabled", False)
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +128,98 @@ def test_cache_returns_cached(monkeypatch):
     macro.get_series("UNRATE")
     macro.get_series("UNRATE")
     assert calls.count("UNRATE") == 1  # second call served from cache
+
+
+# --------------------------------------------------------------------------- #
+# Parallel cold-fill + background pre-warm (2026-08-10)
+# --------------------------------------------------------------------------- #
+def test_all_series_keys_covers_catalog_and_tenors():
+    keys = set(macro._all_series_keys())
+    # every catalog item (raw or computed-from) is represented
+    for g in macro.GROUPS:
+        for it in g["items"]:
+            if it.get("computed") == "corr":
+                # SPY/TLT are Yahoo tickers — must never be FRED cache keys
+                for sid in it.get("from", []):
+                    assert sid + ":" not in keys
+                continue
+            for sid in it.get("from", [it["id"]]):
+                assert sid + ":" + it.get("units", "") in keys
+    # every yield-curve tenor is represented
+    for _label, sid, _years in macro.TENORS:
+        assert sid + ":" in keys
+    # no duplicates (set) and no empty keys
+    assert len(keys) == len(macro._all_series_keys())
+
+
+def test_prefetch_fetches_only_stale_in_parallel(monkeypatch):
+    """Cold entries are fetched exactly once each; warm entries untouched."""
+    fetched = []
+    monkeypatch.setattr(macro, "_observations",
+                        lambda sid, start, units=None: fetched.append(sid) or
+                        [{"date": "2026-01-01", "value": 1.0}])
+    monkeypatch.setattr(macro, "_corr_60d", lambda: [])
+    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: None)
+    all_sids = sorted({k.split(":")[0] for k in macro._all_series_keys()})
+
+    macro._prefetch_missing()
+    assert sorted(set(fetched)) == all_sids      # every series fetched
+    assert len(fetched) == len(all_sids)         # exactly once each (no dupes)
+
+    # second call: everything warm (real get_series cached it) -> no fetches
+    fetched.clear()
+    macro._prefetch_missing()
+    assert fetched == []
+
+
+def test_prefetch_skips_fresh_entries(monkeypatch):
+    """A series whose cache entry is still inside its TTL is not re-fetched."""
+    fetched = []
+    monkeypatch.setattr(macro, "_observations",
+                        lambda sid, start, units=None: fetched.append(sid) or
+                        [{"date": "2026-01-01", "value": 1.0}])
+    monkeypatch.setattr(macro, "_corr_60d", lambda: [])
+    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: None)
+    # seed a fresh (just-now) entry for UNRATE — must be skipped
+    macro._cache["UNRATE:"] = (time.time(), [{"date": "2026-01-01", "value": 3.9}])
+
+    macro._prefetch_missing()
+    assert "UNRATE" not in fetched
+
+
+def test_prefetch_fail_open(monkeypatch):
+    """A raising fetcher must not take down the request (fail-open)."""
+    def boom(sid):
+        raise OSError("network down")
+    monkeypatch.setattr(macro, "get_series", boom)
+    monkeypatch.setattr(macro, "_corr_60d", lambda: [])
+    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: None)
+    macro._prefetch_missing()   # must not raise
+
+
+def test_start_prewarm_disabled_by_default_in_tests():
+    """Autouse fixture sets _prewarm_enabled=False -> start_prewarm is a no-op
+    and no daemon thread is ever spawned inside the test process."""
+    before = [t.name for t in threading.enumerate()]
+    macro.start_prewarm()
+    after = [t.name for t in threading.enumerate()]
+    assert "macro-prewarm" not in after
+    assert before == after
+    assert macro._prewarm_started is False
+
+
+def test_start_prewarm_starts_once_and_stops(monkeypatch):
+    """Enabled: one daemon thread, idempotent, stoppable via _prewarm_stop."""
+    monkeypatch.setattr(macro, "_prewarm_enabled", True)
+    monkeypatch.setattr(macro, "_prewarm_started", False)
+    macro._prewarm_stop.clear()
+    macro.start_prewarm()
+    macro.start_prewarm()  # idempotent — no second thread
+    threads = [t for t in threading.enumerate() if t.name == "macro-prewarm"]
+    assert len(threads) == 1
+    macro._prewarm_stop.set()
+    threads[0].join(timeout=5)
+    assert not threads[0].is_alive()
 
 
 # --------------------------------------------------------------------------- #

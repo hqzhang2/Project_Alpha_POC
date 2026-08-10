@@ -12,6 +12,12 @@ Design:
   - TTL cache per series (daily 1h, weekly 6h, monthly 24h, quarterly 48h)
     so the page is cheap on reload; computed stock-bond corr shares the
     daily TTL so reloads don't re-hit Yahoo.
+  - Parallel cold-fill + background pre-warm (2026-08-10): a request fills
+    every stale FRED series and the two Yahoo payloads concurrently
+    (ThreadPoolExecutor), and a daemon thread refreshes the cache every 30
+    minutes so the tab never pays the cold rebuild on page load (PROD
+    measured 2026-08-10: 8.95s cold vs 17ms warm; the old code fetched
+    ~30 FRED series + 2 Yahoo downloads sequentially inside the request).
   - Computed series: 2s10s spread, BAA-AAA spread, GDP QoQ annualized,
     stock-bond 60d corr.
   - R2: ROUTES = {'/api/macro': 'handle_macro'}; handler method on Handler
@@ -25,6 +31,7 @@ import os
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
 logger = logging.getLogger("alpha-terminal.macro")
@@ -123,14 +130,105 @@ def get_series(series_id):
     item = SERIES_BY_ID.get(series_id, {})
     cache_key = series_id + ":" + item.get("units", "")
     with _lock:
-        cached = _cache.get(cache_key)
-        if cached and time.time() - cached[0] < TTL.get(item.get("cadence", ""), DEFAULT_TTL):
-            return cached[1]
+        if not _is_stale(cache_key):
+            return _cache[cache_key][1]
     start = (datetime.now() - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     obs = _observations(series_id, start, item.get("units"))
     with _lock:
         _cache[cache_key] = (time.time(), obs)
     return obs
+
+
+# ---------------------------------------------------------------------------
+# Parallel cold-fill + background pre-warm (Hong, 2026-08-10).
+# Cold loads used to fetch ~30 FRED series + 2 Yahoo downloads sequentially
+# inside the request -> ~9s first hit after any TTL expiry. Now a request
+# fills every stale entry concurrently, and a daemon thread refreshes the
+# cache every 30 min (staying ahead of the 1h Daily TTL) so page loads are
+# almost always served from a warm cache. Tests disable the daemon via
+# _prewarm_enabled = False (autouse fixture in test_macro.py).
+# ---------------------------------------------------------------------------
+PREWARM_INTERVAL = 1800  # seconds; < Daily TTL (3600) so the cache never goes stale
+_prewarm_enabled = True
+_prewarm_started = False
+_prewarm_lock = threading.Lock()
+_prewarm_stop = threading.Event()
+
+
+def _all_series_keys():
+    """Every FRED cache key the page needs: catalog raw + computed sources + tenors.
+
+    The stock-bond corr item's `from` (SPY/TLT) are Yahoo tickers, NOT FRED
+    series — they are fetched separately by _corr_60d() (CORR_CACHE_KEY).
+    """
+    keys = set()
+    for g in GROUPS:
+        for it in g["items"]:
+            if it.get("computed") == "corr":
+                continue
+            for sid in it.get("from", [it["id"]]):
+                keys.add(sid + ":" + it.get("units", ""))
+    for _label, sid, _years in TENORS:
+        keys.add(sid + ":")
+    return sorted(keys)
+
+
+def _is_stale(key):
+    """True when a cache entry is missing or older than its cadence TTL.
+
+    Single source of truth for the TTL check — get_series and
+    _prefetch_missing both use it.
+    """
+    sid = key.split(":")[0]
+    item = SERIES_BY_ID.get(sid, {})
+    ttl = TTL.get(item.get("cadence", ""), DEFAULT_TTL)
+    cached = _cache.get(key)
+    return not cached or time.time() - cached[0] >= ttl
+
+
+def _prefetch_missing(max_workers=8):
+    """Fill every stale cache entry in parallel (FRED series + the two Yahoo
+    payloads). Only missing/expired work is done — warm entries are skipped,
+    so this is cheap on every request and from the pre-warm thread. Fail-open:
+    each fetcher degrades to [] / None on error, as before.
+    """
+    with _lock:
+        stale = [k for k in _all_series_keys() if _is_stale(k)]
+    if not stale:
+        return
+    sids = sorted({k.split(":")[0] for k in stale})
+    fns = [lambda sid=sid: get_series(sid) for sid in sids]
+    fns += [_corr_60d, _yahoo_yield_curve]
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            list(ex.map(lambda f: f(), fns))
+    except Exception as e:
+        logger.warning("macro prefetch failed (fail-open): %s", e)
+
+
+def start_prewarm(interval=PREWARM_INTERVAL):
+    """Start the background refresher once (idempotent). No-op when disabled
+    (tests). Daemon thread — dies with the process, restarts on next deploy.
+    """
+    global _prewarm_started
+    if not _prewarm_enabled:
+        return
+    with _prewarm_lock:
+        if _prewarm_started:
+            return
+        _prewarm_started = True
+    t = threading.Thread(target=_prewarm_loop, args=(interval,),
+                         daemon=True, name="macro-prewarm")
+    t.start()
+    logger.info("macro pre-warm thread started (interval %ss)", interval)
+
+
+def _prewarm_loop(interval):
+    while _prewarm_enabled and not _prewarm_stop.wait(interval):
+        try:
+            _prefetch_missing()
+        except Exception as e:
+            logger.warning("macro pre-warm tick failed: %s", e)
 
 
 def _spread(a_id, b_id, scale=100):
@@ -260,6 +358,8 @@ def _item_payload(item):
 
 def get_macro():
     """Full payload for /api/macro: 6 groups, each item = series observations."""
+    start_prewarm()       # lazily start the background refresher (idempotent)
+    _prefetch_missing()   # parallel cold-fill; no-op when the cache is warm
     configured = bool(_fred_key())
     groups = []
     for g in GROUPS:
