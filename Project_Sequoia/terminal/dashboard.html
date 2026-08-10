@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alpha Terminal</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d1117'/%3E%3Cpath d='M3 11 L7 7 L9 9 L13 4' stroke='%233fb950' stroke-width='2' fill='none'/%3E%3C/svg%3E">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -281,6 +282,10 @@
     <div class="toolbar">
         <input type="text" class="search" id="search" placeholder="Search ticker...">
         <button class="btn" onclick="addTicker()">Load</button>
+        <span id="quotesAsOf" style="color: #8b949e; font-size: 12px; margin-left: auto;"></span>
+    </div>
+    <div id="staleBanner" style="display: none; background: rgba(248,81,73,0.1); color: #f85149; padding: 6px 24px; font-size: 12px; border-bottom: 1px solid rgba(248,81,73,0.33);">
+        ⚠ Live quotes stale — last update: <span id="staleBannerTime">never</span>
     </div>
     
     <div class="main">
@@ -396,7 +401,7 @@
         </div>
 
 
-                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <script src="chart.js"></script>
     <script>
         let quotes = {};
         let watchlist = [];
@@ -434,7 +439,11 @@
         updateTime();
         
         // Fetch quotes
+        let quotesFetching = false;
+        let lastQuoteTs = null;
         async function fetchQuotes() {
+            if (quotesFetching) return; // single-flight: skip if a poll is in flight
+            quotesFetching = true;
             let fetchList = [...watchlist];
             if (currentTicker && !fetchList.includes(currentTicker)) {
                 fetchList.push(currentTicker);
@@ -443,6 +452,13 @@
             try {
                 const res = await fetch(`/api/quotes?tickers=${tickers}`);
                 const newQuotes = await res.json();
+                const ts = res.headers.get('X-Quotes-Ts');
+                if (ts) {
+                    lastQuoteTs = Number(ts);
+                    document.getElementById('quotesAsOf').textContent =
+                        'As of ' + new Date(lastQuoteTs * 1000).toLocaleTimeString();
+                }
+                document.getElementById('staleBanner').style.display = 'none';
                 
                 // Process for "flash" updates
                 Object.keys(newQuotes).forEach(ticker => {
@@ -458,13 +474,32 @@
                 renderQuote(currentTicker);
             } catch (e) {
                 console.error('Fetch error:', e);
+                document.getElementById('staleBannerTime').textContent =
+                    lastQuoteTs ? new Date(lastQuoteTs * 1000).toLocaleTimeString() : 'never';
+                document.getElementById('staleBanner').style.display = 'block';
+            } finally {
+                quotesFetching = false;
             }
+        }
+        
+        // Escape user/external strings before innerHTML injection (tickers are
+        // free text from the add box; insider names arrive from EDGAR)
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        
+        // Restrict watchlist symbols to sane ticker characters
+        function validTicker(t) {
+            return /^[A-Za-z0-9.\-^=]{1,10}$/.test(t);
         }
         
         // Render watchlist
         function renderWatchlist() {
             const el = document.getElementById('watchlist');
             el.innerHTML = watchlist.map(t => {
+                const safe = esc(t);
                 const q = quotes[t] || {};
                 const price = q.price ? q.price.toFixed(2) : '--';
                 const change = q.change_pct ? q.change_pct.toFixed(2) + '%' : '--';
@@ -472,8 +507,8 @@
                 const flash = q.flash || '';
                 
                 return `
-                    <div class="watchlist-item ${t === currentTicker ? 'active' : ''} ${flash}" onclick="selectTicker('${t}')">
-                        <span class="ticker">${t}</span>
+                    <div class="watchlist-item ${t === currentTicker ? 'active' : ''} ${flash}" onclick="selectTicker('${safe}')">
+                        <span class="ticker">${safe}</span>
                         <div style="display: flex; align-items: center;">
                             <span class="price">${price}</span>
                             <span class="change ${cls}" style="margin-left: 8px;">${change}</span>
@@ -581,7 +616,7 @@
             const rows = (ins.filings || []).slice(0, 20).map(f => {
                 const code = f.code === 'P' ? '<span class="pill buy">BUY</span>' : f.code === 'S' ? '<span class="pill sell">SELL</span>' : f.code;
                 const val = f.value != null ? (f.value < 0 ? '<span class="neg">−$' + Math.abs(f.value / 1e6).toFixed(2) + 'M</span>' : '<span class="pos">+$' + (f.value / 1e6).toFixed(2) + 'M</span>') : '—';
-                return '<tr><td>' + (f.filing_date || '—') + '</td><td>' + (f.insider || '—') + '</td><td>' + code + '</td><td>' + (f.shares != null ? Number(f.shares).toLocaleString() : '—') + '</td><td>' + (f.price ? '$' + Number(f.price).toFixed(2) : '—') + '</td><td>' + val + '</td></tr>';
+                return '<tr><td>' + esc(f.filing_date) + '</td><td>' + esc(f.insider) + '</td><td>' + code + '</td><td>' + (f.shares != null ? Number(f.shares).toLocaleString() : '—') + '</td><td>' + (f.price ? '$' + Number(f.price).toFixed(2) : '—') + '</td><td>' + val + '</td></tr>';
             }).join('');
             const netHtml = net != null ? (net < 0 ? '<span class="neg">' + fmtMoneyM(net) + '</span>' : '<span class="pos">' + fmtMoneyM(net) + '</span>') : '—';
             return `
@@ -604,12 +639,12 @@
             const bars = daily.slice().reverse().map(d => {
                 if (d.spread == null) return '<i style="height:4px"></i>';
                 const h = Math.min(30, Math.abs(d.spread) * 30 + 4);
-                return '<i class="' + (d.spread >= 0 ? 'up' : 'dn') + '" style="height:' + h.toFixed(0) + 'px" title="' + d.day + ' ' + (d.spread >= 0 ? '+' : '') + d.spread + '"></i>';
+                return '<i class="' + (d.spread >= 0 ? 'up' : 'dn') + '" style="height:' + h.toFixed(0) + 'px" title="' + esc(d.day) + ' ' + (d.spread >= 0 ? '+' : '') + d.spread + '"></i>';
             }).join('');
             const rows = daily.map(d => {
                 const spr = d.spread == null ? '—' : (d.spread < 0 ? '<span class="neg">' + d.spread.toFixed(2) + '</span>' : '<span class="pos">+' + d.spread.toFixed(2) + '</span>');
                 const split = d.classified ? Math.round(d.bull / d.classified * 100) + '% / ' + Math.round(d.bear / d.classified * 100) + '%' : '—';
-                return '<tr><td>' + d.day + '</td><td>' + d.messages + '</td><td>' + (d.classified || 0) + '</td><td>' + split + '</td><td>' + spr + '</td></tr>';
+                return '<tr><td>' + esc(d.day) + '</td><td>' + d.messages + '</td><td>' + (d.classified || 0) + '</td><td>' + split + '</td><td>' + spr + '</td></tr>';
             }).join('');
             return `
                 <div class="m-kpis">
@@ -628,10 +663,10 @@
             const q = quotes[t] || {};
             document.getElementById('qtTicker').textContent = t;
             document.getElementById('qtName').textContent = q.name || '--';
-            document.getElementById('qtPrice').textContent = q.price ? '$' + q.price.toFixed(2) : '--';
+            document.getElementById('qtPrice').textContent = q.price != null ? '$' + q.price.toFixed(2) : '--';
             
             const changeEl = document.getElementById('qtChange');
-            if (q.change != null) {
+            if (q.change != null && q.change_pct != null) {
                 const sign = q.change >= 0 ? '+' : '';
                 changeEl.textContent = sign + q.change.toFixed(2) + ' (' + sign + q.change_pct.toFixed(2) + '%)';
                 changeEl.className = 'change ' + (q.change >= 0 ? 'positive' : 'negative');
@@ -640,15 +675,15 @@
                 changeEl.className = 'change';
             }
             
-            document.getElementById('qtOpen').textContent = q.open ? '$' + q.open.toFixed(2) : '--';
-            document.getElementById('qtHigh').textContent = q.high ? '$' + q.high.toFixed(2) : '--';
-            document.getElementById('qtLow').textContent = q.low ? '$' + q.low.toFixed(2) : '--';
-            document.getElementById('qtVolume').textContent = q.volume ? formatNumber(q.volume) : '--';
-            document.getElementById('qt52wHigh').textContent = q['52w_high'] ? '$' + q['52w_high'].toFixed(2) : '--';
-            document.getElementById('qt52wLow').textContent = q['52w_low'] ? '$' + q['52w_low'].toFixed(2) : '--';
-            document.getElementById('qtMktCap').textContent = q.market_cap ? formatNumber(q.market_cap) : '--';
-            document.getElementById('qtPE').textContent = q.pe_ratio ? q.pe_ratio.toFixed(2) : '--';
-            document.getElementById('qtDivYield').textContent = q.dividend_yield ? q.dividend_yield.toFixed(2) + '%' : '--';
+            document.getElementById('qtOpen').textContent = q.open != null ? '$' + q.open.toFixed(2) : '--';
+            document.getElementById('qtHigh').textContent = q.high != null ? '$' + q.high.toFixed(2) : '--';
+            document.getElementById('qtLow').textContent = q.low != null ? '$' + q.low.toFixed(2) : '--';
+            document.getElementById('qtVolume').textContent = q.volume != null ? formatNumber(q.volume) : '--';
+            document.getElementById('qt52wHigh').textContent = q['52w_high'] != null ? '$' + q['52w_high'].toFixed(2) : '--';
+            document.getElementById('qt52wLow').textContent = q['52w_low'] != null ? '$' + q['52w_low'].toFixed(2) : '--';
+            document.getElementById('qtMktCap').textContent = q.market_cap != null ? formatNumber(q.market_cap) : '--';
+            document.getElementById('qtPE').textContent = q.pe_ratio != null ? q.pe_ratio.toFixed(2) : '--';
+            document.getElementById('qtDivYield').textContent = q.dividend_yield != null ? q.dividend_yield.toFixed(2) + '%' : '--';
             
             // Update chart performance header for current timeframe
             updatePerformanceDisplay(timeframe);
@@ -677,7 +712,7 @@
         function addToWatchlistFromSearch() {
             const input = document.getElementById('search');
             const t = input.value.toUpperCase().trim();
-            if (t && !watchlist.includes(t)) {
+            if (t && validTicker(t) && !watchlist.includes(t)) {
                 watchlist.push(t);
                 watchlist.sort();
                 try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
@@ -700,7 +735,7 @@
         function addToWatchlist() {
             const input = document.getElementById('addTickerInput');
             const t = input.value.toUpperCase().trim();
-            if (t && !watchlist.includes(t)) {
+            if (t && validTicker(t) && !watchlist.includes(t)) {
                 watchlist.push(t);
                 watchlist.sort();
                 try { localStorage.setItem('watchlist', JSON.stringify(watchlist)); } catch(e) {}
@@ -713,14 +748,19 @@
         // On-demand OI snapshot when a NEW ticker joins the watchlist: snapshots
         // its option chains + derives the put/call ratio reading so the chart
         // P/C overlay appears without waiting for the 16:30 ET daily job.
-        // Fire-and-forget; chart refresh happens after it completes.
+        // The server enqueues this on a background worker and returns
+        // immediately; refetch the chart once ~30s later to pick up the
+        // reading once the chain download completes.
         async function snapshotOiOnDemand(t) {
             try {
                 const r = await fetch('/api/oi/snapshot?ticker=' + encodeURIComponent(t));
                 const d = await r.json();
                 if (d.reading) {
-                    // new ratio reading exists — reload the chart to show the overlay
+                    // reading already exists (e.g. status poll) — show overlay now
                     fetchChart(currentTicker, timeframe);
+                } else if (d.status === 'started') {
+                    // background worker is downloading chains (~10-30s)
+                    setTimeout(function() { fetchChart(currentTicker, timeframe); }, 30000);
                 }
             } catch (e) {
                 console.warn('on-demand OI snapshot failed for', t, e);
@@ -757,7 +797,7 @@
             const perfEl = document.getElementById('chartPerf');
             if (!perfEl || !q) return;
             
-            const ret = q['ret_' + tf.toLowerCase().replace('ytd', 'ytd').replace('1d', '1d').replace('1w', '1w').replace('1m', '1m').replace('3m', '3m').replace('1y', '1y').replace('5y', '5y')];
+            const ret = q['ret_' + tf.toLowerCase()];
             if (ret !== undefined) {
                 const cls = ret >= 0 ? 'positive' : 'negative';
                 perfEl.innerHTML = `<span class="${cls}">${ret >= 0 ? '▲' : '▼'} ${Math.abs(ret).toFixed(2)}%</span>`;
@@ -765,11 +805,13 @@
         }
         
         // Fetch chart
+        let chartSeq = 0;
         async function fetchChart(t, tf) {
+            const seq = ++chartSeq;
             try {
                 const res = await fetch(`/api/chart?ticker=${t}&tf=${tf}`);
                 const data = await res.json();
-                renderChart(data);
+                if (seq === chartSeq) renderChart(data);  // ignore stale responses
             } catch (e) {
                 console.error('Chart error:', e);
             }
@@ -958,7 +1000,7 @@
             fetchQuotes();
             fetchTickerSentiment(currentTicker);
         };
-        setInterval(fetchQuotes, 5000); // Live-ish update every 5 seconds
+        setInterval(fetchQuotes, 15000); // Live-ish update every 15s (single-flight; server caches 60s)
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 document.querySelectorAll('.overlay.open').forEach(function(o) { o.classList.remove('open'); });

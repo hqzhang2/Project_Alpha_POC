@@ -44,7 +44,8 @@ if _bad:
     import sys as _sys
     _sys.path = [p for p in _sys.path if p not in _bad]
 
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
+import email.utils
 import json
 import math
 import os
@@ -52,6 +53,7 @@ import sys
 import signal
 import time
 import threading
+import queue
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 import logging
@@ -103,7 +105,8 @@ except ImportError:
 ENV = os.environ.get('ENV', 'QA')
 PORT = int(os.environ.get('PORT', getattr(config, 'DEFAULT_PORT', 9098)))
 HOST = getattr(config, 'HOST', '0.0.0.0')
-CACHE_TTL = int(os.environ.get('YF_CACHE_TTL', '300'))  # 5 min default
+DOCROOT = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
+CACHE_TTL = int(os.environ.get('YF_CACHE_TTL', '60'))  # 60s default; 15s poll stays fresh
 HEALTH_CHECK_INTERVAL = 30
 
 # ============================================================================
@@ -154,6 +157,45 @@ class TTLCache:
 
 
 _quote_cache = TTLCache(ttl_seconds=CACHE_TTL)
+_chart_cache_1d = TTLCache(ttl_seconds=60)        # intraday chart (live-ish)
+_chart_cache_hist = TTLCache(ttl_seconds=300)     # historical charts
+_chart_1d_last = TTLCache(ttl_seconds=7 * 86400)  # last non-empty 1D session (weekend fallback)
+
+# ============================================================================
+# Off-thread OI snapshot worker
+# ============================================================================
+#
+# Watchlist adds used to snapshot option chains SYNCHRONOUSLY on the request
+# thread — 4 expiries of yfinance chain downloads ≈ 8-25s of terminal freeze.
+# Now the handler enqueues and returns immediately; the worker does the chain
+# work in the background and stores the result for a status poll.
+
+_oi_queue = queue.Queue()
+_oi_results = {}
+_oi_lock = threading.Lock()
+
+
+def _oi_worker():
+    while True:
+        ticker = _oi_queue.get()
+        try:
+            import snapshot_oi, options_data, sentiment_collect
+            provider = options_data.get_provider()
+            asof = snapshot_oi.last_trading_day(ticker)
+            contracts = snapshot_oi.snapshot_ticker(provider, ticker, asof)
+            reading = sentiment_collect.compute_oi_ratio(asof, ticker)
+            with _oi_lock:
+                _oi_results[ticker] = {'status': 'done', 'asof': asof,
+                                       'contracts': contracts, 'reading': reading}
+        except Exception as e:
+            logger.exception(f"oi snapshot failed for {ticker}")
+            with _oi_lock:
+                _oi_results[ticker] = {'status': 'error', 'error': str(e)}
+        finally:
+            _oi_queue.task_done()
+
+
+threading.Thread(target=_oi_worker, daemon=True, name='oi-snapshot-worker').start()
 
 # ============================================================================
 # Utility Functions
@@ -173,6 +215,16 @@ def _is_bad_float(x):
     except (TypeError, ValueError):
         return False
     return math.isnan(f) or math.isinf(f)
+
+
+def _cors_allowed(origin):
+    """CORS is only served to localhost origins (the portal on :8000 embeds
+    this dashboard via iframe). Remote origins must NOT be able to read
+    localhost APIs (DNS-rebinding / drive-by fetch protection)."""
+    if not origin:
+        return False
+    return (origin.startswith('http://localhost:')
+            or origin.startswith('http://127.0.0.1:'))
 
 
 def clean_dict(d):
@@ -223,8 +275,15 @@ class ChartDataProcessor:
             if data.empty:
                 return {'labels': [], 'prices': [], 'volumes': [], 'error': 'No data', 'ticker': ticker}
             
-            # Filter to today's market hours (09:30-16:00 ET)
+            # Filter to today's market hours (09:30-16:00 ET). When the market
+            # is closed (weekend/holiday) today has no bars — fall back to the
+            # most recent session in the 5d window so the chart isn't blank.
+            data_full = data
             data = data[data.index.date == today]
+            if data.empty:
+                last_day = data_full.index[-1].date()
+                data = data_full[data_full.index.date == last_day]
+                today = last_day
             if not data.empty:
                 data = data.between_time('09:30', '16:00')
             
@@ -317,6 +376,7 @@ class ChartDataProcessor:
 
 class Handler(SimpleHTTPRequestHandler):
     """HTTP request handler with API routing."""
+    protocol_version = 'HTTP/1.1'
 
     # Dynamic module route table — built by _discover_module_routes()
     MODULE_ROUTES = {}
@@ -365,6 +425,15 @@ class Handler(SimpleHTTPRequestHandler):
     }
     
     def do_GET(self):
+        _start = time.time()
+        try:
+            self._route()
+        finally:
+            _dur = time.time() - _start
+            if _dur >= 1.0:
+                logger.info("slow request: %s took %.2fs", self.path, _dur)
+
+    def _route(self):
         parsed = urlparse(self.path)
         path, qs = parsed.path, parse_qs(parsed.query)
         
@@ -406,8 +475,13 @@ class Handler(SimpleHTTPRequestHandler):
         
         # Serve static files
         filename = path[1:] if path != '/' else 'dashboard.html'
-        if os.path.exists(filename):
-            self.serve_file(filename)
+        # Traversal guard: resolve against the docroot and require containment
+        candidate = os.path.realpath(os.path.join(DOCROOT, filename))
+        if not (candidate == DOCROOT or candidate.startswith(DOCROOT + os.sep)):
+            self.send_error(404, "Not found")
+            return
+        if os.path.exists(candidate):
+            self.serve_file(candidate)
             return
         
         self.send_error(404, "Not found")
@@ -426,23 +500,41 @@ class Handler(SimpleHTTPRequestHandler):
                     nav_end = content.find('</div>', nav_idx)
                     header_end = content.find('</div>', nav_end + 6) + 6
                     content = content[:start] + '<div class="header">' + header_html + '</div>' + content[header_end:]
+            body = content.encode()
+            last_mod = email.utils.formatdate(os.path.getmtime(filename), usegmt=True)
+            if self.headers.get('If-Modified-Since') == last_mod:
+                self.send_response(304)
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Last-Modified', last_mod)
+            self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
-            self.wfile.write(content.encode())
+            self.wfile.write(body)
         else:
             SimpleHTTPRequestHandler.do_GET(self)
     
     def end_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin = self.headers.get('Origin')
+        if _cors_allowed(origin):
+            self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('X-Frame-Options', 'ALLOWALL')
         super().end_headers()
 
-    def send_json(self, data, status=200):
+    def send_json(self, data, status=200, headers=None):
+        """Send JSON with Content-Length (required for HTTP/1.1 keep-alive;
+        without it clients hang waiting for the body end)."""
+        body = json.dumps(clean_dict(data), cls=SafeJSONEncoder).encode()
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        if headers:
+            for k, v in headers.items():
+                self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(json.dumps(clean_dict(data), cls=SafeJSONEncoder).encode())
+        self.wfile.write(body)
     
     # --- API Handlers ---
     
@@ -458,26 +550,23 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_oi_snapshot(self, qs):
         """On-demand OI snapshot for one ticker (dashboard watchlist add).
 
-        Snapshots the ticker's option chains into option_oi.db, then derives
-        the put/call OI ratio reading so the chart overlay gets data
-        immediately. Returns contract + reading counts; fail-open on error.
+        Enqueues the snapshot to the background worker and returns
+        immediately — a synchronous chain download used to occupy the request
+        thread for 8-25s. The JS refetches the chart ~30s later to pick up
+        the P/C reading. GET ?action=status&ticker=X polls the worker result.
         """
-        import datetime as _dt
-        import snapshot_oi, options_data, sentiment_collect
         ticker = (qs.get('ticker', [''])[0] or '').upper()
         if not ticker:
             self.send_json({'error': 'ticker required'}, status=400)
             return
-        try:
-            provider = options_data.get_provider()
-            asof = snapshot_oi.last_trading_day(ticker)
-            contracts = snapshot_oi.snapshot_ticker(provider, ticker, asof)
-            reading = sentiment_collect.compute_oi_ratio(asof, ticker)
-            self.send_json({'ticker': ticker, 'asof': asof,
-                            'contracts': contracts, 'reading': reading})
-        except Exception as e:
-            logger.exception(f"oi snapshot failed for {ticker}")
-            self.send_json({'error': str(e)}, status=500)
+        if qs.get('action', [None])[0] == 'status':
+            with _oi_lock:
+                self.send_json({'ticker': ticker, **_oi_results.get(ticker, {'status': 'pending'})})
+            return
+        with _oi_lock:
+            _oi_results.pop(ticker, None)
+        _oi_queue.put(ticker)
+        self.send_json({'ticker': ticker, 'status': 'started'})
     
     def handle_etf_holdings(self, qs):
         if not YFINANCE_AVAILABLE:
@@ -501,8 +590,23 @@ class Handler(SimpleHTTPRequestHandler):
     
     def handle_quotes(self, qs):
         from quotes import get_quotes
-        tickers = qs.get('tickers', ['SPY'])[0].split(',')
-        self.send_json(get_quotes(tickers))
+        raw = (qs.get('tickers') or [''])[0]
+        tickers = sorted({t.strip().upper() for t in raw.split(',') if t.strip()})
+        if not tickers:
+            self.send_json({'error': 'tickers required'}, status=400)
+            return
+        if len(tickers) > 50:
+            self.send_json({'error': 'too many tickers (max 50)'}, status=400)
+            return
+        key = ','.join(tickers)
+        cached = _quote_cache.get(key)
+        if cached is not None:
+            data, ts = cached
+            self.send_json(data, headers={'X-Cache': 'HIT', 'X-Quotes-Ts': str(ts)})
+            return
+        data = get_quotes(list(tickers))
+        _quote_cache.set(key, (data, time.time()))
+        self.send_json(data, headers={'X-Cache': 'MISS', 'X-Quotes-Ts': str(time.time())})
     
     def handle_news_top(self, qs):
         import news
@@ -603,10 +707,28 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_chart(self, qs):
         ticker = qs.get('ticker', ['SPY'])[0]
         tf = qs.get('tf', ['1D'])[0]
+        key = f"{ticker}|{tf}"
+        cached = _chart_cache_1d.get(key) if tf == '1D' else _chart_cache_hist.get(key)
+        if cached is not None:
+            self.send_json(cached)
+            return
         if tf == '1D':
             data = ChartDataProcessor.get_1d_chart(ticker)
+            has_data = bool(data.get('prices')) and any(v is not None for v in data['prices'])
+            if has_data:
+                _chart_cache_1d.set(key, data)
+                _chart_1d_last.set(ticker, data)   # remember the last real session
+            else:
+                # Market closed / weekend: show the last real session instead
+                # of a blank chart (and don't waste the two Yahoo calls again).
+                last = _chart_1d_last.get(ticker)
+                if last is not None:
+                    self.send_json(last)
+                    return
         else:
             data = ChartDataProcessor.get_historical_chart(ticker, tf)
+            if data.get('prices'):
+                _chart_cache_hist.set(key, data)
         self.send_json(data)
     
     def handle_estimates(self, qs):
@@ -827,6 +949,16 @@ class Handler(SimpleHTTPRequestHandler):
 # Server Management
 # ============================================================================
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that treats routine client aborts (browser closing
+    mid-response) as non-errors — no traceback spam in the logs."""
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class AlphaTerminalServer:
     def __init__(self, host=HOST, port=PORT):
         self.host = host
@@ -838,7 +970,7 @@ class AlphaTerminalServer:
     def start(self):
         """Start the HTTP server in a background thread."""
         Handler._discover_module_routes()
-        self.server = HTTPServer((self.host, self.port), Handler)
+        self.server = QuietThreadingHTTPServer((self.host, self.port), Handler)
         self.server_thread = threading.Thread(target=self._serve, daemon=True)
         self.server_thread.start()
         logger.info(f"Alpha Terminal ({ENV}): http://{self.host}:{self.port}")

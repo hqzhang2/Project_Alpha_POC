@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
+import numpy as np
 import sys
 import os
 import json
@@ -12,8 +13,11 @@ import options
 
 class TestQuotesOptions(unittest.TestCase):
 
+    @patch('yfinance.download')
     @patch('yfinance.Ticker')
-    def test_get_quotes(self, mock_ticker):
+    def test_get_quotes(self, mock_ticker, mock_download):
+        # empty batch -> falls back to the per-ticker history path
+        mock_download.return_value = pd.DataFrame()
         mock_instance = mock_ticker.return_value
         mock_instance.info = {
             'shortName': 'Apple Inc',
@@ -26,6 +30,40 @@ class TestQuotesOptions(unittest.TestCase):
         result = quotes.get_quotes(['AAPL'], use_cache=False)
         self.assertIn('AAPL', result)
         self.assertEqual(result['AAPL']['price'], 150.0)
+
+    @patch('yfinance.download')
+    @patch('yfinance.Ticker')
+    def test_get_quotes_batched_history(self, mock_ticker, mock_download):
+        """With a successful batch download, per-ticker 5y history must NOT be
+        fetched and returns must come from the shared frame."""
+        idx = pd.date_range('2021-01-01', periods=500, freq='D')
+        cols = pd.MultiIndex.from_product([['AAPL', 'MSFT'], ['Close', 'Volume']])
+        frame = pd.DataFrame(np.random.rand(500, 4) * 100 + 50, index=idx, columns=cols)
+        mock_download.return_value = frame
+        mock_ticker.return_value.info = {
+            'shortName': 'Apple Inc', 'currentPrice': 150.0,
+            'regularMarketChange': 1.5, 'regularMarketChangePercent': 1.0,
+        }
+        mock_ticker.return_value.history.return_value = pd.DataFrame()
+
+        result = quotes.get_quotes(['AAPL', 'MSFT'], use_cache=False)
+        self.assertIn('AAPL', result)
+        self.assertEqual(result['AAPL']['price'], 150.0)
+        self.assertIsNotNone(result['AAPL']['ret_1d'])       # computed from the batch
+        mock_ticker.return_value.history.assert_not_called()  # no per-ticker 5y fetch
+        mock_download.assert_called_once()
+
+    def test_compute_returns_relative_windows(self):
+        """Relative lookback windows never depend on hardcoded dates."""
+        import quotes as q
+        idx = pd.date_range(end=pd.Timestamp.now().normalize(), periods=1500, freq='D')
+        close = pd.Series(range(100, 1600), index=idx, dtype=float)
+        hist = pd.DataFrame({'Close': close})
+        rets = q._compute_returns(hist)
+        self.assertIsNotNone(rets['ret_1d'])
+        self.assertIsNotNone(rets['ret_1y'])
+        self.assertIsNotNone(rets['ret_ytd'])
+        self.assertGreater(rets['ret_1y'], 0)   # monotonic series -> positive returns
 
     @patch('yfinance.Ticker')
     def test_get_expirations(self, mock_ticker):

@@ -82,7 +82,7 @@
         <div class="loading">Enter ticker and click Load EE</div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="chart.js"></script>
     <script>
         // ---------------- watchlist (shared with dashboard: localStorage 'watchlist') ----------------
         let watchlist = ['AAPL', 'AMZN', 'GLD', 'GOOGL', 'MSFT', 'NVDA', 'QQQ', 'SMH', 'SPY', 'TSLA', 'XLE'];
@@ -549,6 +549,7 @@
             if (e.key === 'Enter') loadEstimates();
         });
         renderWatchlist();
+        loadEstimates();  // autoload on startup (same as financials.html)
     </script>
 </body>
 </html>
