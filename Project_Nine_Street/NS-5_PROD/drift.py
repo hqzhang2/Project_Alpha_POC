@@ -244,6 +244,47 @@ def merge_drift_grade(levels: Dict[str, dict], theta: dict) -> dict:
     }
 
 
+def compute_portfolio_composite(axis_results: dict, letter_bounds: list) -> dict:
+    """Portfolio composite: base × regime enhancer (v3.3.1, design A).
+
+    base = mean of active non-regime composite scores (concentration +
+    drift; N/A/None excluded). Regime is an ENHANCER on the composite:
+    enhancer ∈ [0.5, 1.0], never pulls below the other axes' average.
+    Fail-open: regime missing/disabled/N-A → enhancer = 1.0; no base
+    scores → base/portfolio = None ("N/A"), never crashes.
+
+    axis_results: the /api/grade result dict so far (concentration key is
+    NESTED under result['concentration'] — the run_concentration_grade
+    return shape; drift under result['drift']).
+    """
+    base_scores = []
+    conc_res = axis_results.get("concentration")
+    if isinstance(conc_res, dict) and conc_res.get("composite_concentration_score") is not None:
+        base_scores.append(conc_res["composite_concentration_score"])
+    drift_res = axis_results.get("drift")
+    if isinstance(drift_res, dict) and drift_res.get("composite_drift_score") is not None:
+        base_scores.append(drift_res["composite_drift_score"])
+
+    base_score = round(sum(base_scores) / len(base_scores), 2) if base_scores else None
+    base_grade = _score_to_letter(base_score, letter_bounds) if base_score is not None else "N/A"
+
+    enhancer = 1.0
+    regime_res = axis_results.get("regime")
+    if isinstance(regime_res, dict) and regime_res.get("composite_regime_grade") != "N/A":
+        enhancer = regime_res.get("enhancer", 1.0)
+
+    portfolio_score = round(base_score * enhancer, 2) if base_score is not None else None
+    portfolio_grade = _score_to_letter(portfolio_score, letter_bounds) if portfolio_score is not None else "N/A"
+
+    return {
+        "base_composite_score": base_score,
+        "base_composite_grade": base_grade,
+        "portfolio_composite_score": portfolio_score,
+        "portfolio_composite_grade": portfolio_grade,
+        "regime_enhancer_applied": enhancer,
+    }
+
+
 # =========================================================================
 # F4 — Drift tweak-list generator (frontier-owned — the language mapping)
 # =========================================================================
