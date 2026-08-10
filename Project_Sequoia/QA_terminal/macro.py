@@ -58,6 +58,7 @@ GROUPS = [
         {"id": "FEDFUNDS", "name": "Fed Funds Effective", "unit": "%", "cadence": "Daily"},
         {"id": "DGS2", "name": "2Y Treasury", "unit": "%", "cadence": "Daily"},
         {"id": "DGS10", "name": "10Y Treasury", "unit": "%", "cadence": "Daily"},
+        {"id": "DGS30", "name": "30Y Treasury", "unit": "%", "cadence": "Daily"},
         {"id": "DFII5", "name": "5Y TIPS Real Yield", "unit": "%", "cadence": "Daily"},
         {"id": "DGS10-DGS2", "name": "2s10s Spread", "unit": "bp", "cadence": "Daily", "computed": "spread",
          "from": ["DGS10", "DGS2"], "scale": 100},
@@ -145,6 +146,55 @@ def _spread(a_id, b_id, scale=100):
 
 CORR_CACHE_KEY = "SPY-TLT-CORR:corr"  # computed series, Daily TTL
 
+YAHOO_YC_KEY = "YAHOO-YC:curve"  # live yield-curve fallback, Daily TTL
+# Yahoo treasury symbols: only 4 of our 11 tenors exist as quotes.
+#   ^IRX = 13-week T-bill (3M), ^FVX = 5Y, ^TNX = 10Y, ^TYX = 30Y
+YAHOO_YC_TENORS = [("^IRX", "3M", 0.25), ("^FVX", "5Y", 5.0),
+                   ("^TNX", "10Y", 10.0), ("^TYX", "30Y", 30.0)]
+
+
+def _yahoo_yield_curve():
+    """Live today's curve from Yahoo closes: {date, source, points} or None.
+
+    Fallback for the 'today' anchor only — FRED wins once it publishes
+    (Hong, 2026-08-10: "Yahoo data is always fallback data for the day's
+    yield curve, except weekends"). Cached Daily like _corr_60d; fail-open
+    (None) on any error so the FRED fall-back path stays intact.
+    """
+    with _lock:
+        cached = _cache.get(YAHOO_YC_KEY)
+        if cached and time.time() - cached[0] < TTL["Daily"]:
+            return cached[1]
+    try:
+        import yfinance as yf
+    except ImportError:
+        logger.warning("yfinance unavailable; live yield curve skipped")
+        return None
+    try:
+        syms = [s for s, _t, _y in YAHOO_YC_TENORS]
+        px = yf.download(syms, period="5d", interval="1d",
+                         auto_adjust=False, progress=False)
+        if px is None or px.empty:
+            return None
+        close = px["Close"].dropna(how="all")
+        if close.empty:
+            return None
+        last = close.iloc[-1]
+        points = []
+        for sym, tenor, years in YAHOO_YC_TENORS:
+            v = last.get(sym)
+            if v is not None and v == v:  # not NaN
+                points.append({"tenor": tenor, "years": years, "yield": round(float(v), 3)})
+        if not points:
+            return None
+        out = {"date": str(close.index[-1])[:10], "source": "yahoo", "points": points}
+        with _lock:
+            _cache[YAHOO_YC_KEY] = (time.time(), out)
+        return out
+    except Exception as e:
+        logger.warning("live yield curve failed (fail-open): %s", e)
+        return None
+
 
 def _corr_60d():
     """Stock–bond 60d rolling correlation from SPY + TLT daily returns.
@@ -230,9 +280,14 @@ def get_macro():
 # Tenor ladder: FRED constant-maturity set, x-axis tenor in years (linear).
 # Anchors: today / yesterday / 1W always; period-ago (1M..2Y, YTD) per the
 # page's global period selector. Weekend/holiday rules (Hong):
-#   - today = last weekday <= today (Sat/Sun -> Fri); if that day has no data
-#     (holiday), the today curve is OMITTED (no substitution).
-#   - yesterday = last weekday < today's resolved day; omitted if no data.
+#   - today = last available curve date <= last weekday <= today (Sat/Sun ->
+#     Fri; if today's data is not yet published — FRED ingests ~6pm ET — the
+#     most recent available curve is shown, honestly labeled with ITS date).
+#     Updated 2026-08-10 (Hong): fall-back, not omit — a normal trading day
+#     with a publication lag should not look "missing". The payload's per-
+#     curve `date` field keeps the label honest.
+#   - yesterday = last available curve date < today's resolved date; omitted
+#     if no data.
 #   - 1W / 1M / 3M / 6M / 1Y / 2Y: exact date offset, then FALL BACKWARD to
 #     the last available curve (weekend -> previous Friday, holiday -> walk
 #     back further). Always shown when any history exists.
@@ -317,15 +372,31 @@ def get_yield_curve():
         today = datetime.now().date()
 
     today_eff = _last_weekday(today)
-    yest_eff = _last_weekday(today_eff - timedelta(days=1))
+    # today = last available curve date <= today_eff (fall-back, not omit —
+    # FRED lags ~6pm ET on a normal trading day; the curve is labeled with
+    # its real date so the fallback is honest). yesterday = last WEEKDAY
+    # strictly before today's resolved date (never the same day), strict
+    # omit if that weekday has no data (holiday rule unchanged).
+    today_resolved = _fall_backward(today_eff, days)
+    yest_eff = _last_weekday(today_resolved - timedelta(days=1)) if today_resolved else None
 
     curves = {}
-    today_curve = _curve_on(today_eff, maps)
+    today_curve = _curve_on(today_resolved, maps) if today_resolved else None
     if today_curve:
         curves["today"] = today_curve
-    yest_curve = _curve_on(yest_eff, maps)
+    yest_curve = _curve_on(yest_eff, maps) if yest_eff else None
     if yest_curve:
         curves["yesterday"] = yest_curve
+
+    # Live today override (Hong, 2026-08-10): Yahoo closes (^IRX/^FVX/^TNX/
+    # ^TYX — 3M/5Y/10Y/30Y only) replace the today anchor WHEN fresher than
+    # FRED's resolved date. Weekdays before ~6pm: Yahoo has today, FRED
+    # doesn't -> live curve. Weekends: Yahoo's last close is Friday == FRED's
+    # resolved Friday -> no override. Once FRED publishes today (~6pm),
+    # FRED's resolved date == Yahoo's date -> no override (FRED wins).
+    yahoo = _yahoo_yield_curve()
+    if yahoo and today_resolved and yahoo["date"] > today_resolved.isoformat():
+        curves["today"] = yahoo
 
     # 1W: exact offset from the effective today, then fall backward
     w1 = _fall_backward(today_eff - timedelta(days=7), days)
