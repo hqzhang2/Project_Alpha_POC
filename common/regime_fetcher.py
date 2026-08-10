@@ -217,6 +217,10 @@ def _compute_derived_series(fred_data: dict, yahoo_data: dict) -> pd.DataFrame:
     unrate = _series_to_daily_df(fred_data.get("UNRATE", []), "UNRATE")
     if not unrate.empty:
         unrate_m = unrate.resample("ME").last()
+        # Store the raw level (for dashboard / A_T consumer)
+        unrate_level = _resample_to_daily(unrate_m, "ME")
+        if not unrate_level.empty:
+            frames.append(unrate_level)
         unrate_3m = unrate_m.diff(3)  # 3-month change in pp
         unrate_3m.columns = ["UNRATE_3M_CHG"]
         unrate_3m = _resample_to_daily(unrate_3m, "ME")
