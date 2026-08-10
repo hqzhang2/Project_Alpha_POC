@@ -412,6 +412,25 @@ class Handler(BaseHTTPRequestHandler):
                             combined = list(result.get("tweaks", [])) + list(tax_res.get("tweaks", []))
                             if combined:
                                 result["tweaks"] = combined
+                if "regime" in axes:
+                    if theta.get("regime") is None:
+                        result["regime"] = {"error": "regime axis disabled — configure Θ.regime"}
+                    else:
+                        import regime_checkers
+                        # Resolve holdings/policy names → weight dicts
+                        hw, pw = _resolve_for_drift(holdings, theta["policy_weights"])
+                        # Universe = holdings ∪ policy (+ SPY/TLT proxies for corr)
+                        all_tk = sorted(set(hw) | set(pw) | {"SPY", "TLT"})
+                        closes = data_fetcher.get_closes(all_tk)
+                        regime_res = regime_checkers.run_regime_checkers(
+                            closes=closes, policy_weights=pw, theta=theta)
+                        if "error" in regime_res:
+                            result["regime"] = regime_res
+                        else:
+                            result["regime"] = regime_res
+                            combined = list(result.get("tweaks", [])) + list(regime_res.get("tweaks", []))
+                            if combined:
+                                result["tweaks"] = combined
                 self._json(result)
             elif self.path.startswith("/api/frontier"):
                 result = _frontier_response(body.get("holdings"),

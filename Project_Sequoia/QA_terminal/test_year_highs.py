@@ -178,18 +178,25 @@ def test_route_year_highs_date_and_search(server):
 def test_scheduler_idempotent_store(tmp_path, monkeypatch):
     """store_today_snapshot must not overwrite an existing same-day snapshot."""
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    import snapshot
     import year_highs as yh
 
-    # Pre-populate today's snapshot
-    d = db.today_est_str()
-    db.store_year_highs(d, SAMPLE_ROWS)
+    # Deterministic date: snapshot_date() rolls back to YESTERDAY before
+    # 9:30am ET (pre-market), so the raw test was time-of-day dependent —
+    # pre-populated today but looked up yesterday → existed=False before
+    # 9:30am. Pin the date so the idempotency contract is what's tested.
+    fixed = "2026-08-10"
+    monkeypatch.setattr(snapshot, "snapshot_date", lambda: fixed)
+
+    # Pre-populate the pinned snapshot date
+    db.store_year_highs(fixed, SAMPLE_ROWS)
 
     # scan is mocked to return a different set; store should be a no-op
     monkeypatch.setattr(yh, "scan_year_highs", lambda **kw: [SAMPLE_ROWS[1]])
     date_str, count, existed = yh.store_today_snapshot()
     assert existed is True
     assert count == 3  # unchanged
-    rows = db.get_year_highs(d)
+    rows = db.get_year_highs(fixed)
     assert len(rows) == 3  # still the original 3, not overwritten
 
 
