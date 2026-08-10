@@ -192,6 +192,7 @@
       <div class="kpi"><div class="big" id="kpiVol">—</div><div class="meta"><div class="t">Portfolio Vol</div><div class="s" id="kpiVolS">—</div></div></div>
       <div class="kpi"><div class="big" id="kpiQQQ">—</div><div class="meta"><div class="t">QQQ Correlation</div><div class="s" id="kpiQQQS">—</div></div></div>
       <div class="kpi"><div class="big" id="kpiTax">—</div><div class="meta"><div class="t">Tax Efficiency</div><div class="s" id="kpiTaxS">—</div></div></div>
+      <div class="kpi"><div class="big" id="kpiRegime">—</div><div class="meta"><div class="t">Regime Enhancer</div><div class="s" id="kpiRegimeS">—</div></div></div>
     </div>
 
     <!-- Scorecard table -->
@@ -239,6 +240,10 @@
 
     <label style="display:flex;align-items:center;gap:6px;margin:8px 0;font-size:12px;color:#94a3b8;cursor:pointer;user-select:none">
       <input type="checkbox" id="taxToggle" checked> Include tax analysis
+    </label>
+
+    <label style="display:flex;align-items:center;gap:6px;margin:8px 0;font-size:12px;color:#94a3b8;cursor:pointer;user-select:none">
+      <input type="checkbox" id="regimeToggle" checked> Include regime enhancer
     </label>
 
     <details style="margin:4px 0" id="taxProfDetails">
@@ -290,17 +295,22 @@ let lastFrontier = null;   // last /api/frontier payload (for KPI vol tile)
 
 const CONC_AXES = ['factor_loading', 'sector', 'effective_n', 'tail_correlation'];
 const DRIFT_AXES = ['weight', 'risk', 'style', 'frontier'];
+const REGIME_AXES = ['frontier_shift', 'tangency', 'policy_gap', 'corr_structure'];
 const AXIS_LABEL = {
   factor_loading: 'Factor Loading', sector: 'Sector', effective_n: 'Effective N',
   tail_correlation: 'Tail Correlation', weight: 'Weight Drift', risk: 'Risk Drift',
-  style: 'Style Drift', frontier: 'Frontier Drift'
+  style: 'Style Drift', frontier: 'Frontier Drift',
+  frontier_shift: 'Frontier Shift', tangency: 'Tangency', policy_gap: 'Policy Gap',
+  corr_structure: 'Correlation'
 };
 const AXIS_COLOR = {
   factor_loading: '#3b82f6', sector: '#8b5cf6', effective_n: '#06b6d4', tail_correlation: '#10b981',
-  weight: '#f43f5e', risk: '#34d399', style: '#fb923c', frontier: '#fbbf24'
+  weight: '#f43f5e', risk: '#34d399', style: '#fb923c', frontier: '#fbbf24',
+  frontier_shift: '#e879f9', tangency: '#f472b6', policy_gap: '#c084fc', corr_structure: '#22d3ee'
 };
 const AXIS_SECTION = {factor_loading: 0, sector: 0, effective_n: 0, tail_correlation: 0,
-                      weight: 1, risk: 1, style: 1, frontier: 1};
+                      weight: 1, risk: 1, style: 1, frontier: 1,
+                      frontier_shift: 2, tangency: 2, policy_gap: 2, corr_structure: 2};
 
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -555,25 +565,39 @@ function renderRadar(data) {
   const sub = {};
   CONC_AXES.forEach(k => { sub[k] = c.sub_grades[k]; });
   DRIFT_AXES.forEach(k => { sub[k] = dr ? dr.sub_grades[k] : null; });
+  const rg = data.regime && !data.regime.error ? data.regime : null;
+  REGIME_AXES.forEach(k => { sub[k] = rg ? rg.sub_grades[k] : null; });
 
-  // Center: concentration composite big, drift beneath
-  const cg = c.composite_concentration_grade;
-  const csc = c.composite_concentration_score;
+  // Center: portfolio composite (base × regime enhancer) when available;
+  // fall back to concentration composite (pre-v3.3.1 behavior)
+  const pf = data.portfolio_composite_grade;
   const center = document.getElementById('centerGrade');
-  center.textContent = cg;
-  center.className = 'big ' + gradeClass(cg);
-  document.getElementById('centerConc').textContent = 'concentration ' + csc;
-  if (dr && dr.composite_drift_grade) {
+  if (pf) {
+    center.textContent = data.portfolio_composite_grade;
+    center.className = 'big ' + gradeClass(data.portfolio_composite_grade);
+    document.getElementById('centerConc').textContent =
+      'base ' + (data.base_composite_score != null ? data.base_composite_score : '—') + ' × enhancer ' +
+      (data.regime_enhancer_applied != null ? data.regime_enhancer_applied : '1.0');
     document.getElementById('centerDrift').textContent =
-      'drift ' + dr.composite_drift_score + ' · ' + dr.severity;
+      'portfolio ' + (data.portfolio_composite_score != null ? data.portfolio_composite_score : '—');
   } else {
-    document.getElementById('centerDrift').textContent = '';
+    const cg = c.composite_concentration_grade;
+    const csc = c.composite_concentration_score;
+    center.textContent = cg;
+    center.className = 'big ' + gradeClass(cg);
+    document.getElementById('centerConc').textContent = 'concentration ' + csc;
+    if (dr && dr.composite_drift_grade) {
+      document.getElementById('centerDrift').textContent =
+        'drift ' + dr.composite_drift_score + ' · ' + dr.severity;
+    } else {
+      document.getElementById('centerDrift').textContent = '';
+    }
   }
 
   // Legend
   const lg = document.getElementById('radarLegend');
   lg.innerHTML = '';
-  const order = CONC_AXES.concat(DRIFT_AXES);
+  const order = CONC_AXES.concat(DRIFT_AXES).concat(rg ? REGIME_AXES : []);
   order.forEach(k => {
     const sg = sub[k];
     if (!sg) return;
@@ -737,6 +761,38 @@ function renderScorecard(data) {
       tb.appendChild(tr);
     });
   }
+  // Regime section (when axis enabled in request)
+  const rg = data.regime && !data.regime.error ? data.regime : null;
+  if (rg && rg.sub_grades) {
+    const sec = document.createElement('tr');
+    sec.className = 'sec';
+    sec.innerHTML = '<td colspan="5">Regime — how different the macro environment is from what the policy was designed for</td>';
+    tb.appendChild(sec);
+    const REGIME_LABEL = {frontier_shift: 'Frontier Shift', tangency: 'Tangency Change', policy_gap: 'Policy Gap', corr_structure: 'Correlation Structure'};
+    REGIME_AXES.forEach(k => {
+      const sg = rg.sub_grades[k];
+      if (!sg) return;
+      const lvl = rg.levels ? rg.levels[k] : null;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (REGIME_LABEL[k] || k) + '</td>' +
+        '<td><span class="gr ' + gradeClass(sg.grade) + '"><b>' + esc(sg.grade) + '</b></span></td>' +
+        '<td>' + sg.score + '</td>' +
+        '<td>' + (sg.weight * 100).toFixed(0) + '%</td>' +
+        '<td>' + regimeDetail(k, lvl) + '</td>';
+      tb.appendChild(tr);
+    });
+  }
+}
+
+function regimeDetail(k, lvl) {
+  if (!lvl) return '';
+  var parts = [];
+  if (k === 'frontier_shift' && lvl.distance != null) parts.push('GMV dist ' + lvl.distance.toFixed(3));
+  if (k === 'tangency' && lvl.ratio != null) parts.push('sharpe ratio ' + lvl.ratio.toFixed(2));
+  if (k === 'policy_gap' && lvl.distance != null) parts.push('dist ' + (lvl.distance * 100).toFixed(0) + '%');
+  if (k === 'corr_structure' && lvl.stock_bond_corr != null) parts.push('corr ' + lvl.stock_bond_corr.toFixed(2));
+  return parts.join(' · ');
 }
 
 function taxDetail(k, lvl) {
@@ -829,6 +885,21 @@ function renderKPIs(data) {
     kpiTax.textContent = '—';
     document.getElementById('kpiTaxS').textContent = 'axis disabled';
   }
+
+  // Regime enhancer (v3.3.1): ×multiplier on the portfolio composite
+  const kpiRegime = document.getElementById('kpiRegime');
+  const rg = data && data.regime && !data.regime.error ? data.regime : null;
+  const enh = data ? data.regime_enhancer_applied : null;
+  if (rg && enh != null) {
+    kpiRegime.textContent = '×' + Number(enh).toFixed(2);
+    kpiRegime.className = 'big ' + (enh >= 0.9 ? 'gA' : enh >= 0.7 ? 'gC' : 'gF');
+    const lbl = rg.composite_regime_grade || '—';
+    document.getElementById('kpiRegimeS').textContent =
+      'regime ' + lbl + ' · ' + (rg.composite_regime_score != null ? rg.composite_regime_score : '—');
+  } else {
+    kpiRegime.textContent = '—';
+    document.getElementById('kpiRegimeS').textContent = 'axis disabled';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -909,6 +980,9 @@ async function grade() {
       if (Object.keys(chars).length > 0) taxBody.distribution_character = chars;
       body.tax = Object.keys(taxBody).length > 0 ? taxBody : true;
       axes.push('tax');
+    }
+    if (document.getElementById('regimeToggle').checked) {
+      axes.push('regime');
     }
     body.axes = axes;
     const res = await fetch('/api/grade', {
