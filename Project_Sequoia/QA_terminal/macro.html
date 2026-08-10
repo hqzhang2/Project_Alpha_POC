@@ -482,13 +482,14 @@ function openModal(id){
     }]},
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (ctx) => ' ' + it.name + ': ' + ctx.parsed.y + it.unit } } },
+      interaction: { mode: 'index', intersect: false },   // crosshair tracks hovered date
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ' ' + it.name + ': ' + ctx.parsed.y + it.unit } } },
       scales: {
         x: { ticks: { color: '#8b949e', maxTicksLimit: 6, font: { size: 10 } }, grid: { color: '#21262d' } },
         y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } }
       }
-    }
+    },
+    plugins: [ycCrosshair]   // same vertical crosshair as the yield-curve panel
   });
   document.getElementById('overlay').classList.add('open');
 }
