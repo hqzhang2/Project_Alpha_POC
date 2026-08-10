@@ -431,6 +431,17 @@ class Handler(BaseHTTPRequestHandler):
                             combined = list(result.get("tweaks", [])) + list(regime_res.get("tweaks", []))
                             if combined:
                                 result["tweaks"] = combined
+
+                # ── Portfolio composite: base × regime enhancer (v3.3.1) ──
+                # Pure math in drift.compute_portfolio_composite — design A
+                # (Hong 2026-08-10): base = mean of active non-regime axes
+                # (concentration + drift, N/A excluded); enhancer ∈ [0.5, 1.0]
+                # never pulls the composite below the other axes' average.
+                # Fail-open: regime absent/disabled/N-A → enhancer = 1.0; no
+                # base scores → None ("N/A"), never crash.
+                result.update(drift.compute_portfolio_composite(
+                    result, theta["letter_score_bounds"]))
+
                 self._json(result)
             elif self.path.startswith("/api/frontier"):
                 result = _frontier_response(body.get("holdings"),
