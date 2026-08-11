@@ -31,7 +31,7 @@
         .chart-tab.active { background: #21262d; color: #e6edf3; }
         
         .watchlist-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; min-width: 180px; }
-        .data-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+        .data-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
         .data-card { background: #161b22; border-radius: 8px; padding: 16px; }
         .data-card .label { font-size: 12px; color: #8b949e; text-transform: uppercase; }
         .data-card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
@@ -119,6 +119,7 @@
                 <div class="data-card"><div class="label">Current Ratio</div><div class="value" id="currentRatio">--</div></div>
                 <div class="data-card"><div class="label">Change %</div><div class="value" id="changePct">--</div></div>
                 <div class="data-card"><div class="label">SMA(200)</div><div class="value" id="smaValue">--</div></div>
+                <div class="data-card"><div class="label">Signal</div><div class="value" id="signalValue">--</div></div>
             </div>
             
             <div class="chart-container">
@@ -178,6 +179,8 @@
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const data = await res.json();
                     if (!data.ratio || data.ratio.length === 0) throw new Error('No ratio data');
+                    if (!data.rsi || data.rsi.length === 0) throw new Error('No RSI data');
+                    if (!data.sma || data.sma.length === 0) throw new Error('No SMA data');
                     
                     const curr = data.ratio[data.ratio.length - 1];
                     const getRet = (d) => data.ratio.length > d ? ((curr - data.ratio[data.ratio.length-d])/data.ratio[data.ratio.length-d]*100).toFixed(1) : '0.0';
@@ -238,6 +241,10 @@
                     const smaVal = data.sma[data.sma.length - 1];
                     document.getElementById('smaValue').textContent = smaVal ? smaVal.toFixed(4) : '--';
                     document.getElementById('smaValue').className = 'value ' + (curr > smaVal ? 'up' : 'down');
+                    const rsi = data.rsi[data.rsi.length - 1];
+                    const signal = rsi < 30 ? 'OVERSOLD' : rsi > 70 ? 'OVERBOUGHT' : 'NEUTRAL';
+                    document.getElementById('signalValue').textContent = signal;
+                    document.getElementById('signalValue').className = 'value ' + (signal === 'OVERSOLD' ? 'up' : signal === 'OVERBOUGHT' ? 'down' : '');
                     
                     renderCharts(data, t1, t2);
                 }
