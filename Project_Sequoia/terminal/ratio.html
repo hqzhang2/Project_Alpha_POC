@@ -172,7 +172,9 @@
         async function loadHeatmap() {
             const body = document.getElementById('heatmapBody');
             body.innerHTML = '';
-            for (const item of watchlist) {
+            // All pairs fetched concurrently (server is threaded); rows kept
+            // in watchlist order via Promise.all (Hong 2026-08-10).
+            const rows = await Promise.all(watchlist.map(async (item) => {
                 const row = document.createElement('tr');
                 try {
                     const res = await fetch(`/api/ratio?t1=${item.t1}&t2=${item.t2}&tf=5Y&sma=200`);
@@ -212,12 +214,14 @@
                         <td class="perf ${getCls(ytd)}">${ytd}%</td>
                         <td class="perf ${getCls(y1)}">${y1}%</td>
                     `;
+                    return row;
                 } catch (e) { 
                     console.error('Error loading ' + item.t1 + '/' + item.t2 + ':', e);
                     row.innerHTML = `<td class="ticker">${item.t1}/${item.t2}</td><td colspan="7" style="color:#f85149;">Error: ${e.message}</td>`; 
+                    return row;
                 }
-                body.appendChild(row);
-            }
+            }));
+            rows.forEach(r => body.appendChild(r));
         }
 
         async function fetchRatio() {
