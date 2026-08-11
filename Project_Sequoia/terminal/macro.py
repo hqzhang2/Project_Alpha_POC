@@ -252,12 +252,15 @@ YAHOO_YC_TENORS = [("^IRX", "3M", 0.25), ("^FVX", "5Y", 5.0),
 
 
 def _yahoo_yield_curve():
-    """Live today's curve from Yahoo closes: {date, source, points} or None.
+    """Recent daily yield curves from Yahoo closes: {source, curves:[...]} or None.
 
-    Fallback for the 'today' anchor only — FRED wins once it publishes
-    (Hong, 2026-08-10: "Yahoo data is always fallback data for the day's
-    yield curve, except weekends"). Cached Daily like _corr_60d; fail-open
-    (None) on any error so the FRED fall-back path stays intact.
+    `curves` is oldest->newest, at least the last two trading days, each
+    {date, source: 'yahoo', points:[{tenor, years, yield}]} (4 tenors:
+    ^IRX/^FVX/^TNX/^TYX = 3M/5Y/10Y/30Y). Fallback for the today/yesterday
+    anchors only — FRED wins once it publishes (Hong, 2026-08-10: "Yahoo data
+    is always fallback data for the day's yield curve, except weekends").
+    Cached Daily like _corr_60d; fail-open (None) on any error so the FRED
+    fall-back path stays intact.
     """
     with _lock:
         cached = _cache.get(YAHOO_YC_KEY)
@@ -277,15 +280,19 @@ def _yahoo_yield_curve():
         close = px["Close"].dropna(how="all")
         if close.empty:
             return None
-        last = close.iloc[-1]
-        points = []
-        for sym, tenor, years in YAHOO_YC_TENORS:
-            v = last.get(sym)
-            if v is not None and v == v:  # not NaN
-                points.append({"tenor": tenor, "years": years, "yield": round(float(v), 3)})
-        if not points:
+        out = {"source": "yahoo", "curves": []}
+        for idx, row in close.tail(2).iterrows():
+            points = []
+            for sym, tenor, years in YAHOO_YC_TENORS:
+                v = row.get(sym)
+                if v is not None and v == v:  # not NaN
+                    points.append({"tenor": tenor, "years": years,
+                                   "yield": round(float(v), 3)})
+            if points:
+                out["curves"].append({"date": str(idx)[:10],
+                                      "source": "yahoo", "points": points})
+        if not out["curves"]:
             return None
-        out = {"date": str(close.index[-1])[:10], "source": "yahoo", "points": points}
         with _lock:
             _cache[YAHOO_YC_KEY] = (time.time(), out)
         return out
@@ -457,12 +464,13 @@ def _fall_backward(exact_date, days):
 def get_yield_curve():
     """Yield-curve payload: tenors + per-anchor curves (only those that exist).
 
-    Keys: today, yesterday, 1W, 1M, 3M, 6M, YTD, 1Y, 2Y. Every anchor derives
-    from the EFFECTIVE today — Yahoo's live close when fresher than FRED,
-    else FRED's resolved date — so yesterday and the period-ago curves never
-    disagree with the displayed today (Hong 2026-08-11). Anchors fall backward
-    to the last available curve (never omitted when history exists) and are
-    labeled with their real dates, matching today's fall-back, not omit rule.
+    Keys: today, yesterday, 1W, 1M, 3M, 6M, YTD, 1Y, 2Y. Today is the EFFECTIVE
+    today — Yahoo's live close when fresher than FRED, else FRED's resolved
+    date (Hong 2026-08-10). Yesterday is the CALENDAR day before the effective
+    today, labeled with its real date, fed from FRED when it has that date,
+    else Yahoo (same fallback as today), else the last available curve (Hong
+    2026-08-11). Period-ago anchors offset from the effective today and fall
+    backward to the last available curve (never omitted when history exists).
     """
     maps = _tenor_maps()
     days = _trading_days(maps)
@@ -483,23 +491,42 @@ def get_yield_curve():
     # doesn't -> live curve. Weekends: Yahoo's last close is Friday == FRED's
     # resolved Friday -> no override. Once FRED publishes today (~6pm),
     # FRED's resolved date == Yahoo's date -> no override (FRED wins).
+    # Yahoo fallback resolves the effective today (and can feed yesterday):
+    # _yahoo_yield_curve() returns the last two trading days' curves.
     yahoo = _yahoo_yield_curve()
-    yahoo_date = yahoo["date"] if yahoo else ""
-    yahoo_override = bool(yahoo_date and today_resolved
-                          and yahoo_date > today_resolved.isoformat())
-    anchor = date.fromisoformat(yahoo_date) if yahoo_override else today_resolved
+    yahoo_by_date = {}
+    if yahoo:
+        for c in yahoo.get("curves", []):
+            yahoo_by_date[c["date"]] = c
+    yahoo_dates = sorted(yahoo_by_date)
+
+    # Effective today = freshest Yahoo date when it beats FRED's resolved date,
+    # else FRED (Hong, 2026-08-10 override rule).
+    if yahoo_dates and today_resolved and yahoo_dates[-1] > today_resolved.isoformat():
+        anchor = date.fromisoformat(yahoo_dates[-1])
+        today_curve = yahoo_by_date[yahoo_dates[-1]]
+    else:
+        anchor = today_resolved
+        today_curve = _curve_on(anchor, maps) if anchor else None
 
     curves = {}
     if anchor:
-        # today = the effective anchor (Yahoo live curve, else FRED at anchor).
-        today_curve = yahoo if yahoo_override else _curve_on(anchor, maps)
         if today_curve:
             curves["today"] = today_curve
-        # yesterday = last available curve strictly before the effective today
-        # (fall-back, not omit — consistent with today's rule).
-        yest = _fall_backward(anchor - timedelta(days=1), days)
-        if yest:
-            curves["yesterday"] = _curve_on(yest, maps)
+        # yesterday = the CALENDAR day before the effective today, labeled with
+        # its real date. Fed from FRED when it has that date, else Yahoo (the
+        # same fallback today uses), else the last available curve (Hong,
+        # 2026-08-11: "Yesterday is Aug 10, not Aug 7").
+        yest_date = anchor - timedelta(days=1)
+        yest_curve = _curve_on(yest_date, maps)
+        if not yest_curve:
+            yest_curve = yahoo_by_date.get(yest_date.isoformat())
+        if not yest_curve:
+            yest_resolved = _fall_backward(yest_date, days)
+            if yest_resolved:
+                yest_curve = _curve_on(yest_resolved, maps)
+        if yest_curve:
+            curves["yesterday"] = yest_curve
         # 1W + period-ago: calendar offset from the effective today, fall back.
         w1 = _fall_backward(anchor - timedelta(days=7), days)
         if w1:
