@@ -326,7 +326,7 @@ def test_yield_curve_yahoo_live_override_weekday(monkeypatch):
     assert yc["curves"]["today"]["date"] == "2026-08-10"        # Yahoo wins (fresher)
     assert yc["curves"]["today"]["source"] == "yahoo"
     assert len(yc["curves"]["today"]["points"]) == 4            # 3M/5Y/10Y/30Y only
-    assert yc["curves"]["yesterday"]["date"] == "2026-08-06"    # FRED: weekday before resolved today
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-07"    # last available before effective today (08-10)
 
 
 def test_yield_curve_yahoo_no_override_on_weekend(monkeypatch):
@@ -372,9 +372,10 @@ def test_yield_curve_yahoo_loses_when_fred_caught_up(monkeypatch):
     assert len(yc["curves"]["today"]["points"]) == 11           # full FRED ladder
 
 
-def test_yield_curve_yesterday_omitted_on_friday_holiday(monkeypatch):
-    # today = Mon 2026-08-10; Fri 08-07 is a holiday (no data) -> yesterday
-    # omitted (never substituted); today (Mon) present.
+def test_yield_curve_yesterday_falls_back_on_friday_holiday(monkeypatch):
+    # today = Mon 2026-08-10; Fri 08-07 is a holiday (no data). yesterday now
+    # falls back to the last available curve before the effective today
+    # (08-06), never omitted — consistent with today's fall-back, not omit rule.
     days = _trading_days_around(date(2026, 8, 10), 400, skip={date(2026, 8, 7)})
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
@@ -387,8 +388,33 @@ def test_yield_curve_yesterday_omitted_on_friday_holiday(monkeypatch):
     _fake_yahoo(monkeypatch, None)  # network-free: Yahoo unavailable
 
     yc = macro.get_yield_curve()
-    assert "today" in yc["curves"]
-    assert "yesterday" not in yc["curves"]
+    assert yc["curves"]["today"]["date"] == "2026-08-10"
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-06"   # falls back past the Fri holiday
+
+
+def test_yield_curve_yesterday_follows_yahoo_today(monkeypatch):
+    # Tuesday 2026-08-11; FRED ends Fri 08-07; Yahoo has TODAY (08-11) ->
+    # today = Yahoo (08-11); yesterday = last available curve before the
+    # effective today = 08-07 (NOT 08-06, the old FRED-resolved weekday).
+    # 1W = 08-04. Regression for the reported "yesterday stuck at 08-06"
+    # when today is Yahoo-overridden to a fresher date.
+    days = _trading_days_around(date(2026, 8, 7), 400)
+    days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
+    _fake_dgs(monkeypatch, days_map)
+    _fake_yahoo(monkeypatch, {"date": "2026-08-11", "source": "yahoo",
+                              "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]})
+
+    class FakeNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 11, 12, 0, 0, tzinfo=tz)
+    monkeypatch.setattr(macro, "datetime", FakeNow)
+
+    yc = macro.get_yield_curve()
+    assert yc["curves"]["today"]["date"] == "2026-08-11"
+    assert yc["curves"]["today"]["source"] == "yahoo"
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-07"
+    assert yc["curves"]["1W"]["date"] == "2026-08-04"
 
 
 def test_corr_60d_cached(monkeypatch):

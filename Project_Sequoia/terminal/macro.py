@@ -457,9 +457,12 @@ def _fall_backward(exact_date, days):
 def get_yield_curve():
     """Yield-curve payload: tenors + per-anchor curves (only those that exist).
 
-    Keys: today, yesterday, 1W, 1M, 3M, 6M, YTD, 1Y, 2Y. today/yesterday may
-    be absent on holidays (omitted, never substituted); period-ago keys fall
-    backward to the last available curve.
+    Keys: today, yesterday, 1W, 1M, 3M, 6M, YTD, 1Y, 2Y. Every anchor derives
+    from the EFFECTIVE today — Yahoo's live close when fresher than FRED,
+    else FRED's resolved date — so yesterday and the period-ago curves never
+    disagree with the displayed today (Hong 2026-08-11). Anchors fall backward
+    to the last available curve (never omitted when history exists) and are
+    labeled with their real dates, matching today's fall-back, not omit rule.
     """
     maps = _tenor_maps()
     days = _trading_days(maps)
@@ -472,22 +475,8 @@ def get_yield_curve():
         today = datetime.now().date()
 
     today_eff = _last_weekday(today)
-    # today = last available curve date <= today_eff (fall-back, not omit —
-    # FRED lags ~6pm ET on a normal trading day; the curve is labeled with
-    # its real date so the fallback is honest). yesterday = last WEEKDAY
-    # strictly before today's resolved date (never the same day), strict
-    # omit if that weekday has no data (holiday rule unchanged).
+    # today = last available curve date <= today_eff (fall-back, not omit).
     today_resolved = _fall_backward(today_eff, days)
-    yest_eff = _last_weekday(today_resolved - timedelta(days=1)) if today_resolved else None
-
-    curves = {}
-    today_curve = _curve_on(today_resolved, maps) if today_resolved else None
-    if today_curve:
-        curves["today"] = today_curve
-    yest_curve = _curve_on(yest_eff, maps) if yest_eff else None
-    if yest_curve:
-        curves["yesterday"] = yest_curve
-
     # Live today override (Hong, 2026-08-10): Yahoo closes (^IRX/^FVX/^TNX/
     # ^TYX — 3M/5Y/10Y/30Y only) replace the today anchor WHEN fresher than
     # FRED's resolved date. Weekdays before ~6pm: Yahoo has today, FRED
@@ -495,23 +484,34 @@ def get_yield_curve():
     # resolved Friday -> no override. Once FRED publishes today (~6pm),
     # FRED's resolved date == Yahoo's date -> no override (FRED wins).
     yahoo = _yahoo_yield_curve()
-    if yahoo and today_resolved and yahoo["date"] > today_resolved.isoformat():
-        curves["today"] = yahoo
+    yahoo_date = yahoo["date"] if yahoo else ""
+    yahoo_override = bool(yahoo_date and today_resolved
+                          and yahoo_date > today_resolved.isoformat())
+    anchor = date.fromisoformat(yahoo_date) if yahoo_override else today_resolved
 
-    # 1W: exact offset from the effective today, then fall backward
-    w1 = _fall_backward(today_eff - timedelta(days=7), days)
-    if w1:
-        curves["1W"] = _curve_on(w1, maps)
-
-    # period-ago anchors: calendar offset -> fall backward
-    for key, months in (("1M", 1), ("3M", 3), ("6M", 6), ("1Y", 12), ("2Y", 24)):
-        exact = _month_offset(today_eff, months)
-        d = _fall_backward(exact, days)
-        if d:
-            curves[key] = _curve_on(d, maps)
+    curves = {}
+    if anchor:
+        # today = the effective anchor (Yahoo live curve, else FRED at anchor).
+        today_curve = yahoo if yahoo_override else _curve_on(anchor, maps)
+        if today_curve:
+            curves["today"] = today_curve
+        # yesterday = last available curve strictly before the effective today
+        # (fall-back, not omit — consistent with today's rule).
+        yest = _fall_backward(anchor - timedelta(days=1), days)
+        if yest:
+            curves["yesterday"] = _curve_on(yest, maps)
+        # 1W + period-ago: calendar offset from the effective today, fall back.
+        w1 = _fall_backward(anchor - timedelta(days=7), days)
+        if w1:
+            curves["1W"] = _curve_on(w1, maps)
+        for key, months in (("1M", 1), ("3M", 3), ("6M", 6), ("1Y", 12), ("2Y", 24)):
+            d = _fall_backward(_month_offset(anchor, months), days)
+            if d:
+                curves[key] = _curve_on(d, maps)
 
     # YTD: first available curve date in the current year
-    ytd = next((d for d in days if d >= datetime(today_eff.year, 1, 1).date()), None)
+    ytd_year = (anchor or today_eff).year
+    ytd = next((d for d in days if d >= datetime(ytd_year, 1, 1).date()), None)
     if ytd:
         curves["YTD"] = _curve_on(ytd, maps)
 
