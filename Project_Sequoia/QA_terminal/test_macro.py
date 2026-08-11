@@ -264,9 +264,16 @@ def _fake_dgs(monkeypatch, days_map):
     monkeypatch.setattr(macro, "get_series", get_series)
 
 
-def _fake_yahoo(monkeypatch, curve):
-    """Wire _yahoo_yield_curve to a fixed payload (None = Yahoo unavailable)."""
-    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: curve)
+def _fake_yahoo(monkeypatch, curves):
+    """Wire _yahoo_yield_curve to fixed payload(s). `curves` is None (Yahoo
+    unavailable) or a list of {date, points} curve dicts (oldest->newest),
+    each stamped source='yahoo' (as the real fetcher does) and wrapped in the
+    {source, curves} shape the module now returns."""
+    if curves is not None:
+        curves = [dict(c, source="yahoo") for c in curves]
+    monkeypatch.setattr(macro, "_yahoo_yield_curve",
+                        lambda: ({"source": "yahoo", "curves": curves}
+                                 if curves is not None else None))
 
 
 def _trading_days_around(end, n, skip=None):
@@ -310,11 +317,11 @@ def test_yield_curve_yahoo_live_override_weekday(monkeypatch):
     days = _trading_days_around(date(2026, 8, 7), 400)
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
-    _fake_yahoo(monkeypatch, {"date": "2026-08-10", "source": "yahoo",
-                              "points": [{"tenor": "3M", "years": 0.25, "yield": 3.7},
-                                         {"tenor": "5Y", "years": 5.0, "yield": 4.4},
-                                         {"tenor": "10Y", "years": 10.0, "yield": 4.7},
-                                         {"tenor": "30Y", "years": 30.0, "yield": 5.2}]})
+    _fake_yahoo(monkeypatch, [{"date": "2026-08-10",
+                               "points": [{"tenor": "3M", "years": 0.25, "yield": 3.7},
+                                          {"tenor": "5Y", "years": 5.0, "yield": 4.4},
+                                          {"tenor": "10Y", "years": 10.0, "yield": 4.7},
+                                          {"tenor": "30Y", "years": 30.0, "yield": 5.2}]}])
 
     class FakeNow(datetime):
         @classmethod
@@ -326,7 +333,7 @@ def test_yield_curve_yahoo_live_override_weekday(monkeypatch):
     assert yc["curves"]["today"]["date"] == "2026-08-10"        # Yahoo wins (fresher)
     assert yc["curves"]["today"]["source"] == "yahoo"
     assert len(yc["curves"]["today"]["points"]) == 4            # 3M/5Y/10Y/30Y only
-    assert yc["curves"]["yesterday"]["date"] == "2026-08-07"    # last available before effective today (08-10)
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-07"    # calendar Sun 08-09 -> falls back to FRED 08-07
 
 
 def test_yield_curve_yahoo_no_override_on_weekend(monkeypatch):
@@ -335,8 +342,8 @@ def test_yield_curve_yahoo_no_override_on_weekend(monkeypatch):
     days = _trading_days_around(date(2026, 8, 7), 400)
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
-    _fake_yahoo(monkeypatch, {"date": "2026-08-07", "source": "yahoo",
-                              "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]})
+    _fake_yahoo(monkeypatch, [{"date": "2026-08-07",
+                               "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]}])
 
     class FakeNow(datetime):
         @classmethod
@@ -357,8 +364,8 @@ def test_yield_curve_yahoo_loses_when_fred_caught_up(monkeypatch):
     days = _trading_days_around(date(2026, 8, 10), 400)
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
-    _fake_yahoo(monkeypatch, {"date": "2026-08-10", "source": "yahoo",
-                              "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]})
+    _fake_yahoo(monkeypatch, [{"date": "2026-08-10",
+                               "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]}])
 
     class FakeNow(datetime):
         @classmethod
@@ -393,16 +400,17 @@ def test_yield_curve_yesterday_falls_back_on_friday_holiday(monkeypatch):
 
 
 def test_yield_curve_yesterday_follows_yahoo_today(monkeypatch):
-    # Tuesday 2026-08-11; FRED ends Fri 08-07; Yahoo has TODAY (08-11) ->
-    # today = Yahoo (08-11); yesterday = last available curve before the
-    # effective today = 08-07 (NOT 08-06, the old FRED-resolved weekday).
-    # 1W = 08-04. Regression for the reported "yesterday stuck at 08-06"
-    # when today is Yahoo-overridden to a fresher date.
+    # Tuesday 2026-08-11; FRED ends Fri 08-07; Yahoo has TODAY (08-11) AND
+    # yesterday (08-10) -> today = Yahoo (08-11); yesterday = the CALENDAR day
+    # before it = 08-10, fed from Yahoo (Hong: "Yesterday is Aug 10, not
+    # Aug 7"). 1W = 08-04.
     days = _trading_days_around(date(2026, 8, 7), 400)
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
-    _fake_yahoo(monkeypatch, {"date": "2026-08-11", "source": "yahoo",
-                              "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]})
+    _fake_yahoo(monkeypatch, [
+        {"date": "2026-08-10", "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.6}]},
+        {"date": "2026-08-11", "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]},
+    ])
 
     class FakeNow(datetime):
         @classmethod
@@ -413,7 +421,8 @@ def test_yield_curve_yesterday_follows_yahoo_today(monkeypatch):
     yc = macro.get_yield_curve()
     assert yc["curves"]["today"]["date"] == "2026-08-11"
     assert yc["curves"]["today"]["source"] == "yahoo"
-    assert yc["curves"]["yesterday"]["date"] == "2026-08-07"
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-10"    # calendar day, fed from Yahoo
+    assert yc["curves"]["yesterday"]["source"] == "yahoo"
     assert yc["curves"]["1W"]["date"] == "2026-08-04"
 
 
