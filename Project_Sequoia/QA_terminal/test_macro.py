@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import threading
+import time
 import urllib.request
 from datetime import date, datetime, timedelta
 
@@ -23,8 +24,11 @@ import macro
 
 @pytest.fixture(autouse=True)
 def _fresh_cache(monkeypatch):
-    """Module-level _cache leaks across tests — give each test a clean one."""
+    """Module-level _cache leaks across tests — give each test a clean one.
+    Also disable the background pre-warm daemon: it would otherwise start on
+    the first get_macro() call and race the per-test _cache reset."""
     monkeypatch.setattr(macro, "_cache", {})
+    monkeypatch.setattr(macro, "_prewarm_enabled", False)
 
 
 # --------------------------------------------------------------------------- #
@@ -127,6 +131,98 @@ def test_cache_returns_cached(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Parallel cold-fill + background pre-warm (2026-08-10)
+# --------------------------------------------------------------------------- #
+def test_all_series_keys_covers_catalog_and_tenors():
+    keys = set(macro._all_series_keys())
+    # every catalog item (raw or computed-from) is represented
+    for g in macro.GROUPS:
+        for it in g["items"]:
+            if it.get("computed") == "corr":
+                # SPY/TLT are Yahoo tickers — must never be FRED cache keys
+                for sid in it.get("from", []):
+                    assert sid + ":" not in keys
+                continue
+            for sid in it.get("from", [it["id"]]):
+                assert sid + ":" + it.get("units", "") in keys
+    # every yield-curve tenor is represented
+    for _label, sid, _years in macro.TENORS:
+        assert sid + ":" in keys
+    # no duplicates (set) and no empty keys
+    assert len(keys) == len(macro._all_series_keys())
+
+
+def test_prefetch_fetches_only_stale_in_parallel(monkeypatch):
+    """Cold entries are fetched exactly once each; warm entries untouched."""
+    fetched = []
+    monkeypatch.setattr(macro, "_observations",
+                        lambda sid, start, units=None: fetched.append(sid) or
+                        [{"date": "2026-01-01", "value": 1.0}])
+    monkeypatch.setattr(macro, "_corr_60d", lambda: [])
+    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: None)
+    all_sids = sorted({k.split(":")[0] for k in macro._all_series_keys()})
+
+    macro._prefetch_missing()
+    assert sorted(set(fetched)) == all_sids      # every series fetched
+    assert len(fetched) == len(all_sids)         # exactly once each (no dupes)
+
+    # second call: everything warm (real get_series cached it) -> no fetches
+    fetched.clear()
+    macro._prefetch_missing()
+    assert fetched == []
+
+
+def test_prefetch_skips_fresh_entries(monkeypatch):
+    """A series whose cache entry is still inside its TTL is not re-fetched."""
+    fetched = []
+    monkeypatch.setattr(macro, "_observations",
+                        lambda sid, start, units=None: fetched.append(sid) or
+                        [{"date": "2026-01-01", "value": 1.0}])
+    monkeypatch.setattr(macro, "_corr_60d", lambda: [])
+    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: None)
+    # seed a fresh (just-now) entry for UNRATE — must be skipped
+    macro._cache["UNRATE:"] = (time.time(), [{"date": "2026-01-01", "value": 3.9}])
+
+    macro._prefetch_missing()
+    assert "UNRATE" not in fetched
+
+
+def test_prefetch_fail_open(monkeypatch):
+    """A raising fetcher must not take down the request (fail-open)."""
+    def boom(sid):
+        raise OSError("network down")
+    monkeypatch.setattr(macro, "get_series", boom)
+    monkeypatch.setattr(macro, "_corr_60d", lambda: [])
+    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: None)
+    macro._prefetch_missing()   # must not raise
+
+
+def test_start_prewarm_disabled_by_default_in_tests():
+    """Autouse fixture sets _prewarm_enabled=False -> start_prewarm is a no-op
+    and no daemon thread is ever spawned inside the test process."""
+    before = [t.name for t in threading.enumerate()]
+    macro.start_prewarm()
+    after = [t.name for t in threading.enumerate()]
+    assert "macro-prewarm" not in after
+    assert before == after
+    assert macro._prewarm_started is False
+
+
+def test_start_prewarm_starts_once_and_stops(monkeypatch):
+    """Enabled: one daemon thread, idempotent, stoppable via _prewarm_stop."""
+    monkeypatch.setattr(macro, "_prewarm_enabled", True)
+    monkeypatch.setattr(macro, "_prewarm_started", False)
+    macro._prewarm_stop.clear()
+    macro.start_prewarm()
+    macro.start_prewarm()  # idempotent — no second thread
+    threads = [t for t in threading.enumerate() if t.name == "macro-prewarm"]
+    assert len(threads) == 1
+    macro._prewarm_stop.set()
+    threads[0].join(timeout=5)
+    assert not threads[0].is_alive()
+
+
+# --------------------------------------------------------------------------- #
 # Treasury yield curve (network-free)
 # --------------------------------------------------------------------------- #
 def test_weekday_rules():
@@ -168,9 +264,16 @@ def _fake_dgs(monkeypatch, days_map):
     monkeypatch.setattr(macro, "get_series", get_series)
 
 
-def _fake_yahoo(monkeypatch, curve):
-    """Wire _yahoo_yield_curve to a fixed payload (None = Yahoo unavailable)."""
-    monkeypatch.setattr(macro, "_yahoo_yield_curve", lambda: curve)
+def _fake_yahoo(monkeypatch, curves):
+    """Wire _yahoo_yield_curve to fixed payload(s). `curves` is None (Yahoo
+    unavailable) or a list of {date, points} curve dicts (oldest->newest),
+    each stamped source='yahoo' (as the real fetcher does) and wrapped in the
+    {source, curves} shape the module now returns."""
+    if curves is not None:
+        curves = [dict(c, source="yahoo") for c in curves]
+    monkeypatch.setattr(macro, "_yahoo_yield_curve",
+                        lambda: ({"source": "yahoo", "curves": curves}
+                                 if curves is not None else None))
 
 
 def _trading_days_around(end, n, skip=None):
@@ -214,11 +317,11 @@ def test_yield_curve_yahoo_live_override_weekday(monkeypatch):
     days = _trading_days_around(date(2026, 8, 7), 400)
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
-    _fake_yahoo(monkeypatch, {"date": "2026-08-10", "source": "yahoo",
-                              "points": [{"tenor": "3M", "years": 0.25, "yield": 3.7},
-                                         {"tenor": "5Y", "years": 5.0, "yield": 4.4},
-                                         {"tenor": "10Y", "years": 10.0, "yield": 4.7},
-                                         {"tenor": "30Y", "years": 30.0, "yield": 5.2}]})
+    _fake_yahoo(monkeypatch, [{"date": "2026-08-10",
+                               "points": [{"tenor": "3M", "years": 0.25, "yield": 3.7},
+                                          {"tenor": "5Y", "years": 5.0, "yield": 4.4},
+                                          {"tenor": "10Y", "years": 10.0, "yield": 4.7},
+                                          {"tenor": "30Y", "years": 30.0, "yield": 5.2}]}])
 
     class FakeNow(datetime):
         @classmethod
@@ -230,7 +333,7 @@ def test_yield_curve_yahoo_live_override_weekday(monkeypatch):
     assert yc["curves"]["today"]["date"] == "2026-08-10"        # Yahoo wins (fresher)
     assert yc["curves"]["today"]["source"] == "yahoo"
     assert len(yc["curves"]["today"]["points"]) == 4            # 3M/5Y/10Y/30Y only
-    assert yc["curves"]["yesterday"]["date"] == "2026-08-06"    # FRED: weekday before resolved today
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-07"    # calendar Sun 08-09 -> falls back to FRED 08-07
 
 
 def test_yield_curve_yahoo_no_override_on_weekend(monkeypatch):
@@ -239,8 +342,8 @@ def test_yield_curve_yahoo_no_override_on_weekend(monkeypatch):
     days = _trading_days_around(date(2026, 8, 7), 400)
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
-    _fake_yahoo(monkeypatch, {"date": "2026-08-07", "source": "yahoo",
-                              "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]})
+    _fake_yahoo(monkeypatch, [{"date": "2026-08-07",
+                               "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]}])
 
     class FakeNow(datetime):
         @classmethod
@@ -261,8 +364,8 @@ def test_yield_curve_yahoo_loses_when_fred_caught_up(monkeypatch):
     days = _trading_days_around(date(2026, 8, 10), 400)
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
-    _fake_yahoo(monkeypatch, {"date": "2026-08-10", "source": "yahoo",
-                              "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]})
+    _fake_yahoo(monkeypatch, [{"date": "2026-08-10",
+                               "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]}])
 
     class FakeNow(datetime):
         @classmethod
@@ -276,9 +379,10 @@ def test_yield_curve_yahoo_loses_when_fred_caught_up(monkeypatch):
     assert len(yc["curves"]["today"]["points"]) == 11           # full FRED ladder
 
 
-def test_yield_curve_yesterday_omitted_on_friday_holiday(monkeypatch):
-    # today = Mon 2026-08-10; Fri 08-07 is a holiday (no data) -> yesterday
-    # omitted (never substituted); today (Mon) present.
+def test_yield_curve_yesterday_falls_back_on_friday_holiday(monkeypatch):
+    # today = Mon 2026-08-10; Fri 08-07 is a holiday (no data). yesterday now
+    # falls back to the last available curve before the effective today
+    # (08-06), never omitted — consistent with today's fall-back, not omit rule.
     days = _trading_days_around(date(2026, 8, 10), 400, skip={date(2026, 8, 7)})
     days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
     _fake_dgs(monkeypatch, days_map)
@@ -291,8 +395,35 @@ def test_yield_curve_yesterday_omitted_on_friday_holiday(monkeypatch):
     _fake_yahoo(monkeypatch, None)  # network-free: Yahoo unavailable
 
     yc = macro.get_yield_curve()
-    assert "today" in yc["curves"]
-    assert "yesterday" not in yc["curves"]
+    assert yc["curves"]["today"]["date"] == "2026-08-10"
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-06"   # falls back past the Fri holiday
+
+
+def test_yield_curve_yesterday_follows_yahoo_today(monkeypatch):
+    # Tuesday 2026-08-11; FRED ends Fri 08-07; Yahoo has TODAY (08-11) AND
+    # yesterday (08-10) -> today = Yahoo (08-11); yesterday = the CALENDAR day
+    # before it = 08-10, fed from Yahoo (Hong: "Yesterday is Aug 10, not
+    # Aug 7"). 1W = 08-04.
+    days = _trading_days_around(date(2026, 8, 7), 400)
+    days_map = {sid: [(d, 4.0) for d in days] for _, sid, _ in macro.TENORS}
+    _fake_dgs(monkeypatch, days_map)
+    _fake_yahoo(monkeypatch, [
+        {"date": "2026-08-10", "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.6}]},
+        {"date": "2026-08-11", "points": [{"tenor": "10Y", "years": 10.0, "yield": 4.7}]},
+    ])
+
+    class FakeNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 11, 12, 0, 0, tzinfo=tz)
+    monkeypatch.setattr(macro, "datetime", FakeNow)
+
+    yc = macro.get_yield_curve()
+    assert yc["curves"]["today"]["date"] == "2026-08-11"
+    assert yc["curves"]["today"]["source"] == "yahoo"
+    assert yc["curves"]["yesterday"]["date"] == "2026-08-10"    # calendar day, fed from Yahoo
+    assert yc["curves"]["yesterday"]["source"] == "yahoo"
+    assert yc["curves"]["1W"]["date"] == "2026-08-04"
 
 
 def test_corr_60d_cached(monkeypatch):

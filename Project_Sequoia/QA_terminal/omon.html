@@ -425,6 +425,85 @@
         
         // IV smile: IV vs strike for calls + puts (visible in otm/all views).
         let smileChart = null;
+        // IV at the option strike nearest `strike`, as a % (null if none).
+        // Mirrors cValid/pValid so the readout matches the plotted smile.
+        function ivAtStrike(list, strike) {
+            if (!list || !list.length) return null;
+            let best = null, bd = Infinity;
+            for (const o of list) {
+                if (!o.iv || o.iv <= 0.01 || o.parityOk === false) continue;
+                const d = Math.abs(o.strike - strike);
+                if (d < bd) { bd = d; best = o.iv; }
+            }
+            return best == null ? null : best * 100;
+        }
+        // Crosshair tracking the cursor across ALL strikes (not just dots),
+        // with a call + put IV readout at the hovered strike.
+        const crosshairPlugin = {
+            id: 'crosshair',
+            x: null,
+            start(chart) {
+                this.x = null;
+                const cv = chart.canvas;
+                const move = e => {
+                    const r = cv.getBoundingClientRect();
+                    this.x = e.clientX - r.left;
+                    chart.draw();
+                };
+                const leave = () => { this.x = null; chart.draw(); };
+                cv.addEventListener('mousemove', move);
+                cv.addEventListener('mouseleave', leave);
+                this._off = () => { cv.removeEventListener('mousemove', move); cv.removeEventListener('mouseleave', leave); };
+            },
+            stop() { if (this._off) this._off(); },
+            afterDraw(chart) {
+                const x = this.x;
+                if (x == null) return;
+                const area = chart.chartArea;
+                if (x < area.left || x > area.right) return;
+                // category x-scale: getValueForPixel is the label INDEX
+                const idx = Math.round(chart.scales.x.getValueForPixel(x));
+                const labels = chart.data.labels;
+                const strike = (idx >= 0 && idx < labels.length) ? labels[idx] : null;
+                const ctx = chart.ctx;
+                ctx.save();
+                // vertical dashed line along the hovered strike
+                ctx.beginPath();
+                ctx.moveTo(x, area.top);
+                ctx.lineTo(x, area.bottom);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = '#8b949e';
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                // call + put IV readout at the hovered strike
+                if (strike != null) {
+                    const callIv = ivAtStrike(optionsData && optionsData.calls, strike);
+                    const putIv = ivAtStrike(optionsData && optionsData.puts, strike);
+                    if (callIv != null || putIv != null) {
+                        const parts = ['S' + strike.toFixed(1)];
+                        if (callIv != null) parts.push('C' + callIv.toFixed(1) + '%');
+                        if (putIv != null) parts.push('P' + putIv.toFixed(1) + '%');
+                        const label = parts.join('  ');
+                        ctx.setLineDash([]);
+                        ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+                        const tw = ctx.measureText(label).width;
+                        const boxW = tw + 12, boxH = 18;
+                        const bx = Math.min(Math.max(x - boxW / 2, area.left + 2), area.right - boxW - 2);
+                        const by = area.top + 4;
+                        ctx.fillStyle = '#21262d';
+                        ctx.fillRect(bx, by, boxW, boxH);
+                        ctx.strokeStyle = '#8b949e';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(bx, by, boxW, boxH);
+                        ctx.fillStyle = '#e6edf3';
+                        ctx.textBaseline = 'middle';
+                        ctx.textAlign = 'left';
+                        ctx.fillText(label, bx + 6, by + boxH / 2 + 0.5);
+                    }
+                }
+                ctx.restore();
+            }
+        };
         function renderSmileChart() {
             const container = document.getElementById('chainContainer');
             if (!container || typeof Chart === 'undefined') return;
@@ -461,12 +540,16 @@
                 },
                 options: {
                     responsive: true,
-                    plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } } },
+                    plugins: {
+                        legend: { labels: { color: '#8b949e', font: { size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%' } }
+                    },
                     scales: {
                         x: { title: { display: true, text: 'Strike', color: '#8b949e', font: { size: 11 } }, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
                         y: { title: { display: true, text: 'IV %', color: '#8b949e', font: { size: 11 } }, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
                     }
-                }
+                },
+                plugins: [crosshairPlugin]
             });
         }
         

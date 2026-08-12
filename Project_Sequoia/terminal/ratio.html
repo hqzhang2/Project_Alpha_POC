@@ -56,30 +56,6 @@
         .pair-link { color: #58a6ff; text-decoration: none; cursor: pointer; }
         .pair-link:hover { text-decoration: underline; }
         
-        /* Signal Tooltip - positioned left to avoid cutoff */
-        .signal-cell { position: relative; cursor: help; }
-        .signal-tooltip { 
-            display: none; 
-            position: absolute; 
-            right: 100%;
-            top: 50%;
-            transform: translateY(-50%);
-            margin-right: 10px;
-            background: #21262d; 
-            border: 1px solid #30363d; 
-            border-radius: 6px; 
-            padding: 12px; 
-            font-size: 12px; 
-            z-index: 100; 
-            min-width: 200px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            color: #e6edf3;
-        }
-        .signal-cell:hover .signal-tooltip { display: block; }
-        .signal-tooltip .tooltip-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .signal-tooltip .tooltip-label { color: #8b949e; }
-        .signal-tooltip .tooltip-value { font-weight: bold; font-family: monospace; }
-        .signal-tooltip .tooltip-title { font-weight: bold; margin-bottom: 8px; color: #d4af37; border-bottom: 1px solid #30363d; padding-bottom: 4px; }
     </style>
 </head>
 <body>
@@ -130,11 +106,10 @@
                         <th>3M</th>
                         <th>YTD</th>
                         <th>1Y</th>
-                        <th>Signal</th>
                     </tr>
                 </thead>
                 <tbody id="heatmapBody">
-                    <tr><td colspan="9" style="padding:40px; color:#8b949e;">Loading watchlist matrix...</td></tr>
+                    <tr><td colspan="8" style="padding:40px; color:#8b949e;">Loading watchlist matrix...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -197,7 +172,9 @@
         async function loadHeatmap() {
             const body = document.getElementById('heatmapBody');
             body.innerHTML = '';
-            for (const item of watchlist) {
+            // All pairs fetched concurrently (server is threaded); rows kept
+            // in watchlist order via Promise.all (Hong 2026-08-10).
+            const rows = await Promise.all(watchlist.map(async (item) => {
                 const row = document.createElement('tr');
                 try {
                     const res = await fetch(`/api/ratio?t1=${item.t1}&t2=${item.t2}&tf=5Y&sma=200`);
@@ -216,22 +193,6 @@
                     const ytdIdx = dates.findIndex(d => d.startsWith(currentYear + '-01-01') || d.startsWith(currentYear));
                     const ytd = ytdIdx !== -1 ? ((curr - data.ratio[ytdIdx]) / data.ratio[ytdIdx] * 100).toFixed(1) : '0.0';
 
-                    // Improved signal logic: consider RSI, trend (price vs SMA), and momentum
-                    const rsi = data.rsi[data.rsi.length - 1];
-                    const price = data.ratio[data.ratio.length - 1];
-                    const sma = data.sma[data.sma.length - 1];
-                    const y1Return = parseFloat(y1);
-                    
-                    let sig = 'HOLD';
-                    let sigReasons = [];
-                    if (rsi < 30) { sig = 'BUY'; sigReasons.push('RSI oversold'); }
-                    else if (rsi < 50 && price > sma) { sig = 'BUY'; sigReasons.push('Uptrend + low RSI'); }
-                    if (rsi > 70) { sig = 'SELL'; sigReasons.push('RSI overbought'); }
-                    else if (rsi > 50 && price < sma) { sig = 'SELL'; sigReasons.push('Downtrend'); }
-                    if (y1Return < -10) { sig = 'SELL'; sigReasons.push('Underperforming'); }
-                    if (sigReasons.length === 0) sigReasons.push('Neutral');
-                    const sigColor = sig === 'BUY' ? '#3fb950' : sig === 'SELL' ? '#f85149' : '';
-                    
                     function getCls(val) {
                         const v = parseFloat(val);
                         if (v >= 2.0) return 'heat-up-3';
@@ -252,22 +213,15 @@
                         <td class="perf ${getCls(m3)}">${m3}%</td>
                         <td class="perf ${getCls(ytd)}">${ytd}%</td>
                         <td class="perf ${getCls(y1)}">${y1}%</td>
-                        <td class="signal-cell" style="font-weight:bold; color:${sigColor}">${sig}
-                            <div class="signal-tooltip">
-                                <div class="tooltip-title">Signal Logic</div>
-                                <div class="tooltip-row"><span class="tooltip-label">RSI(14):</span><span class="tooltip-value">${rsi.toFixed(1)}</span></div>
-                                <div class="tooltip-row"><span class="tooltip-label">Price vs SMA:</span><span class="tooltip-value">${price > sma ? '↑ Above' : '↓ Below'}</span></div>
-                                <div class="tooltip-row"><span class="tooltip-label">1Y Return:</span><span class="tooltip-value">${y1Return}%</span></div>
-                                <div class="tooltip-row"><span class="tooltip-label">Reason:</span><span class="tooltip-value">${sigReasons.join(', ')}</span></div>
-                            </div>
-                        </td>
                     `;
+                    return row;
                 } catch (e) { 
                     console.error('Error loading ' + item.t1 + '/' + item.t2 + ':', e);
-                    row.innerHTML = `<td class="ticker">${item.t1}/${item.t2}</td><td colspan="8" style="color:#f85149;">Error: ${e.message}</td>`; 
+                    row.innerHTML = `<td class="ticker">${item.t1}/${item.t2}</td><td colspan="7" style="color:#f85149;">Error: ${e.message}</td>`; 
+                    return row;
                 }
-                body.appendChild(row);
-            }
+            }));
+            rows.forEach(r => body.appendChild(r));
         }
 
         async function fetchRatio() {

@@ -66,6 +66,19 @@ Project_Sequoia/terminal/data/
 
 # Research / analysis drafts - review-only, never commit
 research_*.md
+Project_Nine_Street/NS-6_design.md
+Project_Nine_Street/full_stack_review.md
+Project_Nine_Street/NS-6_implementation_plan.md
+Project_Nine_Street/NS-6_QA/structural_tension.md
+Project_Nine_Street/NS-6_QA/full_stack_review.md
+Project_Nine_Street/NS-6_QA/selection_construction_evidence.md
+Project_Nine_Street/NS-6_QA/regime_conditional_evidence.md
+Project_Nine_Street/NS-6_QA/fast_derisk_evidence.md
+Project_Nine_Street/NS-6_QA/ns6_v2_fast_derisk_spec.md
+Project_Nine_Street/NS-6_QA/growth_basket_evidence.md
+Project_Nine_Street/NS-6_QA/t4_regime_switch_spec.md
+Project_Nine_Street/NS-6_QA/data/
+ns6_backtest_results.json
 
 # NS service runtime state - service-generated, never commit
 Project_Nine_Street/NS-2_PROD/ns2_signal_cache.json

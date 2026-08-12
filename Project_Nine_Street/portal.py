@@ -42,6 +42,7 @@ STRATEGIES = {
     'ns3':   {'name': 'NS-3 (Sector Rotation)', 'path': 'ns3_dashboard.html', 'prod': 9236, 'qa': 9237},
     'ns4':   {'name': 'NS-4 (Ratio Trading)', 'path': 'ns4_dashboard.html', 'prod': 9240, 'qa': 9241},
     'ns5':   {'name': 'NS-5 (Portfolio Grading)', 'path': 'ns5_dashboard.html', 'prod': 9250, 'qa': 9251},
+    'ns6':   {'name': 'NS-6 (Drawdown Engine)', 'path': 'ns6_dashboard.html', 'prod': 9260, 'qa': 9261},
 }
 
 # HTML Template with all braces escaped for Python .format()
@@ -175,7 +176,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
   <div class="topbar">
     <div class="topbar-left">
-      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v3.3.3 | Last Updated: {last_updated}</div></div>
+      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v3.4.0 | Last Updated: {last_updated}</div></div>
       <div class="nav-tabs">
               <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')"><span class="status-indicator" id="status-alpha"></span>Alpha Terminal</button>
               <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')"><span class="status-indicator" id="status-ns1"></span>NS-1</button>
@@ -183,6 +184,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <button class="nav-tab" data-strategy="ns3" onclick="switchStrategy('ns3')"><span class="status-indicator" id="status-ns3"></span>NS-3</button>
               <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')"><span class="status-indicator" id="status-ns4"></span>NS-4</button>
               <button class="nav-tab" data-strategy="ns5" onclick="switchStrategy('ns5')"><span class="status-indicator" id="status-ns5"></span>NS-5</button>
+              <button class="nav-tab" data-strategy="ns6" onclick="switchStrategy('ns6')"><span class="status-indicator" id="status-ns6"></span>NS-6</button>
             </div>
     </div>
     <div class="env-toggle">
@@ -246,7 +248,8 @@ const SERVICE_ENDPOINTS = {
   'ns2': '/health',
   'ns3': '/health',
   'ns4': '/health',
-  'ns5': '/health'
+  'ns5': '/health',
+  'ns6': '/health'
 };
 
 async function checkServiceHealth(key, port, path) {
@@ -263,7 +266,7 @@ async function checkServiceHealth(key, port, path) {
 }
 
 async function updateStatusIndicators() {
-  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4', 'ns5'];
+  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4', 'ns5', 'ns6'];
   for (const key of strategies) {
     const s = STRATS[key];
     if (!s) continue;

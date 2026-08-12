@@ -12,6 +12,12 @@ Design:
   - TTL cache per series (daily 1h, weekly 6h, monthly 24h, quarterly 48h)
     so the page is cheap on reload; computed stock-bond corr shares the
     daily TTL so reloads don't re-hit Yahoo.
+  - Parallel cold-fill + background pre-warm (2026-08-10): a request fills
+    every stale FRED series and the two Yahoo payloads concurrently
+    (ThreadPoolExecutor), and a daemon thread refreshes the cache every 30
+    minutes so the tab never pays the cold rebuild on page load (PROD
+    measured 2026-08-10: 8.95s cold vs 17ms warm; the old code fetched
+    ~30 FRED series + 2 Yahoo downloads sequentially inside the request).
   - Computed series: 2s10s spread, BAA-AAA spread, GDP QoQ annualized,
     stock-bond 60d corr.
   - R2: ROUTES = {'/api/macro': 'handle_macro'}; handler method on Handler
@@ -25,6 +31,7 @@ import os
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
 logger = logging.getLogger("alpha-terminal.macro")
@@ -123,14 +130,105 @@ def get_series(series_id):
     item = SERIES_BY_ID.get(series_id, {})
     cache_key = series_id + ":" + item.get("units", "")
     with _lock:
-        cached = _cache.get(cache_key)
-        if cached and time.time() - cached[0] < TTL.get(item.get("cadence", ""), DEFAULT_TTL):
-            return cached[1]
+        if not _is_stale(cache_key):
+            return _cache[cache_key][1]
     start = (datetime.now() - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     obs = _observations(series_id, start, item.get("units"))
     with _lock:
         _cache[cache_key] = (time.time(), obs)
     return obs
+
+
+# ---------------------------------------------------------------------------
+# Parallel cold-fill + background pre-warm (Hong, 2026-08-10).
+# Cold loads used to fetch ~30 FRED series + 2 Yahoo downloads sequentially
+# inside the request -> ~9s first hit after any TTL expiry. Now a request
+# fills every stale entry concurrently, and a daemon thread refreshes the
+# cache every 30 min (staying ahead of the 1h Daily TTL) so page loads are
+# almost always served from a warm cache. Tests disable the daemon via
+# _prewarm_enabled = False (autouse fixture in test_macro.py).
+# ---------------------------------------------------------------------------
+PREWARM_INTERVAL = 1800  # seconds; < Daily TTL (3600) so the cache never goes stale
+_prewarm_enabled = True
+_prewarm_started = False
+_prewarm_lock = threading.Lock()
+_prewarm_stop = threading.Event()
+
+
+def _all_series_keys():
+    """Every FRED cache key the page needs: catalog raw + computed sources + tenors.
+
+    The stock-bond corr item's `from` (SPY/TLT) are Yahoo tickers, NOT FRED
+    series — they are fetched separately by _corr_60d() (CORR_CACHE_KEY).
+    """
+    keys = set()
+    for g in GROUPS:
+        for it in g["items"]:
+            if it.get("computed") == "corr":
+                continue
+            for sid in it.get("from", [it["id"]]):
+                keys.add(sid + ":" + it.get("units", ""))
+    for _label, sid, _years in TENORS:
+        keys.add(sid + ":")
+    return sorted(keys)
+
+
+def _is_stale(key):
+    """True when a cache entry is missing or older than its cadence TTL.
+
+    Single source of truth for the TTL check — get_series and
+    _prefetch_missing both use it.
+    """
+    sid = key.split(":")[0]
+    item = SERIES_BY_ID.get(sid, {})
+    ttl = TTL.get(item.get("cadence", ""), DEFAULT_TTL)
+    cached = _cache.get(key)
+    return not cached or time.time() - cached[0] >= ttl
+
+
+def _prefetch_missing(max_workers=8):
+    """Fill every stale cache entry in parallel (FRED series + the two Yahoo
+    payloads). Only missing/expired work is done — warm entries are skipped,
+    so this is cheap on every request and from the pre-warm thread. Fail-open:
+    each fetcher degrades to [] / None on error, as before.
+    """
+    with _lock:
+        stale = [k for k in _all_series_keys() if _is_stale(k)]
+    if not stale:
+        return
+    sids = sorted({k.split(":")[0] for k in stale})
+    fns = [lambda sid=sid: get_series(sid) for sid in sids]
+    fns += [_corr_60d, _yahoo_yield_curve]
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            list(ex.map(lambda f: f(), fns))
+    except Exception as e:
+        logger.warning("macro prefetch failed (fail-open): %s", e)
+
+
+def start_prewarm(interval=PREWARM_INTERVAL):
+    """Start the background refresher once (idempotent). No-op when disabled
+    (tests). Daemon thread — dies with the process, restarts on next deploy.
+    """
+    global _prewarm_started
+    if not _prewarm_enabled:
+        return
+    with _prewarm_lock:
+        if _prewarm_started:
+            return
+        _prewarm_started = True
+    t = threading.Thread(target=_prewarm_loop, args=(interval,),
+                         daemon=True, name="macro-prewarm")
+    t.start()
+    logger.info("macro pre-warm thread started (interval %ss)", interval)
+
+
+def _prewarm_loop(interval):
+    while _prewarm_enabled and not _prewarm_stop.wait(interval):
+        try:
+            _prefetch_missing()
+        except Exception as e:
+            logger.warning("macro pre-warm tick failed: %s", e)
 
 
 def _spread(a_id, b_id, scale=100):
@@ -154,12 +252,15 @@ YAHOO_YC_TENORS = [("^IRX", "3M", 0.25), ("^FVX", "5Y", 5.0),
 
 
 def _yahoo_yield_curve():
-    """Live today's curve from Yahoo closes: {date, source, points} or None.
+    """Recent daily yield curves from Yahoo closes: {source, curves:[...]} or None.
 
-    Fallback for the 'today' anchor only — FRED wins once it publishes
-    (Hong, 2026-08-10: "Yahoo data is always fallback data for the day's
-    yield curve, except weekends"). Cached Daily like _corr_60d; fail-open
-    (None) on any error so the FRED fall-back path stays intact.
+    `curves` is oldest->newest, at least the last two trading days, each
+    {date, source: 'yahoo', points:[{tenor, years, yield}]} (4 tenors:
+    ^IRX/^FVX/^TNX/^TYX = 3M/5Y/10Y/30Y). Fallback for the today/yesterday
+    anchors only — FRED wins once it publishes (Hong, 2026-08-10: "Yahoo data
+    is always fallback data for the day's yield curve, except weekends").
+    Cached Daily like _corr_60d; fail-open (None) on any error so the FRED
+    fall-back path stays intact.
     """
     with _lock:
         cached = _cache.get(YAHOO_YC_KEY)
@@ -179,15 +280,19 @@ def _yahoo_yield_curve():
         close = px["Close"].dropna(how="all")
         if close.empty:
             return None
-        last = close.iloc[-1]
-        points = []
-        for sym, tenor, years in YAHOO_YC_TENORS:
-            v = last.get(sym)
-            if v is not None and v == v:  # not NaN
-                points.append({"tenor": tenor, "years": years, "yield": round(float(v), 3)})
-        if not points:
+        out = {"source": "yahoo", "curves": []}
+        for idx, row in close.tail(2).iterrows():
+            points = []
+            for sym, tenor, years in YAHOO_YC_TENORS:
+                v = row.get(sym)
+                if v is not None and v == v:  # not NaN
+                    points.append({"tenor": tenor, "years": years,
+                                   "yield": round(float(v), 3)})
+            if points:
+                out["curves"].append({"date": str(idx)[:10],
+                                      "source": "yahoo", "points": points})
+        if not out["curves"]:
             return None
-        out = {"date": str(close.index[-1])[:10], "source": "yahoo", "points": points}
         with _lock:
             _cache[YAHOO_YC_KEY] = (time.time(), out)
         return out
@@ -260,6 +365,8 @@ def _item_payload(item):
 
 def get_macro():
     """Full payload for /api/macro: 6 groups, each item = series observations."""
+    start_prewarm()       # lazily start the background refresher (idempotent)
+    _prefetch_missing()   # parallel cold-fill; no-op when the cache is warm
     configured = bool(_fred_key())
     groups = []
     for g in GROUPS:
@@ -357,9 +464,13 @@ def _fall_backward(exact_date, days):
 def get_yield_curve():
     """Yield-curve payload: tenors + per-anchor curves (only those that exist).
 
-    Keys: today, yesterday, 1W, 1M, 3M, 6M, YTD, 1Y, 2Y. today/yesterday may
-    be absent on holidays (omitted, never substituted); period-ago keys fall
-    backward to the last available curve.
+    Keys: today, yesterday, 1W, 1M, 3M, 6M, YTD, 1Y, 2Y. Today is the EFFECTIVE
+    today — Yahoo's live close when fresher than FRED, else FRED's resolved
+    date (Hong 2026-08-10). Yesterday is the CALENDAR day before the effective
+    today, labeled with its real date, fed from FRED when it has that date,
+    else Yahoo (same fallback as today), else the last available curve (Hong
+    2026-08-11). Period-ago anchors offset from the effective today and fall
+    backward to the last available curve (never omitted when history exists).
     """
     maps = _tenor_maps()
     days = _trading_days(maps)
@@ -372,46 +483,62 @@ def get_yield_curve():
         today = datetime.now().date()
 
     today_eff = _last_weekday(today)
-    # today = last available curve date <= today_eff (fall-back, not omit —
-    # FRED lags ~6pm ET on a normal trading day; the curve is labeled with
-    # its real date so the fallback is honest). yesterday = last WEEKDAY
-    # strictly before today's resolved date (never the same day), strict
-    # omit if that weekday has no data (holiday rule unchanged).
+    # today = last available curve date <= today_eff (fall-back, not omit).
     today_resolved = _fall_backward(today_eff, days)
-    yest_eff = _last_weekday(today_resolved - timedelta(days=1)) if today_resolved else None
-
-    curves = {}
-    today_curve = _curve_on(today_resolved, maps) if today_resolved else None
-    if today_curve:
-        curves["today"] = today_curve
-    yest_curve = _curve_on(yest_eff, maps) if yest_eff else None
-    if yest_curve:
-        curves["yesterday"] = yest_curve
-
     # Live today override (Hong, 2026-08-10): Yahoo closes (^IRX/^FVX/^TNX/
     # ^TYX — 3M/5Y/10Y/30Y only) replace the today anchor WHEN fresher than
     # FRED's resolved date. Weekdays before ~6pm: Yahoo has today, FRED
     # doesn't -> live curve. Weekends: Yahoo's last close is Friday == FRED's
     # resolved Friday -> no override. Once FRED publishes today (~6pm),
     # FRED's resolved date == Yahoo's date -> no override (FRED wins).
+    # Yahoo fallback resolves the effective today (and can feed yesterday):
+    # _yahoo_yield_curve() returns the last two trading days' curves.
     yahoo = _yahoo_yield_curve()
-    if yahoo and today_resolved and yahoo["date"] > today_resolved.isoformat():
-        curves["today"] = yahoo
+    yahoo_by_date = {}
+    if yahoo:
+        for c in yahoo.get("curves", []):
+            yahoo_by_date[c["date"]] = c
+    yahoo_dates = sorted(yahoo_by_date)
 
-    # 1W: exact offset from the effective today, then fall backward
-    w1 = _fall_backward(today_eff - timedelta(days=7), days)
-    if w1:
-        curves["1W"] = _curve_on(w1, maps)
+    # Effective today = freshest Yahoo date when it beats FRED's resolved date,
+    # else FRED (Hong, 2026-08-10 override rule).
+    if yahoo_dates and today_resolved and yahoo_dates[-1] > today_resolved.isoformat():
+        anchor = date.fromisoformat(yahoo_dates[-1])
+        today_curve = yahoo_by_date[yahoo_dates[-1]]
+    else:
+        anchor = today_resolved
+        today_curve = _curve_on(anchor, maps) if anchor else None
 
-    # period-ago anchors: calendar offset -> fall backward
-    for key, months in (("1M", 1), ("3M", 3), ("6M", 6), ("1Y", 12), ("2Y", 24)):
-        exact = _month_offset(today_eff, months)
-        d = _fall_backward(exact, days)
-        if d:
-            curves[key] = _curve_on(d, maps)
+    curves = {}
+    if anchor:
+        if today_curve:
+            curves["today"] = today_curve
+        # yesterday = the CALENDAR day before the effective today, labeled with
+        # its real date. Fed from FRED when it has that date, else Yahoo (the
+        # same fallback today uses), else the last available curve (Hong,
+        # 2026-08-11: "Yesterday is Aug 10, not Aug 7").
+        yest_date = anchor - timedelta(days=1)
+        yest_curve = _curve_on(yest_date, maps)
+        if not yest_curve:
+            yest_curve = yahoo_by_date.get(yest_date.isoformat())
+        if not yest_curve:
+            yest_resolved = _fall_backward(yest_date, days)
+            if yest_resolved:
+                yest_curve = _curve_on(yest_resolved, maps)
+        if yest_curve:
+            curves["yesterday"] = yest_curve
+        # 1W + period-ago: calendar offset from the effective today, fall back.
+        w1 = _fall_backward(anchor - timedelta(days=7), days)
+        if w1:
+            curves["1W"] = _curve_on(w1, maps)
+        for key, months in (("1M", 1), ("3M", 3), ("6M", 6), ("1Y", 12), ("2Y", 24)):
+            d = _fall_backward(_month_offset(anchor, months), days)
+            if d:
+                curves[key] = _curve_on(d, maps)
 
     # YTD: first available curve date in the current year
-    ytd = next((d for d in days if d >= datetime(today_eff.year, 1, 1).date()), None)
+    ytd_year = (anchor or today_eff).year
+    ytd = next((d for d in days if d >= datetime(ytd_year, 1, 1).date()), None)
     if ytd:
         curves["YTD"] = _curve_on(ytd, maps)
 

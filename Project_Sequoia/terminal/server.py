@@ -372,6 +372,46 @@ class ChartDataProcessor:
 
 
 # ============================================================================
+# Ratio per-ticker Close cache (Hong, 2026-08-10).
+# /api/ratio used to re-download BOTH tickers from Yahoo on every request —
+# the 5-pair heatmap meant 10 downloads per page load, with SPY fetched 5x.
+# Cache the daily Close per (ticker, period) with a 1h TTL (same cadence as
+# macro.py Daily; Yahoo EOD data) and a per-key lock so concurrent requests
+# (ThreadingHTTPServer) don't stampede the same ticker. Fail-open: empty
+# Series on error, never a 500 (matches macro.py philosophy).
+# ============================================================================
+RATIO_CLOSE_TTL = 3600  # seconds
+_ratio_close_cache = {}
+_ratio_close_cache_lock = threading.Lock()
+_ratio_fetch_locks = {}
+
+
+def _ratio_close(ticker, period):
+    """Cached daily Close Series for a ticker+period (fail-open, deduped)."""
+    key = ticker + ":" + period
+    with _ratio_close_cache_lock:
+        cached = _ratio_close_cache.get(key)
+        if cached and time.time() - cached[0] < RATIO_CLOSE_TTL:
+            return cached[1]
+        lock = _ratio_fetch_locks.setdefault(key, threading.Lock())
+    with lock:
+        # Re-check under the key lock: a concurrent request may have filled it.
+        with _ratio_close_cache_lock:
+            cached = _ratio_close_cache.get(key)
+            if cached and time.time() - cached[0] < RATIO_CLOSE_TTL:
+                return cached[1]
+        try:
+            close = yf.Ticker(ticker).history(period=period)["Close"]
+        except Exception as e:
+            logger.warning("ratio close fetch failed for %s (%s): %s",
+                           ticker, period, e)
+            close = pd.Series(dtype=float)
+        with _ratio_close_cache_lock:
+            _ratio_close_cache[key] = (time.time(), close)
+        return close
+
+
+# ============================================================================
 # Request Handler
 # ============================================================================
 
@@ -923,8 +963,8 @@ class Handler(SimpleHTTPRequestHandler):
         if not YFINANCE_AVAILABLE:
             return {'error': 'yfinance not available'}
         fetch_period = '3y' if tf != '5Y' else 'max'
-        d1 = yf.Ticker(t1).history(period=fetch_period)['Close']
-        d2 = yf.Ticker(t2).history(period=fetch_period)['Close']
+        d1 = _ratio_close(t1, fetch_period)
+        d2 = _ratio_close(t2, fetch_period)
         df = pd.DataFrame({'t1': d1, 't2': d2}).dropna()
         df['ratio'] = df['t1'] / df['t2']
         df['sma'] = df['ratio'].rolling(window=sma_period).mean()
