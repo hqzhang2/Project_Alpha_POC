@@ -168,3 +168,22 @@ def test_suggestion_never_auto_switches(monkeypatch):
     h = _make_handler()
     h._enforcement_status()
     assert store.get_active_profile() == "growth"  # unchanged — advisory only
+
+
+def test_drift_accepts_current_weights_body():
+    """POST /api/drift with a modified current_weights must produce alerts."""
+    h = _make_handler()
+    # weights differ from DEFAULT_WEIGHTS target → drift alerts expected
+    h._drift({"current_weights": {"AAPL": 0.20, "MSFT": 0.05, "TLT": 0.10, "GLD": 0.30}})
+    body = h._sent["body"]
+    assert "alerts" in body and "summary" in body
+    assert len(body["alerts"]) > 0  # drift detected vs defaults
+
+
+def test_drift_no_body_defaults():
+    """No body → uses DEFAULT_WEIGHTS as current, no drift (at target)."""
+    h = _make_handler()
+    h._drift(None)
+    body = h._sent["body"]
+    assert body["summary"] == "Portfolio at target. No drift detected."
+    assert body["alerts"] == []

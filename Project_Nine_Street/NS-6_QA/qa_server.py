@@ -130,6 +130,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._scenario_replace(body)
         if path == "/api/profile":
             return self._profile_set(body)
+        if path == "/api/drift":
+            return self._drift(body)
         self._json({"error": f"not found: {path}"}, 404)
 
     # ── Handlers ─────────────────────────────────────────────────────────
@@ -229,9 +231,9 @@ class NS6Handler(BaseHTTPRequestHandler):
                     "profile_label": config.PROFILES[saved]["label"],
                     "ok": True})
 
-    def _drift(self):
+    def _drift(self, body=None):
         theta = config.load_theta()
-        current = self._portfolio_weights({})
+        current = self._portfolio_weights(body or {})
         # Phase 1: no frontier targets — use default as a stand-in.
         target = {k: v for k, v in DEFAULT_WEIGHTS.items()}
         result = drift_mod.run_drift_check(current, target, theta=theta)

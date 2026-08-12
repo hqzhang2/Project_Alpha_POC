@@ -41,6 +41,7 @@
   }
   .panel h3 { font-size: 12px; font-weight: 700; color: #94a3b8;
     text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .panel h3 .summary { float: right; font-size: 11px; color: #94a3b8; text-transform: none; letter-spacing: 0; font-weight: 600; }
 
   /* Profile switch */
   .profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -51,8 +52,8 @@
   .profile-card:hover { border-color: #3b82f6; }
   .profile-card.active { border-color: #4ade80; background: #0f1a14; }
   .profile-card.suggested { border-color: #f0b429; }
-  .profile-card .nm { font-weight: 800; font-size: 13px; display: flex; align-items: center; gap: 6px; }
-  .profile-card .badge { font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
+  .profile-card .nm { font-weight: 800; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .badge { font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
   .badge.active-b { background: #14532d; color: #4ade80; }
   .badge.sugg-b { background: #4d3d00; color: #f0b429; }
   .profile-card .desc { font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.4; }
@@ -72,6 +73,42 @@
   .row .v.bad { color: #f87171; }
   .row .v.good { color: #4ade80; }
 
+  /* Tiers / events */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 5px;
+    background: #1f2937; color: #94a3b8; border: 1px solid #30363d; }
+  .chip.on { background: #4d3d00; color: #f0b429; border-color: #f0b429; }
+
+  .evt { font-size: 11px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; border: 1px solid #1f2937; }
+  .evt.bad { background: #3b0d0d; border-color: #f87171; color: #fca5a5; }
+  .evt.warn { background: #4d3d00; border-color: #f0b429; color: #fde68a; }
+  .evt.good { background: #0f1a14; border-color: #4ade80; color: #86efac; }
+  .evt .e-h { font-weight: 800; }
+  .evt .e-d { color: #94a3b8; margin-top: 2px; }
+  .empty-note { font-size: 11px; color: #64748b; font-style: italic; }
+
+  /* Forms */
+  .scenario-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 9.5px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  .field input, .field select {
+    background: #0d1420; border: 1px solid #30363d; border-radius: 6px;
+    color: #dbe4f0; padding: 6px 8px; font-size: 12px; min-width: 110px;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: #3b82f6; }
+
+  .mode-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+  .mode-tab { padding: 6px 12px; border-radius: 6px; border: 1px solid #30363d;
+    background: #0d1420; color: #94a3b8; cursor: pointer; font-size: 11px; font-weight: 700; }
+  .mode-tab.active { background: #1f2937; color: #4ade80; border-color: #4ade80; }
+  .scenario-form.hidden, .mode-body.hidden { display: none; }
+
+  /* Funding paths */
+  .path { font-size: 11px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px;
+    border: 1px solid #1f2937; background: #0d1420; }
+  .path .p-h { font-weight: 700; color: #94a3b8; }
+  .path .p-m { color: #dbe4f0; margin-top: 3px; white-space: pre-wrap; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
+
   .btn {
     padding: 8px 14px; border-radius: 6px; border: 1px solid #30363d;
     background: #1f2937; color: #dbe4f0; cursor: pointer; font-size: 12px; font-weight: 600;
@@ -80,12 +117,22 @@
   .btn.primary { background: #14532d; border-color: #4ade80; color: #4ade80; }
 
   .err { color: #f87171; font-size: 12px; margin-top: 10px; }
+  .ok { color: #4ade80; font-size: 12px; margin-top: 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2937; }
+  th { color: #64748b; font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; }
+  td { font-variant-numeric: tabular-nums; }
+  .u-URGENT { color: #f87171; font-weight: 800; }
+  .u-RECOMMENDED { color: #f0b429; font-weight: 700; }
+  .u-CONSIDER { color: #93c5fd; }
+  .u-MONITOR { color: #64748b; }
 </style>
 </head>
 <body>
 <div class="hdr">
   <h1>NS-6 Drawdown Engine</h1>
-  <div class="sub">Target-Point Profiles · Fast De-Risking · Regime Nudge</div>
+  <div class="sub">Scenario Cockpit · Target-Point Profiles · Fast De-Risking · Regime Nudge</div>
   <div class="spacer"></div>
   <div class="asof">updated <span id="asof">—</span></div>
 </div>
@@ -108,6 +155,7 @@
       <div class="profile-grid" id="profileGrid"></div>
       <div class="suggestion" id="suggestion">
         <span class="txt" id="sugg-text">Loading...</span>
+        <button class="act btn" id="sugg-btn" style="display:none">Switch</button>
       </div>
       <div class="err" id="err"></div>
     </div>
@@ -124,6 +172,55 @@
         <div class="row"><span class="k">Budget remaining</span><span class="v" id="s-rem">—</span></div>
         <div class="row"><span class="k">Covered calls</span><span class="v" id="s-cc">—</span></div>
       </div>
+      <div style="margin-top:10px"><div class="row"><span class="k">Active signal tiers</span></div>
+        <div class="chips" id="s-tiers"></div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Enforcement Events</h3>
+      <div id="events"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Scenario Cockpit <span class="summary">advisory — PM decides</span></h3>
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="add" onclick="setMode('add')">Add</button>
+        <button class="mode-tab" data-mode="remove" onclick="setMode('remove')">Remove</button>
+        <button class="mode-tab" data-mode="replace" onclick="setMode('replace')">Replace</button>
+      </div>
+
+      <div class="mode-body" id="mode-add">
+        <div class="scenario-form">
+          <div class="field"><label>Ticker</label><input id="sc-add-ticker" placeholder="AAPL"></div>
+          <div class="field"><label>Weight (0-1)</label><input id="sc-add-wt" type="number" step="0.01" min="0" max="1" value="0.03"></div>
+          <div class="field"><label>NAV</label><input id="sc-add-nav" type="number" step="10000" value="1000000"></div>
+          <button class="btn primary" onclick="runScenario('add')">Analyze Add</button>
+        </div>
+      </div>
+      <div class="mode-body hidden" id="mode-remove">
+        <div class="scenario-form">
+          <div class="field"><label>Ticker</label><input id="sc-rm-ticker" placeholder="AAPL"></div>
+          <div class="field"><label>NAV</label><input id="sc-rm-nav" type="number" step="10000" value="1000000"></div>
+          <button class="btn primary" onclick="runScenario('remove')">Analyze Remove</button>
+        </div>
+      </div>
+      <div class="mode-body hidden" id="mode-replace">
+        <div class="scenario-form">
+          <div class="field"><label>Remove</label><input id="sc-rp-rm" placeholder="AAPL"></div>
+          <div class="field"><label>Add</label><input id="sc-rp-add" placeholder="MSFT"></div>
+          <div class="field"><label>Weight (0-1)</label><input id="sc-rp-wt" type="number" step="0.01" min="0" max="1" value="0.03"></div>
+          <div class="field"><label>NAV</label><input id="sc-rp-nav" type="number" step="10000" value="1000000"></div>
+          <button class="btn primary" onclick="runScenario('replace')">Analyze Replace</button>
+        </div>
+      </div>
+      <div class="ok" id="sc-ok"></div>
+      <div class="err" id="sc-err"></div>
+      <div id="sc-result"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Drift Alert Inbox</h3>
+      <div id="drift"></div>
     </div>
   </div>
 
@@ -144,6 +241,7 @@
 <script>
 let PROFILES = [];
 let STATUS = {};
+const WEIGHTS = {"AAPL":0.12,"MSFT":0.10,"NVDA":0.08,"GOOGL":0.07,"AMZN":0.06,"META":0.05,"JPM":0.05,"XOM":0.04,"TLT":0.20,"GLD":0.10,"BIL":0.13};
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
@@ -162,28 +260,45 @@ async function refreshStatus() {
   const d = await api('/api/enforcement/status');
   STATUS = d;
   renderStatus();
-  updateSuggestion();
+  renderEvents();
 }
 
+// ── Profile grid + suggestion ───────────────────────────────────────────
 function renderProfileGrid(active) {
   const grid = document.getElementById('profileGrid');
   grid.innerHTML = '';
   PROFILES.forEach(p => {
+    const cls = ['profile-card'];
+    if (p.name === active) cls.push('active');
+    if (STATUS.suggested_profile === p.name && p.name !== active) cls.push('suggested');
     const btn = document.createElement('button');
-    btn.className = 'profile-card' + (p.name === active ? ' active' : '');
-    btn.innerHTML = '<div class="nm">' + p.label.split(' (')[0] +
-      (p.name === active ? ' <span class="badge active-b">ACTIVE</span>' : '') +
-      '</div><div class="desc">' + (p.description || '') + '</div>';
+    btn.className = cls.join(' ');
+    const badges = (p.name === active ? '<span class="badge active-b">ACTIVE</span>' : '') +
+      (STATUS.suggested_profile === p.name && p.name !== active ? '<span class="badge sugg-b">SUGGESTED</span>' : '');
+    btn.innerHTML = '<div class="nm">' + p.label.split(' (')[0] + ' ' + badges + '</div>' +
+      '<div class="desc">' + (p.description || '') + '</div>';
     btn.onclick = () => switchProfile(p.name);
     grid.appendChild(btn);
+  });
+}
+
+function renderGuide() {
+  const g = document.getElementById('guideCards');
+  g.innerHTML = '';
+  PROFILES.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'profile-card';
+    card.style.cursor = 'default';
+    card.innerHTML = '<div class="nm">' + p.label.split(' (')[0] + '</div>' +
+      '<div class="desc">' + (p.description || '') + '</div>';
+    g.appendChild(card);
   });
 }
 
 async function switchProfile(name) {
   try {
     const d = await api('/api/profile', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({profile: name})
     });
     document.getElementById('err').textContent = '';
@@ -194,6 +309,7 @@ async function switchProfile(name) {
   }
 }
 
+// ── Status rendering ────────────────────────────────────────────────────
 function renderStatus() {
   const set = (id, v, cls) => {
     const el = document.getElementById(id);
@@ -210,6 +326,13 @@ function renderStatus() {
   set('s-rem', STATUS.budget_remaining_pct !== undefined ? (STATUS.budget_remaining_pct*100).toFixed(0)+'%' : '—');
   set('s-cc', STATUS.covered_calls_gated ? 'GATED' : 'OPEN', STATUS.covered_calls_gated ? 'warn' : 'good');
 
+  // Tiers
+  const tiers = STATUS.active_tiers || [];
+  const chips = document.getElementById('s-tiers');
+  chips.innerHTML = tiers.length
+    ? tiers.map(t => '<span class="chip on">' + t + '</span>').join('')
+    : '<span class="chip">none</span>';
+
   // KPIs
   document.getElementById('kpi-mult').textContent =
     STATUS.exposure_multiplier !== undefined ? (STATUS.exposure_multiplier*100).toFixed(0)+'%' : '—';
@@ -219,37 +342,162 @@ function renderStatus() {
     STATUS.current_drawdown_pct !== undefined ? (STATUS.current_drawdown_pct*100).toFixed(1)+'%' : '—';
   const rg = document.getElementById('kpi-regime');
   rg.textContent = STATUS.regime || '—';
-  const regNote = document.getElementById('kpi-regime-note');
-  regNote.textContent = STATUS.regime === 'R1' ? 'expansion → growth'
+  document.getElementById('kpi-regime-note').textContent =
+    STATUS.regime === 'R1' ? 'expansion → growth'
     : STATUS.regime === 'R2' ? 'overheating → balanced'
     : STATUS.regime === 'R3' ? 'recession → capital preservation'
     : STATUS.regime === 'R4' ? 'stagflation → capital preservation'
     : 'R1-R4 axis';
   document.getElementById('asof').textContent = new Date().toLocaleTimeString();
-}
 
-function updateSuggestion() {
-  const box = document.getElementById('suggestion');
+  // Suggestion — update text only, never destroy the btn ref.
   const txt = document.getElementById('sugg-text');
+  const btn = document.getElementById('sugg-btn');
   if (STATUS.suggestion_active && STATUS.suggested_profile) {
-    box.className = 'suggestion';
     txt.textContent = 'Nudge: ' + (STATUS.suggestion_reason || 'regime shift') +
       ' — consider switching to ' + STATUS.suggested_profile.toUpperCase();
-    box.innerHTML = '<span class="txt">' + txt.textContent +
-      '</span><button class="act btn" onclick="switchProfile(\'' +
-      STATUS.suggested_profile + '\')">Switch</button>';
+    btn.style.display = '';
+    btn.onclick = () => switchProfile(STATUS.suggested_profile);
+    document.getElementById('suggestion').className = 'suggestion';
   } else if (STATUS.suggested_profile && STATUS.suggested_profile === STATUS.active_profile) {
-    box.className = 'suggestion none';
     txt.textContent = 'Profile aligned with regime (' + STATUS.suggestion_reason + ') — no action needed.';
-    box.innerHTML = '<span class="txt">' + txt.textContent + '</span>';
+    btn.style.display = 'none';
+    document.getElementById('suggestion').className = 'suggestion none';
   } else {
-    box.className = 'suggestion none';
     txt.textContent = STATUS.suggestion_reason || 'No regime suggestion available.';
-    box.innerHTML = '<span class="txt">' + txt.textContent + '</span>';
+    btn.style.display = 'none';
+    document.getElementById('suggestion').className = 'suggestion none';
+  }
+  renderProfileGrid(STATUS.active_profile);
+  renderGuide();
+}
+
+// ── Enforcement events ──────────────────────────────────────────────────
+function renderEvents() {
+  const box = document.getElementById('events');
+  let html = '';
+  const cb = STATUS.circuit_breakers || [];
+  if (cb.length) {
+    html += cb.map(b =>
+      '<div class="evt bad"><div class="e-h">CIRCUIT BREAKER · ' + (b.breaker_type || '?').toUpperCase() +
+      '</div><div class="e-d">' + (b.detail || '') + (b.ticker ? ' · ' + b.ticker : '') + '</div></div>').join('');
+  }
+  const stops = STATUS.position_stops_triggered || [];
+  if (stops.length) {
+    html += stops.map(s =>
+      '<div class="evt warn"><div class="e-h">POSITION STOP · ' + (s.ticker || '?') +
+      '</div><div class="e-d">' + (s.detail || '') + '</div></div>').join('');
+  }
+  const puts = STATUS.protective_puts;
+  if (puts && puts.type) {
+    html += '<div class="evt warn"><div class="e-h">PROTECTIVE PUT</div><div class="e-d">type: ' +
+      (puts.type || '') + ' · notional ' + (puts.notional_pct != null ? (puts.notional_pct*100).toFixed(0)+'%' : '?') + '</div></div>';
+  }
+  if (STATUS.last_breaker_time) {
+    html += '<div class="evt good"><div class="e-h">LAST BREAKER</div><div class="e-d">' + STATUS.last_breaker_time + '</div></div>';
+  }
+  box.innerHTML = html || '<div class="empty-note">No enforcement events triggered.</div>';
+}
+
+// ── Scenario cockpit ────────────────────────────────────────────────────
+function setMode(mode) {
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.querySelectorAll('.mode-body').forEach(b => b.classList.add('hidden'));
+  document.getElementById('mode-' + mode).classList.remove('hidden');
+  document.getElementById('sc-result').innerHTML = '';
+  document.getElementById('sc-ok').textContent = '';
+  document.getElementById('sc-err').textContent = '';
+}
+
+async function runScenario(kind) {
+  const err = document.getElementById('sc-err');
+  const ok = document.getElementById('sc-ok');
+  err.textContent = ''; ok.textContent = '';
+  try {
+    const body = {current_weights: WEIGHTS};
+    if (kind === 'add') {
+      body.ticker = document.getElementById('sc-add-ticker').value.trim().toUpperCase();
+      body.proposed_weight = parseFloat(document.getElementById('sc-add-wt').value);
+      body.nav = parseFloat(document.getElementById('sc-add-nav').value);
+      if (!body.ticker) throw new Error('ticker required');
+    } else if (kind === 'remove') {
+      body.ticker = document.getElementById('sc-rm-ticker').value.trim().toUpperCase();
+      body.nav = parseFloat(document.getElementById('sc-rm-nav').value);
+      if (!body.ticker) throw new Error('ticker required');
+    } else {
+      body.remove = document.getElementById('sc-rp-rm').value.trim().toUpperCase();
+      body.add = document.getElementById('sc-rp-add').value.trim().toUpperCase();
+      body.proposed_weight = parseFloat(document.getElementById('sc-rp-wt').value);
+      body.nav = parseFloat(document.getElementById('sc-rp-nav').value);
+      if (!body.remove || !body.add) throw new Error('both remove and add required');
+    }
+    const d = await api('/api/scenario/' + kind, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    renderScenario(d);
+  } catch (e) {
+    err.textContent = e.message;
   }
 }
 
-// Initial load + poll
+function renderScenario(d) {
+  const box = document.getElementById('sc-result');
+  const ok = document.getElementById('sc-ok');
+  ok.textContent = 'Scenario analyzed: ' + (d.kind || '') +
+    (d.new_ticker ? ' +' + d.new_ticker : '') + (d.removed_ticker ? ' −' + d.removed_ticker : '');
+
+  let html = '<div style="margin-top:8px"><b>Target weights:</b> ';
+  const tw = d.target_weights || {};
+  html += Object.keys(tw).map(t => t + ' ' + (tw[t]*100).toFixed(1) + '%').join(' · ');
+  html += '</div>';
+
+  const dd = d.drawdown_impact || {};
+  if (dd.worst_case_stop_cost != null) {
+    html += '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Worst-case stop cost (new pos): ' +
+      (dd.worst_case_stop_cost*100).toFixed(1) + '% of NAV</div>';
+  }
+
+  const paths = d.funding_paths || [];
+  if (paths.length) {
+    html += '<div style="margin-top:8px"><b>Funding paths:</b></div>';
+    paths.forEach((p, i) => {
+      html += '<div class="path"><div class="p-h">Path ' + (i+1) + '</div>' +
+        '<div class="p-m">' + (p.detail || JSON.stringify(p)) + '</div></div>';
+    });
+  } else {
+    html += '<div class="empty-note" style="margin-top:6px">No funding paths generated.</div>';
+  }
+  box.innerHTML = html;
+}
+
+// ── Drift inbox ─────────────────────────────────────────────────────────
+async function refreshDrift() {
+  try {
+    const d = await api('/api/drift', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({current_weights: WEIGHTS})
+    });
+    const box = document.getElementById('drift');
+    const alerts = d.alerts || [];
+    if (!alerts.length) {
+      box.innerHTML = '<div class="empty-note">' + (d.summary || 'Portfolio at target. No drift.') + '</div>';
+      return;
+    }
+    let html = '<div class="ok" style="font-size:11px">' + (d.summary || '') + '</div><table><tr>' +
+      '<th>Ticker</th><th>Cur</th><th>Tgt</th><th>Δ%</th><th>Dir</th><th>NS-2</th><th>Urgency</th><th>Recommendation</th></tr>';
+    alerts.forEach(a => {
+      html += '<tr><td><b>' + a.ticker + '</b></td><td>' + (a.current_wt*100).toFixed(1) + '%</td>' +
+        '<td>' + (a.target_wt*100).toFixed(1) + '%</td><td>' + a.delta_pct + '</td>' +
+        '<td>' + a.direction + '</td><td>' + a.ns2_regime + '</td>' +
+        '<td class="u-' + a.urgency + '">' + a.urgency + '</td><td>' + a.recommendation + '</td></tr>';
+    });
+    box.innerHTML = html + '</table>';
+  } catch (e) {
+    document.getElementById('drift').innerHTML = '<div class="err">Drift failed: ' + e.message + '</div>';
+  }
+}
+
+// ── Init + poll ─────────────────────────────────────────────────────────
 (async function init() {
   try {
     await refreshProfile();
@@ -259,6 +507,8 @@ function updateSuggestion() {
   }
   setInterval(refreshStatus, 15000);
   setInterval(refreshProfile, 60000);
+  setInterval(refreshDrift, 60000);
+  refreshDrift();
 })();
 </script>
 </body>
