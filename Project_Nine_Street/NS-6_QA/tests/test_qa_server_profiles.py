@@ -138,6 +138,7 @@ def test_suggestion_no_regime_data(monkeypatch):
     assert body["suggested_profile"] is None
     assert body["suggestion_active"] is False
     assert body["suggestion_reason"] == "no regime data"
+    assert body["regime"] is None  # don't fake "R1" when there's no data
 
 
 def test_suggestion_stale_regime(monkeypatch):

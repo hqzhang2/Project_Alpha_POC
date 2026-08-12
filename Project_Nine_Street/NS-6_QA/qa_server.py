@@ -176,7 +176,7 @@ class NS6Handler(BaseHTTPRequestHandler):
             "suggested_profile": suggested,
             "suggestion_reason": suggestion_reason,
             "suggestion_active": suggestion_active,
-            "regime": regime or "R1",  # real regime code when available
+            "regime": regime,  # null when no regime row (don't fake "R1")
             "spy_drawdown_pct": round(spy_dd, 4),
             "budget_pct": round(budget_pct, 4),
             "current_drawdown_pct": round(current_dd, 4),
