@@ -55,6 +55,7 @@ sys.path.insert(0, _NS6)
 import budget as budget_mod
 import config as config_mod
 import enforcement as enforcement_mod
+import options as options_mod
 import rebalance as rebalance_mod
 
 # ── Fixed candidate universe (liquid SP500 names spanning sectors) ──────
@@ -81,6 +82,7 @@ SPY = "SPY"
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ns6_prices.pkl")
 REPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                       "..", "..", "research_2026-08_ns6_backtest.md")
+VIX = "^VIX"
 
 
 # ── Price data (pickle cache) ──────────────────────────────────────────────
@@ -157,11 +159,66 @@ def select_stocks(as_of, top_n=12, min_agreement=2):
 
 
 # ── Portfolio simulation ────────────────────────────────────────────────────
-def simulate(closes, start, end, top_n=12, cost_bps=10.0):
-    """Run quarterly rebalance with NS-6 budget-only multiplier.
+def _vix_regime(vix):
+    """VIX-based regime proxy (Phase 2 only — NOT the NS-5 macro regime)."""
+    if vix is None:
+        return "R1"
+    if vix < 18:
+        return "R1"   # Expansion
+    if vix < 28:
+        return "R2"   # Overheating
+    if vix < 35:
+        return "R3"   # Recession
+    return "R4"       # Stagflation
 
-    Returns dict: {years: {year: {port_ret, spy_ret, max_dd, spy_max_dd}},
-                   trades_per_quarter, daily_curve (for SPY drawdown), ...}
+
+def _phase2_signals(valid, dates, day, theta):
+    """Compute the 4 Phase 2 signals at rebalance day (causal, ≤ day)."""
+    i = dates.get_loc(day)
+    # VIX level + trend (5d SMA diff)
+    vix_series = valid[VIX].dropna() if VIX in valid.columns else pd.Series(dtype=float)
+    vix_upto = vix_series[vix_series.index <= day]
+    if len(vix_upto) >= 6:
+        vix_level = float(vix_upto.iloc[-1])
+        sma5_now = float(vix_upto.iloc[-5:].mean())
+        sma5_prev = float(vix_upto.iloc[-6:-1].mean())
+        vix_trend = sma5_now - sma5_prev
+    else:
+        vix_level, vix_trend = None, None
+
+    # Regime from VIX proxy
+    regime = _vix_regime(vix_level)
+
+    # Vol ratio: 60d trailing ann. vol / full-window ann. vol (SPY returns)
+    spy_ret = valid[SPY].pct_change().dropna()
+    spy_upto = spy_ret[spy_ret.index <= day]
+    long_run_vol = float(spy_upto.std() * np.sqrt(252)) if len(spy_upto) > 60 else None
+    trailing = spy_upto.iloc[-60:] if len(spy_upto) >= 60 else spy_upto
+    trailing_vol = float(trailing.std() * np.sqrt(252)) if len(trailing) > 5 else None
+    vol_ratio = (trailing_vol / long_run_vol) if (trailing_vol and long_run_vol) else None
+
+    # Stock-bond correlation: SPY/TLT 60d rolling
+    corr = None
+    if VIX in valid.columns and "TLT" in valid.columns:
+        sp = valid[SPY][valid[SPY].index <= day].iloc[-60:]
+        tl = valid["TLT"][valid["TLT"].index <= day].iloc[-60:]
+        if len(sp) >= 30 and len(tl) >= 30:
+            r_sp = sp.pct_change().dropna()
+            r_tl = tl.pct_change().dropna()
+            j = pd.concat([r_sp, r_tl], axis=1).dropna()
+            if len(j) >= 30:
+                corr = float(j.iloc[:, 0].corr(j.iloc[:, 1]))
+
+    return regime, vol_ratio, corr, vix_level, vix_trend
+
+
+def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1):
+    """Run quarterly rebalance with NS-6 exposure multiplier.
+
+    phase=1: budget-only multiplier (compute_exposure_multiplier).
+    phase=2: multi-signal v2 multiplier + protective put drag.
+
+    Returns dict: {years: {year: {...}}, trades_per_quarter, totals}.
     """
     theta = config_mod.load_theta()
     # trading dates from SPY
@@ -201,13 +258,26 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0):
         # 2. Equal-weight target across the selection.
         tgt = target_weights(sel)
 
-        # 3. NS-6 exposure multiplier from trailing SPY drawdown.
+        # 3. NS-6 exposure multiplier.
         spy_history = valid[SPY].iloc[: dates.get_loc(day) + 1]
         spy_dd = budget_mod.compute_spy_drawdown(spy_history.tolist())
         budget_pct = budget_mod.compute_budget(spy_dd, theta)
         cur_dd = budget_mod.compute_drawdown(spy_history.tolist())
         remaining = budget_mod.budget_remaining(cur_dd, budget_pct, theta)
-        multiplier = enforcement_mod.compute_exposure_multiplier(remaining, theta)
+
+        put_drag = 0.0  # daily drag applied during this segment (phase 2)
+        if phase == 1:
+            multiplier = enforcement_mod.compute_exposure_multiplier(remaining, theta)
+        else:  # phase 2: multi-signal v2 + put drag
+            regime, vol_ratio, corr, vix_level, vix_trend = _phase2_signals(
+                valid, dates, day, theta)
+            multiplier = enforcement_mod.compute_exposure_multiplier_v2(
+                remaining, regime, vol_ratio, corr, vix_level, vix_trend, theta)
+            # Protective put drag when multiplier < gate and put recommended.
+            put = options_mod.recommend_put_overlay(
+                multiplier, 1_000_000, vix_level, theta)
+            if put["recommended"] and put["estimated_annual_cost_pct"] > 0:
+                put_drag = put["estimated_annual_cost_pct"] / 252.0
 
         # Apply multiplier to equity sleeve only (non-equity unchanged).
         eff_tgt = {}
@@ -242,6 +312,8 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0):
             r = sum(wts.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in wts)
             if j == start_i:
                 r -= cost  # pay trade cost on rebalance day
+            if put_drag > 0:
+                r -= put_drag  # protective put premium (phase 2)
             daily_port_ret.iloc[j] = r
         last_weights = eff_tgt
 
@@ -333,53 +405,68 @@ def main():
     # Discover the screener picks first (needs the fundamentals store, fast),
     # then fetch prices for the HONEST universe (whatever the screener picks).
     print("  discovering screener universe...", flush=True)
-    base = fetch_prices([SPY] + CANDIDATES, args.years, force=args.force_fetch)
+    base = fetch_prices([SPY, VIX] + CANDIDATES, args.years, force=args.force_fetch)
     universe = build_universe(base, args.start, args.end, top_n=args.top_n)
     # fetch_prices merges missing picks into the cache internally
-    closes = fetch_prices([SPY] + universe, args.years)
+    closes = fetch_prices([SPY, VIX] + universe, args.years)
     print(f"  universe: {len(universe)} names, {len(closes.columns)} series "
           f"({len(closes)} days)")
 
-    print("  simulating...", flush=True)
-    results = simulate(closes, args.start, args.end, top_n=args.top_n,
-                       cost_bps=args.cost_bps)
+    print("  simulating Phase 1 (budget-only)...", flush=True)
+    r1 = simulate(closes, args.start, args.end, top_n=args.top_n,
+                  cost_bps=args.cost_bps, phase=1)
+    print("  simulating Phase 2 (multi-signal + puts)...", flush=True)
+    r2 = simulate(closes, args.start, args.end, top_n=args.top_n,
+                  cost_bps=args.cost_bps, phase=2)
 
-    passed, gate = evaluate(results)
-    print(f"\n## Acceptance Gate: {'PASS' if passed else 'FAIL'}")
-    for k, v in gate.items():
-        print(f"  {k}: {v}")
+    g1 = evaluate(r1)[1]
+    g2 = evaluate(r2)[1]
+    print(f"\n## Acceptance Gate")
+    print(f"  Phase 1: {'PASS' if g1['passed'] else 'FAIL'} — excess {g1['excess_positive_years']}/{g1['n_years']} yrs, "
+          f"DD halved {g1['dd_halved_years']}/{g1['n_years']} yrs, trades/qtr {g1['avg_trades_per_quarter']:.1f}")
+    print(f"  Phase 2: {'PASS' if g2['passed'] else 'FAIL'} — excess {g2['excess_positive_years']}/{g2['n_years']} yrs, "
+          f"DD halved {g2['dd_halved_years']}/{g2['n_years']} yrs, trades/qtr {g2['avg_trades_per_quarter']:.1f}")
 
-    print("\n## Yearly")
+    print("\n## Comparison (Phase 1 vs Phase 2)")
+    print("| Metric | Phase 1 | Phase 2 | Delta |")
+    print("|--------|---------|---------|-------|")
+    rows = [
+        ("total port ret%", r1['total_port_ret']*100, r2['total_port_ret']*100),
+        ("total SPY ret%", r1['total_spy_ret']*100, r2['total_spy_ret']*100),
+        ("port max DD%", r1['port_max_dd']*100, r2['port_max_dd']*100),
+        ("DD ratio", r1['dd_ratio'], r2['dd_ratio']),
+        ("excess pos yrs", g1['excess_positive_years'], g2['excess_positive_years']),
+        ("DD halved yrs", g1['dd_halved_years'], g2['dd_halved_years']),
+        ("trades/qtr", r1['avg_trades_per_quarter'], r2['avg_trades_per_quarter']),
+    ]
+    for name, v1, v2 in rows:
+        print(f"| {name} | {v1:.1f} | {v2:.1f} | {v2 - v1:+.1f} |")
+
+    print("\n## Yearly (Phase 2)")
     print("| Year | Port% | SPY% | Excess% | Port MaxDD% | SPY MaxDD% |")
     print("|------|-------|------|---------|-------------|------------|")
-    for y in sorted(results["yearly"]):
-        v = results["yearly"][y]
+    for y in sorted(r2["yearly"]):
+        v = r2["yearly"][y]
         print(f"| {y} | {v['port_ret']*100:.1f} | {v['spy_ret']*100:.1f} | "
               f"{v['excess']*100:+.1f} | {v['port_max_dd']*100:.1f} | "
               f"{v['spy_max_dd']*100:.1f} |")
 
-    print(f"\n## Totals")
-    print(f"  portfolio: {results['total_port_ret']*100:.1f}% | "
-          f"SPY: {results['total_spy_ret']*100:.1f}% | "
-          f"excess: {results['excess_total']*100:+.1f}pp")
-    print(f"  portfolio max DD: {results['port_max_dd']*100:.1f}% | "
-          f"SPY max DD: {results['spy_max_dd']*100:.1f}% | "
-          f"ratio: {results['dd_ratio']:.2f}")
-    print(f"  trades/quarter: {results['avg_trades_per_quarter']:.1f}")
-
     out = {"generated": datetime.now().isoformat(), "config": vars(args),
-           "results": results, "gate": gate}
+           "phase1": {"results": r1, "gate": g1},
+           "phase2": {"results": r2, "gate": g2}}
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2, default=str)
     print(f"\nJSON: {args.out}")
 
     # Research report (gitignored)
     with open(REPORT, "w") as f:
-        f.write(f"# NS-6 Walk-Forward Backtest — {datetime.now():%Y-%m-%d}\n\n")
-        f.write(f"Gate: **{'PASS' if passed else 'FAIL'}**\n\n")
-        for k, v in gate.items():
-            f.write(f"- {k}: {v}\n")
-        f.write(f"\n```json\n{json.dumps(results, indent=2, default=str)}\n```\n")
+        f.write(f"# NS-6 Walk-Forward Backtest (P1 vs P2) — {datetime.now():%Y-%m-%d}\n\n")
+        for lbl, g in (("Phase 1", g1), ("Phase 2", g2)):
+            f.write(f"## {lbl}: {'PASS' if g['passed'] else 'FAIL'}\n")
+            for k, v in g.items():
+                f.write(f"- {k}: {v}\n")
+            f.write("\n")
+        f.write(f"\n```json\n{json.dumps({'phase1': r1, 'phase2': r2}, indent=2, default=str)}\n```\n")
     print(f"Report: {REPORT}")
 
 
