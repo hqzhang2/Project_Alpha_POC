@@ -451,6 +451,8 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
         "trades_per_quarter": quarter_trades,
         "avg_trades_per_quarter": float(np.mean(quarter_trades)) if quarter_trades else 0.0,
         "yearly": yearly,
+        "daily_port_ret": daily_port_ret,
+        "daily_spy_ret": daily_spy_ret,
     }
 
 
