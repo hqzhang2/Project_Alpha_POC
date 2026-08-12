@@ -396,3 +396,40 @@ def load_profile(name):
     p = PROFILES[name]
     theta = load_theta(p.get("theta_overrides"))
     return theta, p["selection"], p["weighting"]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# REGIME-GATED SWITCH SUGGESTION (T4) — advisory, never auto
+# ═══════════════════════════════════════════════════════════════════════
+# Maps the NS-5 macro regime axis (R1-R4, GDP × CPI 2×2) to a SUGGESTED
+# target profile. This is ADVISORY ONLY: the system computes what the regime
+# implies; the PM decides whether/when to switch. Never auto-switch.
+#
+# Rationale (frontier decision, 2017-2026 regime distribution R1=17/R2=19/
+# R3=2/R4=0):
+#   R1 Expansion (growth↑ × inflation↓) → growth              — max return, no inflation headwind
+#   R2 Overheating (growth↑ × inflation↑) → balanced          — still growth, but inflation pressure → sleeve
+#   R3 Recession (growth↓ × inflation↓)   → capital_preservation — contraction, defensive
+#   R4 Stagflation (growth↓ × inflation↑) → capital_preservation — worst quadrant, most defensive
+#
+# R3/R4 both map to capital_preservation (survival); the difference is
+# confidence in the regime read, not the action.
+REGIME_TO_PROFILE = {
+    "R1": "growth",
+    "R2": "balanced",
+    "R3": "capital_preservation",
+    "R4": "capital_preservation",
+}
+
+# A suggestion is only emitted when the regime row is fresher than this many
+# days. Stale regime data → no suggestion (don't nudge on old macro reads).
+REGIME_MAX_AGE_DAYS = 45
+
+
+def suggest_profile(regime):
+    """Advisory profile for a regime code. None if regime unknown.
+
+    Pure mapping — no I/O, no side effects. The caller (qa_server) decides
+    whether to surface it based on freshness/active-vs-suggested.
+    """
+    return REGIME_TO_PROFILE.get(regime)
