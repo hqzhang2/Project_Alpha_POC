@@ -88,6 +88,39 @@ THETA_DEFAULTS = {
     },
 
     # ═══════════════════════════════════════════════════════════════════
+    # FAST DE-RISKING (v2) — daily VIX-smile exposure cap
+    # ═══════════════════════════════════════════════════════════════════
+    # Replaces the SLOW quarterly budget-multiplier as the PRIMARY de-risking
+    # mechanism. Evidence (fast_derisk_experiment.py, 2017-2026): the VIX
+    # smile applied daily (1-day lag, no lookahead) preserves the growth
+    # factor's return (Sharpe 0.96-0.98) while the quarterly budget multiplier
+    # destroys it (Sharpe 0.70-0.81). The binary crisis off-switch is DROPPED —
+    # it reinvents NS-1's "confirmation gates too slow" failure (eat the crash,
+    # miss the V-recovery). A floored crisis keeps a minimum equity stake.
+    "fast_derisk": {
+        # VIX smile curve — exposure CAP by VIX level (NS-1 v3, validated).
+        # Ordered ascending by VIX. vix < level → cap. Last entry is the
+        # ceiling for VIX above the final level.
+        "vix_smile": [
+            [12.0, 0.95], [15.0, 1.00], [20.0, 0.90], [25.0, 0.80],
+            [30.0, 0.65], [35.0, 0.50], [40.0, 0.35], [50.0, 0.55],
+            [60.0, 0.70], [100.0, 0.85],
+        ],
+        # Crisis hysteresis: enter crisis mode when VIX >= in, exit when
+        # VIX <= out (stays unchanged between → no flicker).
+        "crisis_in": 28.0,
+        "crisis_out": 23.0,
+        # Minimum equity exposure during crisis mode — NEVER zero.
+        # 0.30 = keep 30% equity. Avoids "miss the V-recovery" (evidence:
+        # +30% floor = Sharpe 0.98 vs 0.84 at hard zero).
+        "crisis_floor": 0.30,
+        # Decide exposure using VIX close N days prior (no lookahead).
+        "lookback_lag": 1,
+        # Default cap when VIX is unavailable (fail-open, mid-smile).
+        "default_cap": 0.65,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════
     # CIRCUIT BREAKERS — non-negotiable hard floors
     # ═══════════════════════════════════════════════════════════════════
     "circuit_breakers": {

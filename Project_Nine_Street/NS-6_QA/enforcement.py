@@ -13,6 +13,7 @@ Phase 4: check_circuit_breakers(), check_position_stops(),
 """
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -21,6 +22,68 @@ import config
 log = logging.getLogger("ns6.enforcement")
 
 _PHASE2_SIGNAL_KEYS = ("vol_ratio", "corr_sign", "vix_level", "vix_trend")
+
+
+# --------------------------------------------------------------------------- #
+# Exposure multiplier
+# --------------------------------------------------------------------------- #
+def vix_smile_cap(vix_level, theta=None) -> float:
+    """FAST DE-RISKING (v2): exposure cap for a VIX level via the smile curve.
+
+    Linear interpolation between smile breakpoints. vix below the first
+    breakpoint → first cap; above the last → last cap. VIX unavailable
+    (None/NaN) → default_cap (fail-open, mid-smile).
+
+    This is the PRIMARY de-risking mechanism in v2 — replaces the slow
+    quarterly budget multiplier. Applied DAILY with a lookback lag.
+    """
+    theta = theta or config.load_theta()
+    fd = theta["fast_derisk"]
+    smile = sorted(fd["vix_smile"])  # ascending by VIX
+    if vix_level is None or math.isnan(vix_level):
+        return fd["default_cap"]
+    vix = float(vix_level)
+    if vix <= smile[0][0]:
+        return smile[0][1]
+    for (lo, lo_cap), (hi, hi_cap) in zip(smile, smile[1:]):
+        if lo <= vix < hi:
+            t = (vix - lo) / (hi - lo)
+            return lo_cap + t * (hi_cap - lo_cap)
+    return smile[-1][1]
+
+
+def fast_derisk_exposure(vix_level, crisis_mode, theta=None) -> tuple:
+    """FAST DE-RISKING (v2): daily exposure cap with floored crisis hysteresis.
+
+    Returns (exposure_cap, new_crisis_mode).
+
+    crisis_mode is a STATE carried by the caller across days (hysteresis):
+      - vix >= crisis_in  → enter crisis (stay until exit)
+      - vix <= crisis_out → exit crisis
+      - between in/out    → hold current state (no flicker)
+
+    exposure_cap:
+      - normal:  vix_smile_cap(vix)
+      - crisis:  max(crisis_floor, vix_smile_cap(vix))  → NEVER zero
+
+    The floored crisis avoids the "miss the V-recovery" trap that the binary
+    off-switch caused (fast_derisk_experiment: hard zero = Sharpe 0.84, 30%
+    floor = Sharpe 0.98).
+    """
+    theta = theta or config.load_theta()
+    fd = theta["fast_derisk"]
+    if vix_level is None or math.isnan(vix_level):
+        cap = fd["default_cap"]
+    else:
+        vix = float(vix_level)
+        if vix >= fd["crisis_in"]:
+            crisis_mode = True
+        elif vix <= fd["crisis_out"]:
+            crisis_mode = False
+        cap = vix_smile_cap(vix, theta)
+        if crisis_mode:
+            cap = max(cap, fd["crisis_floor"])
+    return cap, crisis_mode
 
 
 # --------------------------------------------------------------------------- #
