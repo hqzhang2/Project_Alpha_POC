@@ -152,11 +152,9 @@ class NS6Handler(BaseHTTPRequestHandler):
         w = body.get("current_weights")
         if isinstance(w, dict) and w:
             return w
-        _, _, holdings = self._portfolio_holdings()
-        if holdings:
-            # NS-5 holdings are shares — leave as-is (relative weights are what
-            # drift/scenario need; share ratios are proportional).
-            return dict(holdings)
+        _, _, weights, _ = self._portfolio_holdings()
+        if weights:
+            return dict(weights)
         return DEFAULT_WEIGHTS
 
     def _regime_suggestion(self, active_profile):
@@ -205,7 +203,7 @@ class NS6Handler(BaseHTTPRequestHandler):
         suggestion_active = bool(
             suggested and suggested != active_profile
         )
-        port_source, port_is_model, _ = self._portfolio_holdings()
+        port_source, port_is_model, _, _ = self._portfolio_holdings()
 
         self._json({
             "active_profile": active_profile,
@@ -281,12 +279,12 @@ class NS6Handler(BaseHTTPRequestHandler):
     def _portfolio_holdings(self):
         """Resolve the cockpit's current portfolio holdings + source info.
 
-        Returns (source_name, is_model, holdings_dict).
-        - If portfolio_source is a real NS-5 portfolio name -> its holdings,
-          is_model=False. NS-5 v2 positions {shares, account, lots} are
-          normalized to flat {ticker: shares}; v1 flat shares pass through.
+        Returns (source_name, is_model, holdings_weights, holdings_shares).
+        - If portfolio_source is a real NS-5 portfolio name -> its holdings
+          normalized to WEIGHTS (shares / total shares) for the engine,
+          is_model=False; holdings_shares = raw NS-5 shares (for the modal).
         - If "model" or the stored name is gone -> the active profile's model
-          portfolio (weights), is_model=True.
+          portfolio (already weights), is_model=True; holdings_shares = {}.
         """
         active = store.get_active_profile()
         source = store.get_portfolio_source()
@@ -294,27 +292,31 @@ class NS6Handler(BaseHTTPRequestHandler):
             ns5 = self._ns5_portfolios()
             if source in ns5:
                 raw = ns5[source]
-                flat = {}
+                shares = {}
                 for tk, v in raw.items():
                     if isinstance(v, dict):
-                        flat[str(tk).upper()] = float(v.get("shares", 0))
+                        shares[str(tk).upper()] = float(v.get("shares", 0))
                     else:
-                        flat[str(tk).upper()] = float(v)
-                return source, False, flat
+                        shares[str(tk).upper()] = float(v)
+                total = sum(shares.values())
+                weights = {tk: sh / total for tk, sh in shares.items()} if total else {}
+                return source, False, weights, shares
             # stored name vanished -> fall back to model
             log.warning("portfolio '%s' not in NS-5 store; using model", source)
-        return active, True, config.model_portfolio(active)
+        return active, True, config.model_portfolio(active), {}
 
     def _portfolio_get(self):
-        """GET /api/portfolio -> source, portfolio names (NS-5 + model), holdings."""
+        """GET /api/portfolio -> source, portfolio names (NS-5 + model),
+        holdings WEIGHTS (engine) + raw SHARES (modal for NS-5)."""
         ns5 = self._ns5_portfolios()
         active = store.get_active_profile()
-        source, is_model, holdings = self._portfolio_holdings()
+        source, is_model, weights, shares = self._portfolio_holdings()
         self._json({
             "active_profile": active,
             "source": source,
             "is_model": is_model,
-            "holdings": {k: round(v, 6) for k, v in holdings.items()},
+            "holdings": {k: round(v, 6) for k, v in weights.items()},
+            "shares": {k: round(v, 4) for k, v in shares.items()} if shares else None,
             "ns5_portfolios": sorted(ns5.keys()),
             "model_portfolios": {
                 name: {k: round(v, 6) for k, v in config.model_portfolio(name).items()}

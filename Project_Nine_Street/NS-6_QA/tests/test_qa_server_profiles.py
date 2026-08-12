@@ -229,3 +229,28 @@ def test_portfolio_set_model():
     h._portfolio_set({"source": "model"})
     assert h._sent["body"]["is_model"] is True
     assert h._sent["status"] == 200
+
+
+def test_ns5_portfolio_weights_normalized_for_drift(tmp_path, monkeypatch):
+    """NS-5 holdings are SHARES — must normalize to weights before drift,
+    else delta_pct is absurd (e.g. 119900% for a 120-share position)."""
+    # Inject an NS-5 store with a v1 flat-shares portfolio.
+    import json as _json
+    fake = tmp_path / "portfolios.json"
+    fake.write_text(_json.dumps({"Tech": {"MSFT": 120, "NVDA": 80}}))
+    monkeypatch.setattr(qa_server, "NS5_PORTFOLIOS_PATH", fake)
+    h = _make_handler()
+    store.set_active_profile("balanced")
+    h._portfolio_set({"source": "Tech"})
+    h._drift(None)
+    body = h._sent["body"]
+    assert body["alerts"]
+    for a in body["alerts"]:
+        # current_wt is a normalized weight in (0,1], delta_pct is sane
+        assert 0 <= a["current_wt"] <= 1.0
+        assert abs(a["delta_pct"]) < 1000
+    # weights path also normalizes (sum to 1)
+    h._portfolio_get()
+    d = h._sent["body"]
+    assert abs(sum(d["holdings"].values()) - 1.0) < 0.01
+    assert d["shares"]["MSFT"] == 120.0  # raw shares preserved for modal

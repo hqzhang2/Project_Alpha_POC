@@ -276,7 +276,6 @@
 let PROFILES = [];
 let STATUS = {};
 let PORTFOLIO = null;
-const WEIGHTS = {"AAPL":0.12,"MSFT":0.10,"NVDA":0.08,"GOOGL":0.07,"AMZN":0.06,"META":0.05,"JPM":0.05,"XOM":0.04,"TLT":0.20,"GLD":0.10,"BIL":0.13};
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
@@ -396,9 +395,10 @@ function showPortfolioModal() {
   if (!d) return;
   const isModel = d.is_model;
   const title = isModel ? 'Model portfolio (' + d.source + ')' : d.source;
-  const holdings = d.holdings || {};
-  let rows = Object.keys(holdings).map(tk => {
-    const v = holdings[tk];
+  // NS-5: raw shares from the 'shares' field; model: weights from 'holdings'.
+  const items = isModel ? (d.holdings || {}) : (d.shares || {});
+  let rows = Object.keys(items).map(tk => {
+    const v = items[tk];
     return '<tr><td><b>' + tk + '</b></td>' +
       '<td>' + (isModel ? (v * 100).toFixed(1) + '%' : v) + '</td>' +
       (isModel ? '<td>' + (v * 100).toFixed(1) + '%</td>' : '<td></td>') +
@@ -523,7 +523,7 @@ async function runScenario(kind) {
   const ok = document.getElementById('sc-ok');
   err.textContent = ''; ok.textContent = '';
   try {
-    const body = {current_weights: WEIGHTS};
+    const body = {};
     if (kind === 'add') {
       body.ticker = document.getElementById('sc-add-ticker').value.trim().toUpperCase();
       body.proposed_weight = parseFloat(document.getElementById('sc-add-wt').value);
@@ -608,9 +608,12 @@ function renderScenario(d) {
 // ── Drift inbox ─────────────────────────────────────────────────────────
 async function refreshDrift() {
   try {
+    // No current_weights in body — the server resolves from the cockpit's
+    // portfolio source (NS-5 portfolio or model). Keeps drift aligned with
+    // the selected portfolio.
     const d = await api('/api/drift', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({current_weights: WEIGHTS})
+      body: '{}'
     });
     const box = document.getElementById('drift');
     const alerts = d.alerts || [];
