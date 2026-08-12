@@ -269,8 +269,31 @@ def _phase2_signals(valid, dates, day, theta):
     return regime, vol_ratio, corr, vix_level, vix_trend
 
 
+def _daily_fast_expo(closes, dates, theta=None, lag=None):
+    """Precompute a daily exposure series from the VIX smile (v2 fast de-risk).
+
+    Exposure on day t uses VIX close at t-lag (no lookahead). Crisis
+    hysteresis state is carried across the WHOLE window (enter at crisis_in,
+    exit at crisis_out, hold between — flat floor, never zero).
+
+    Returns pd.Series (float exposure 0.30-1.00) indexed by dates.
+    """
+    theta = theta or config_mod.load_theta()
+    fd = theta["fast_derisk"]
+    lag = fd["lookback_lag"] if lag is None else lag
+    vix = closes[VIX].dropna()
+    vix_lag = vix.reindex(dates).shift(lag)
+    crisis = False
+    expo = []
+    for d in dates:
+        v = vix_lag.loc[d]
+        cap, crisis = enforcement_mod.fast_derisk_exposure(v, crisis, theta)
+        expo.append(cap)
+    return pd.Series(expo, index=dates)
+
+
 def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="equal",
-             selector=None, weighter=None):
+             selector=None, weighter=None, fast_derisk=False):
     """Run quarterly rebalance with NS-6 exposure multiplier.
 
     phase=1: budget-only multiplier (compute_exposure_multiplier).
@@ -283,6 +306,10 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
     weighter : optional callable(closes, sel, day) -> dict {ticker: weight}.
                Replaces target_weights (used by experiments). May return None
                to fall back to equal-weight.
+    fast_derisk : bool — v2 mode. Exposure varies DAILY from the VIX smile
+               (floored crisis hysteresis) instead of the quarterly multiplier.
+               This is the evidence-backed v2 mechanism: fast de-risking
+               preserves growth return (Sharpe 0.96-0.98) vs slow quarterly.
 
     Returns dict: {years: {year: {...}}, trades_per_quarter, totals}.
     """
@@ -299,6 +326,10 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
         if len(prior):
             reb_days.append(prior[-1])
     reb_days = list(dict.fromkeys(reb_days))  # dedupe, keep order
+
+    # v2 fast de-risking: precompute daily exposure series (VIX smile, floored
+    # crisis hysteresis), used to scale equity vs sleeve per-day in the loop.
+    daily_expo = _daily_fast_expo(closes, dates, theta) if fast_derisk else None
 
     # equal target weights for a selection
     def target_weights(sel):
@@ -364,9 +395,12 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
                 call_yield = 0.04 * cc["overwrite_pct"] / 252.0
 
         # Apply multiplier to equity sleeve only (non-equity unchanged).
+        # In fast_derisk mode, keep FULL target weights — the DAILY exposure
+        # series (from _daily_fast_expo) scales equity vs sleeve per-day in
+        # the return loop; the fixed quarterly multiplier is not applied here.
         eff_tgt = {}
         for t, w in tgt.items():
-            eff_tgt[t] = w * (multiplier if t not in NON_EQUITY else 1.0)
+            eff_tgt[t] = w * (multiplier if (t not in NON_EQUITY and not fast_derisk) else 1.0)
         # normalize so total = 1
         tot = sum(eff_tgt.values())
         if tot > 0:
@@ -397,9 +431,23 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
         end_i = (dates.get_loc(reb_days[i + 1]) if i + 1 < len(reb_days)
                  else len(dates) - 1)
         seg_ret = valid.reindex(dates[start_i:end_i + 1]).pct_change().fillna(0.0)
+        # Split portfolio into equity and sleeve sub-weights for fast_derisk.
+        eq_w = {t: w for t, w in portfolio.items() if t not in NON_EQUITY}
+        ne_w = {t: w for t, w in portfolio.items() if t in NON_EQUITY}
+        eq_tot = sum(eq_w.values())
+        ne_tot = sum(ne_w.values())
         for j in range(start_i, end_i + 1):
-            wts = {t: w for t, w in portfolio.items() if t in seg_ret.columns}
-            r = sum(wts.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in wts)
+            if fast_derisk:
+                # Daily exposure scales equity vs sleeve: ret = expo*eq + (1-expo)*ne
+                expo = daily_expo.iloc[j]
+                eq_r = (sum(eq_w.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in eq_w)
+                        / eq_tot if eq_tot else 0.0)
+                ne_r = (sum(ne_w.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in ne_w)
+                        / ne_tot if ne_tot else 0.0)
+                r = expo * eq_r + (1.0 - expo) * ne_r
+            else:
+                wts = {t: w for t, w in portfolio.items() if t in seg_ret.columns}
+                r = sum(wts.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in wts)
             if j == start_i:
                 r -= cost  # pay trade cost on rebalance day
             if put_drag > 0:
@@ -493,6 +541,9 @@ def main():
     ap.add_argument("--compare-weighting", action="store_true",
                     help="run both equal and ns5 weighting side-by-side (uses --phase)")
     ap.add_argument("--phase", type=int, default=2, choices=[1, 2, 3])
+    ap.add_argument("--fast-derisk", action="store_true",
+                    help="v2: daily VIX-smile exposure (floored crisis hysteresis), "
+                         "not the quarterly budget multiplier")
     ap.add_argument("--force-fetch", action="store_true")
     ap.add_argument("--out", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
@@ -524,10 +575,11 @@ def main():
                           args, phase_label=f"Phase {args.phase}")
         return
 
-    print(f"  simulating Phase {args.phase} (weighting={args.weighting})...", flush=True)
+    print(f"  simulating Phase {args.phase} (weighting={args.weighting}, "
+          f"fast_derisk={args.fast_derisk})...", flush=True)
     results = simulate(closes, args.start, args.end, top_n=args.top_n,
                        cost_bps=args.cost_bps, phase=args.phase,
-                       weighting=args.weighting)
+                       weighting=args.weighting, fast_derisk=args.fast_derisk)
     passed, gate = evaluate(results)
     print(f"\n## Acceptance Gate: {'PASS' if passed else 'FAIL'}")
     for k, v in gate.items():

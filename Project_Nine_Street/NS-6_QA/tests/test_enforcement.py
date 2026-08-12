@@ -247,3 +247,57 @@ def test_hysteresis_position_stop_expired():
     stops = {"AAPL": now - timedelta(days=30)}
     assert enforcement.check_reentry_hysteresis(None, stops, current_time=now,
                                                 theta=theta) is False
+
+
+# ── Phase v2: fast de-risking (VIX smile + floored crisis) ───────────────
+def test_smile_cap_low_vix():
+    # VIX below first breakpoint → first cap
+    assert enforcement.vix_smile_cap(11.0) == pytest.approx(0.95)
+
+
+def test_smile_cap_high_vix_ramps_up():
+    # NS-1 "buy extreme fear": exposure rises above ~40
+    assert enforcement.vix_smile_cap(65.0) == pytest.approx(0.71875)
+
+
+def test_smile_cap_interpolates():
+    # 32 between 30(0.65) and 35(0.50) → 0.59
+    assert enforcement.vix_smile_cap(32.0) == pytest.approx(0.59, abs=1e-3)
+
+
+def test_smile_cap_none_fail_open():
+    assert enforcement.vix_smile_cap(None) == pytest.approx(0.65)
+
+
+def test_smile_cap_bounded():
+    for v in (5, 15, 25, 40, 100):
+        cap = enforcement.vix_smile_cap(float(v))
+        assert 0 <= cap <= 1
+
+
+def test_crisis_enters_flat_floor():
+    # VIX 29 ≥ crisis_in 28 → crisis, exposure = flat 0.30 floor
+    cap, cm = enforcement.fast_derisk_exposure(29.0, False)
+    assert cm is True
+    assert cap == pytest.approx(0.30)
+
+
+def test_crisis_holds_between_in_and_out():
+    # in crisis at 29, VIX 24 (between 23 and 28) → stays crisis, flat floor
+    cap, cm = enforcement.fast_derisk_exposure(24.0, True)
+    assert cm is True
+    assert cap == pytest.approx(0.30)
+
+
+def test_crisis_exits_at_out():
+    cap, cm = enforcement.fast_derisk_exposure(22.0, True)
+    assert cm is False
+    # normal smile at 22 → 0.86
+    assert cap == pytest.approx(0.86)
+
+
+def test_crisis_floor_never_zero():
+    # even deep in crisis (VIX 30+), exposure = floor, never zero
+    cap, cm = enforcement.fast_derisk_exposure(40.0, True)
+    assert cm is True
+    assert cap >= 0.30  # floor, not 0.0 (the "miss the V-recovery" trap)
