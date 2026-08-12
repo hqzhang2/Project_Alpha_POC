@@ -293,7 +293,7 @@ def _daily_fast_expo(closes, dates, theta=None, lag=None):
 
 
 def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="equal",
-             selector=None, weighter=None, fast_derisk=False):
+             selector=None, weighter=None, fast_derisk=False, theta=None):
     """Run quarterly rebalance with NS-6 exposure multiplier.
 
     phase=1: budget-only multiplier (compute_exposure_multiplier).
@@ -313,7 +313,7 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
 
     Returns dict: {years: {year: {...}}, trades_per_quarter, totals}.
     """
-    theta = config_mod.load_theta()
+    theta = theta or config_mod.load_theta()
     # trading dates from SPY
     spy = closes[SPY].dropna()
     dates = spy.index
@@ -330,7 +330,6 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
     # v2 fast de-risking: precompute daily exposure series (VIX smile, floored
     # crisis hysteresis), used to scale equity vs sleeve per-day in the loop.
     daily_expo = _daily_fast_expo(closes, dates, theta) if fast_derisk else None
-
     # equal target weights for a selection
     def target_weights(sel):
         eq = 1.0 / len(sel) if sel else 0.0
@@ -436,15 +435,20 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
         ne_w = {t: w for t, w in portfolio.items() if t in NON_EQUITY}
         eq_tot = sum(eq_w.values())
         ne_tot = sum(ne_w.values())
+        # Target equity fraction E (respects the profile's sleeve allocation).
+        E = eq_tot / (eq_tot + ne_tot) if (eq_tot + ne_tot) > 0 else 0.0
         for j in range(start_i, end_i + 1):
             if fast_derisk:
-                # Daily exposure scales equity vs sleeve: ret = expo*eq + (1-expo)*ne
+                # Daily exposure scales the EQUITY fraction: effective equity =
+                # E * expo; the sleeve holds the rest (E is the profile's target
+                # equity:sleeve split — growth ~90/10, balanced 60/40, CP low).
                 expo = daily_expo.iloc[j]
                 eq_r = (sum(eq_w.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in eq_w)
                         / eq_tot if eq_tot else 0.0)
                 ne_r = (sum(ne_w.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in ne_w)
                         / ne_tot if ne_tot else 0.0)
-                r = expo * eq_r + (1.0 - expo) * ne_r
+                eff_eq = E * expo
+                r = eff_eq * eq_r + (1.0 - eff_eq) * ne_r
             else:
                 wts = {t: w for t, w in portfolio.items() if t in seg_ret.columns}
                 r = sum(wts.get(t, 0) * seg_ret[t].iloc[j - start_i] for t in wts)

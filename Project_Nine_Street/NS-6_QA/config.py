@@ -329,3 +329,70 @@ def _deep_merge(base, overrides):
             _deep_merge(base[k], v)
         else:
             base[k] = v
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PROFILES — three switchable target points on the return/drawdown frontier
+# ═══════════════════════════════════════════════════════════════════════
+# The PM SWITCHES among these — not one locked target. Each profile is a
+# complete bundle: what to hold (selection), how much defensive sleeve, and
+# how aggressive de-risking is. The system computes all three points; the PM
+# decides which one to BE at, and flips on regime shift / conviction change.
+#
+# Evidence-backed (2017-2026, from the NS-6 experiment series):
+#   GROWTH              — MAG7 basket, Sharpe 1.33, DD ~-42%  (return-max)
+#   BALANCED            — growth + sized sleeve, ~Sharpe 1.0-1.1, DD ~-25%
+#   CAPITAL_PRESERVATION— GMV weighting, 0.22x DD, Sharpe 0.73  (drawdown-min)
+#
+# Each profile overrides theta keys + carries a selection/weighting hint.
+# theta_overrides uses the same partial-deep-merge shape as load_theta().
+PROFILES = {
+    "growth": {
+        "label": "GROWTH (return-max)",
+        "description": "MAG7 growth basket, full de-risking floor, minimal sleeve. "
+                       "Beats SPY on return AND Sharpe; accepts deep drawdowns.",
+        "selection": "growth_basket",       # MAG7 growth names
+        "weighting": "growth_90_10",        # 90% equity / 10% sleeve (return-max)
+        "theta_overrides": {
+            "budget": {"spy_dd_ratio": 1.00, "hard_floor": 0.50},
+            "fast_derisk": {"crisis_floor": 0.30},
+        },
+    },
+    "balanced": {
+        "label": "BALANCED (growth + defensive sleeve)",
+        "description": "Growth basket blended with a non-equity sleeve. Sits "
+                       "mid-frontier: most of the growth return, much of the "
+                       "drawdown protection.",
+        "selection": "growth_basket",
+        "weighting": "growth_sleeve_60_40",  # 60% growth / 40% defensive sleeve
+        "theta_overrides": {
+            "budget": {"spy_dd_ratio": 0.75, "hard_floor": 0.30},
+            "fast_derisk": {"crisis_floor": 0.20},
+        },
+    },
+    "capital_preservation": {
+        "label": "CAPITAL PRESERVATION (drawdown-min)",
+        "description": "GMV (minimum-variance) weighting + aggressive de-risking. "
+                       "Halves SPY drawdown; trails SPY on return. The survival "
+                       "mandate.",
+        "selection": "value_screener",       # value/quality, defensive tilt
+        "weighting": "gmv",                  # NS-5 global minimum variance
+        "theta_overrides": {
+            "budget": {"spy_dd_ratio": 0.50, "hard_floor": 0.25},
+            "fast_derisk": {"crisis_floor": 0.20},
+        },
+    },
+}
+
+
+def load_profile(name):
+    """Return (theta, selection, weighting) for a named profile.
+
+    Raises KeyError for unknown names. theta is a deep-merged copy of
+    THETA_DEFAULTS with the profile's overrides applied.
+    """
+    if name not in PROFILES:
+        raise KeyError(f"unknown profile '{name}' (valid: {sorted(PROFILES)})")
+    p = PROFILES[name]
+    theta = load_theta(p.get("theta_overrides"))
+    return theta, p["selection"], p["weighting"]
