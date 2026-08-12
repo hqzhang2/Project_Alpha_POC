@@ -44,7 +44,8 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 # NS-6_QA must win name resolution (config.py) over Project_Sequoia/terminal's.
 # insert(0) puts the LAST insert at the FRONT. NS-6_QA is already sys.path[0]
 # (script dir) but Project_Sequoia would shadow it — force NS-6 to front LAST.
-for p in (os.path.join(_ROOT, "Project_Sequoia", "terminal"), _ROOT):
+for p in (os.path.join(_ROOT, "Project_Sequoia", "terminal"),
+          _ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 _NS6 = os.path.dirname(os.path.abspath(__file__))
@@ -172,6 +173,53 @@ def _vix_regime(vix):
     return "R4"       # Stagflation
 
 
+def _ns5_target_weights(closes, tickers, as_of, lookback=504):
+    """NS-5 frontier target weights via closed-form tangency (max Sharpe).
+
+    compute_frontier() returns the frontier CURVE but NOT the weight vector,
+    so we replicate NS-5's methodology: Ledoit-Wolf shrunk covariance +
+    closed-form tangency w = inv(Σ)μ, clipped ≥0, normalized — the same
+    approach the NS-5 regime checkers use. Causal (data ≤ as_of only).
+
+    NOTE: Ledoit-Wolf is inlined here (not `from frontier import`) because
+    NS-5's frontier.py imports NS-5 config/data_fetcher, whose `config`
+    collides with NS-6's `config` on sys.path. Returns dict or None (fallback).
+
+    Returns dict {ticker: weight} or None on failure (caller falls back).
+    """
+    from sklearn.covariance import LedoitWolf
+
+    available = [t for t in tickers if t in closes.columns]
+    if len(available) < 3:
+        return None
+    sub = closes[available][closes.index <= as_of].tail(lookback).copy()
+    if len(sub) < 120:
+        return None
+    rets = sub.pct_change().dropna()
+    if len(rets) < 60:
+        return None
+    mu = rets.mean().to_numpy() * 252.0
+    cov = LedoitWolf().fit(rets.to_numpy()).covariance_ * 252.0
+    # Tangency weights: w = inv(Σ)μ, then clip ≥0 and normalize.
+    try:
+        inv_cov = np.linalg.inv(cov)
+        w = inv_cov @ mu
+        w = np.clip(w, 0, None)
+        s = w.sum()
+        if s <= 1e-9:
+            return None
+        w = w / s
+    except np.linalg.LinAlgError:
+        return None
+    # Zero out near-zero weights (numerical noise) and renormalize.
+    w = np.where(w < 1e-4, 0.0, w)
+    s = w.sum()
+    if s <= 0:
+        return None
+    w = w / s
+    return {t: float(wi) for t, wi in zip(available, w) if wi > 0}
+
+
 def _phase2_signals(valid, dates, day, theta):
     """Compute the 4 Phase 2 signals at rebalance day (causal, ≤ day)."""
     i = dates.get_loc(day)
@@ -212,11 +260,13 @@ def _phase2_signals(valid, dates, day, theta):
     return regime, vol_ratio, corr, vix_level, vix_trend
 
 
-def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1):
+def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="equal"):
     """Run quarterly rebalance with NS-6 exposure multiplier.
 
     phase=1: budget-only multiplier (compute_exposure_multiplier).
     phase=2: multi-signal v2 multiplier + protective put drag.
+    weighting="equal": equal-weight the selection.
+    weighting="ns5":   NS-5 frontier tangency (max-Sharpe) target weights.
 
     Returns dict: {years: {year: {...}}, trades_per_quarter, totals}.
     """
@@ -255,8 +305,11 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1):
         sel = sel + [t for t in NON_EQUITY if t in valid.columns]
         sel = list(dict.fromkeys(sel))  # dedupe, keep order
 
-        # 2. Equal-weight target across the selection.
-        tgt = target_weights(sel)
+        # 2. Target weights across the selection.
+        if weighting == "ns5":
+            tgt = _ns5_target_weights(valid, sel, day) or target_weights(sel)
+        else:
+            tgt = target_weights(sel)
 
         # 3. NS-6 exposure multiplier.
         spy_history = valid[SPY].iloc[: dates.get_loc(day) + 1]
@@ -392,6 +445,11 @@ def main():
     ap.add_argument("--end", default="2026-08-01")
     ap.add_argument("--top-n", type=int, default=12)
     ap.add_argument("--cost-bps", type=float, default=10.0)
+    ap.add_argument("--weighting", choices=["equal", "ns5"], default="equal",
+                    help="target-weight method: equal-weight or NS-5 frontier tangency")
+    ap.add_argument("--compare-weighting", action="store_true",
+                    help="run both equal and ns5 weighting side-by-side (uses --phase)")
+    ap.add_argument("--phase", type=int, default=2, choices=[1, 2])
     ap.add_argument("--force-fetch", action="store_true")
     ap.add_argument("--out", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
@@ -412,62 +470,87 @@ def main():
     print(f"  universe: {len(universe)} names, {len(closes.columns)} series "
           f"({len(closes)} days)")
 
-    print("  simulating Phase 1 (budget-only)...", flush=True)
-    r1 = simulate(closes, args.start, args.end, top_n=args.top_n,
-                  cost_bps=args.cost_bps, phase=1)
-    print("  simulating Phase 2 (multi-signal + puts)...", flush=True)
-    r2 = simulate(closes, args.start, args.end, top_n=args.top_n,
-                  cost_bps=args.cost_bps, phase=2)
+    if args.compare_weighting:
+        r1 = simulate(closes, args.start, args.end, top_n=args.top_n,
+                      cost_bps=args.cost_bps, phase=args.phase, weighting="equal")
+        r2 = simulate(closes, args.start, args.end, top_n=args.top_n,
+                      cost_bps=args.cost_bps, phase=args.phase, weighting="ns5")
+        _report_weighting(r1, r2, args, closes, phase_label=f"Phase {args.phase}")
+        return
 
-    g1 = evaluate(r1)[1]
-    g2 = evaluate(r2)[1]
-    print(f"\n## Acceptance Gate")
-    print(f"  Phase 1: {'PASS' if g1['passed'] else 'FAIL'} — excess {g1['excess_positive_years']}/{g1['n_years']} yrs, "
-          f"DD halved {g1['dd_halved_years']}/{g1['n_years']} yrs, trades/qtr {g1['avg_trades_per_quarter']:.1f}")
-    print(f"  Phase 2: {'PASS' if g2['passed'] else 'FAIL'} — excess {g2['excess_positive_years']}/{g2['n_years']} yrs, "
-          f"DD halved {g2['dd_halved_years']}/{g2['n_years']} yrs, trades/qtr {g2['avg_trades_per_quarter']:.1f}")
+    print(f"  simulating Phase {args.phase} (weighting={args.weighting})...", flush=True)
+    results = simulate(closes, args.start, args.end, top_n=args.top_n,
+                       cost_bps=args.cost_bps, phase=args.phase,
+                       weighting=args.weighting)
+    passed, gate = evaluate(results)
+    print(f"\n## Acceptance Gate: {'PASS' if passed else 'FAIL'}")
+    for k, v in gate.items():
+        print(f"  {k}: {v}")
 
-    print("\n## Comparison (Phase 1 vs Phase 2)")
-    print("| Metric | Phase 1 | Phase 2 | Delta |")
-    print("|--------|---------|---------|-------|")
-    rows = [
-        ("total port ret%", r1['total_port_ret']*100, r2['total_port_ret']*100),
-        ("total SPY ret%", r1['total_spy_ret']*100, r2['total_spy_ret']*100),
-        ("port max DD%", r1['port_max_dd']*100, r2['port_max_dd']*100),
-        ("DD ratio", r1['dd_ratio'], r2['dd_ratio']),
-        ("excess pos yrs", g1['excess_positive_years'], g2['excess_positive_years']),
-        ("DD halved yrs", g1['dd_halved_years'], g2['dd_halved_years']),
-        ("trades/qtr", r1['avg_trades_per_quarter'], r2['avg_trades_per_quarter']),
-    ]
-    for name, v1, v2 in rows:
-        print(f"| {name} | {v1:.1f} | {v2:.1f} | {v2 - v1:+.1f} |")
-
-    print("\n## Yearly (Phase 2)")
+    print("\n## Yearly")
     print("| Year | Port% | SPY% | Excess% | Port MaxDD% | SPY MaxDD% |")
     print("|------|-------|------|---------|-------------|------------|")
-    for y in sorted(r2["yearly"]):
-        v = r2["yearly"][y]
+    for y in sorted(results["yearly"]):
+        v = results["yearly"][y]
         print(f"| {y} | {v['port_ret']*100:.1f} | {v['spy_ret']*100:.1f} | "
               f"{v['excess']*100:+.1f} | {v['port_max_dd']*100:.1f} | "
               f"{v['spy_max_dd']*100:.1f} |")
 
+    print(f"\n## Totals")
+    print(f"  portfolio: {results['total_port_ret']*100:.1f}% | "
+          f"SPY: {results['total_spy_ret']*100:.1f}% | "
+          f"excess: {results['excess_total']*100:+.1f}pp")
+    print(f"  portfolio max DD: {results['port_max_dd']*100:.1f}% | "
+          f"SPY max DD: {results['spy_max_dd']*100:.1f}% | "
+          f"ratio: {results['dd_ratio']:.2f}")
+    print(f"  trades/quarter: {results['avg_trades_per_quarter']:.1f}")
+
     out = {"generated": datetime.now().isoformat(), "config": vars(args),
-           "phase1": {"results": r1, "gate": g1},
-           "phase2": {"results": r2, "gate": g2}}
+           "results": results, "gate": gate}
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2, default=str)
     print(f"\nJSON: {args.out}")
 
     # Research report (gitignored)
     with open(REPORT, "w") as f:
-        f.write(f"# NS-6 Walk-Forward Backtest (P1 vs P2) — {datetime.now():%Y-%m-%d}\n\n")
-        for lbl, g in (("Phase 1", g1), ("Phase 2", g2)):
-            f.write(f"## {lbl}: {'PASS' if g['passed'] else 'FAIL'}\n")
-            for k, v in g.items():
-                f.write(f"- {k}: {v}\n")
-            f.write("\n")
-        f.write(f"\n```json\n{json.dumps({'phase1': r1, 'phase2': r2}, indent=2, default=str)}\n```\n")
+        f.write(f"# NS-6 Walk-Forward Backtest (P{args.phase}, {args.weighting}) — {datetime.now():%Y-%m-%d}\n\n")
+        f.write(f"## {'PASS' if passed else 'FAIL'}\n")
+        for k, v in gate.items():
+            f.write(f"- {k}: {v}\n")
+        f.write(f"\n```json\n{json.dumps(results, indent=2, default=str)}\n```\n")
     print(f"Report: {REPORT}")
+
+
+def _report_weighting(r_eq, r_ns5, args, closes, phase_label="Phase 2"):
+    """Side-by-side equal vs ns5 weighting report for a fixed phase."""
+    g_eq = evaluate(r_eq)[1]
+    g_ns5 = evaluate(r_ns5)[1]
+    print(f"\n## {phase_label}: equal vs NS-5 frontier weighting")
+    print(f"  equal: {'PASS' if g_eq['passed'] else 'FAIL'} — excess {g_eq['excess_positive_years']}/{g_eq['n_years']}, "
+          f"DD halved {g_eq['dd_halved_years']}/{g_eq['n_years']}, trades/qtr {g_eq['avg_trades_per_quarter']:.1f}")
+    print(f"  ns5:   {'PASS' if g_ns5['passed'] else 'FAIL'} — excess {g_ns5['excess_positive_years']}/{g_ns5['n_years']}, "
+          f"DD halved {g_ns5['dd_halved_years']}/{g_ns5['n_years']}, trades/qtr {g_ns5['avg_trades_per_quarter']:.1f}")
+
+    print("\n| Metric | equal | ns5 | Delta |")
+    print("|--------|-------|-----|-------|")
+    rows = [
+        ("total port ret%", r_eq['total_port_ret']*100, r_ns5['total_port_ret']*100),
+        ("total SPY ret%", r_eq['total_spy_ret']*100, r_ns5['total_spy_ret']*100),
+        ("port max DD%", r_eq['port_max_dd']*100, r_ns5['port_max_dd']*100),
+        ("DD ratio", r_eq['dd_ratio'], r_ns5['dd_ratio']),
+        ("excess pos yrs", g_eq['excess_positive_years'], g_ns5['excess_positive_years']),
+        ("DD halved yrs", g_eq['dd_halved_years'], g_ns5['dd_halved_years']),
+        ("trades/qtr", r_eq['avg_trades_per_quarter'], r_ns5['avg_trades_per_quarter']),
+    ]
+    for name, v1, v2 in rows:
+        print(f"| {name} | {v1:.1f} | {v2:.1f} | {v2 - v1:+.1f} |")
+
+    out = {"generated": datetime.now().isoformat(), "config": vars(args),
+           "equal": {"results": r_eq, "gate": g_eq},
+           "ns5": {"results": r_ns5, "gate": g_ns5}}
+    with open(args.out, "w") as f:
+        json.dump(out, f, indent=2, default=str)
+    print(f"\nJSON: {args.out}")
 
 
 if __name__ == "__main__":

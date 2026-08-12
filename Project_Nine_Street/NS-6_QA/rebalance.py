@@ -160,8 +160,10 @@ def generate_funding_paths(current_weights, target_weights, nav,
                 trim = min(cur - tgt, shortfall / nav)  # weight to trim
                 if trim <= 0:
                     continue
-                trades.append(_build_trade(t, "SELL", -trim, nav, prices,
-                                           "largest_overweight", min_trade))
+                tr = _build_trade(t, "SELL", -trim, nav, prices,
+                                  "largest_overweight", min_trade)
+                if tr is not None:
+                    trades.append(tr)
                 shortfall -= trim * nav
             if shortfall > 1e-9:
                 partial = True
@@ -172,8 +174,10 @@ def generate_funding_paths(current_weights, target_weights, nav,
         for t, w in adds.items():
             funded = min(w * nav, funded_total * (w / add_w)) if add_w else 0
             weight_delta = funded / nav if nav else 0
-            trades.append(_build_trade(t, "BUY", weight_delta, nav, prices,
-                                       "new_position", min_trade))
+            tr = _build_trade(t, "BUY", weight_delta, nav, prices,
+                              "new_position", min_trade)
+            if tr is not None:
+                trades.append(tr)
         p = _finish("B: Trim overweights", trades, partial)
         if p:
             paths.append(p)
@@ -184,12 +188,16 @@ def generate_funding_paths(current_weights, target_weights, nav,
         trades = []
         bil_fund = min(bil, add_cost / nav)
         if bil_fund > 0:
-            trades.append(_build_trade("BIL", "SELL", -bil_fund, nav, prices,
-                                       "cash_reserve", min_trade))
+            tr = _build_trade("BIL", "SELL", -bil_fund, nav, prices,
+                              "cash_reserve", min_trade)
+            if tr is not None:
+                trades.append(tr)
         for t, w in adds.items():
             funded = min(w, bil_fund)  # capped by BIL available
-            trades.append(_build_trade(t, "BUY", funded, nav, prices,
-                                       "new_position", min_trade))
+            tr = _build_trade(t, "BUY", funded, nav, prices,
+                              "new_position", min_trade)
+            if tr is not None:
+                trades.append(tr)
         partial = bil_fund < (add_cost / nav)
         p = _finish("C: Draw cash reserve", trades, partial)
         if p:
@@ -207,15 +215,19 @@ def generate_funding_paths(current_weights, target_weights, nav,
 
         lowest = min(existing.keys(), key=_score)
         cur_w, _ = existing[lowest]
-        trades.append(_build_trade(lowest, "SELL", -cur_w, nav, prices,
-                                   "lowest_conviction", min_trade))
+        tr = _build_trade(lowest, "SELL", -cur_w, nav, prices,
+                          "lowest_conviction", min_trade)
+        if tr is not None:
+            trades.append(tr)
         proceeds = cur_w * nav
         partial = proceeds < add_cost
         add_w = sum(adds.values())
         for t, w in adds.items():
             funded = min(w * nav, proceeds * (w / add_w)) if add_w else 0
-            trades.append(_build_trade(t, "BUY", funded / nav, nav, prices,
-                                       "new_position", min_trade))
+            tr = _build_trade(t, "BUY", funded / nav, nav, prices,
+                              "new_position", min_trade)
+            if tr is not None:
+                trades.append(tr)
         p = _finish("D: Remove lowest conviction", trades, partial)
         if p:
             paths.append(p)

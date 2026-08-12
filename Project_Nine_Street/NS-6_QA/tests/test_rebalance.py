@@ -139,6 +139,24 @@ def test_min_trade_size_suppresses_small_trades():
             assert t["shares"] >= 0
 
 
+def test_concentrated_target_no_none_crash():
+    """Regression: concentrated NS-5 tangency weights suppress many trades
+    below min size. Path B must NOT crash on the suppressed None trades
+    when computing funded_total (found via ns6_backtest --weighting ns5)."""
+    # Many tiny targets below 0.5% min + a few large ones. Equal-weight
+    # portfolios never trigger this; concentrated weights do.
+    cur = {f"T{i}": 0.1 for i in range(9)}
+    cur["BIL"] = 0.1
+    tgt = {"T0": 0.45, "T1": 0.35, "BIL": 0.20}  # rest suppressed (0 weight)
+    # T0-T8 not in PRICES → shares round to 0 → suppressed; exercises None path.
+    paths = _run(cur, tgt)
+    # Must not raise; each trade is a dict (never None).
+    for p in paths:
+        for t in p["trades"]:
+            assert isinstance(t, dict)
+            assert t["shares"] >= 0
+
+
 def test_paths_ranked_by_fewest_trades():
     cur = {"MSFT": 0.10, "BIL": 0.90}
     tgt = {"NVDA": 0.10, "BIL": 0.90}
