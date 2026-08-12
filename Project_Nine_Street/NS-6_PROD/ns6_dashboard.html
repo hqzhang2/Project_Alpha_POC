@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-6 Drawdown Engine</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0b0f17; color: #dbe4f0; font-size: 13px; line-height: 1.5;
+  }
+  .hdr {
+    display: flex; align-items: center; gap: 12px; padding: 12px 24px;
+    background: #111827; border-bottom: 1px solid #1f2937;
+  }
+  .hdr h1 { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .hdr .sub { font-size: 11px; color: #64748b; }
+  .hdr .spacer { flex: 1; }
+  .hdr .asof { font-size: 11.5px; color: #64748b; font-variant-numeric: tabular-nums; }
+
+  .shell { display: grid; grid-template-columns: 1fr 360px; max-width: 1500px; margin: 0 auto; }
+  .main { padding: 18px 22px; min-width: 0; }
+  .rail {
+    background: #0d1420; border-left: 1px solid #1f2937; padding: 14px;
+    overflow-y: auto; max-height: calc(100vh - 50px); position: sticky; top: 50px;
+  }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .kpi {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px 14px;
+  }
+  .kpi .lab { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  .kpi .val { font-size: 20px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .val .u { font-size: 12px; color: #64748b; font-weight: 600; margin-left: 2px; }
+  .kpi .note { font-size: 10px; color: #94a3b8; margin-top: 3px; }
+
+  .panel {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .panel h3 { font-size: 12px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .panel h3 .summary { float: right; font-size: 11px; color: #94a3b8; text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+  /* Profile switch */
+  .profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .profile-card {
+    background: #0d1420; border: 1px solid #1f2937; border-radius: 8px; padding: 12px;
+    cursor: pointer; transition: all .15s; text-align: left; color: inherit; font: inherit;
+  }
+  .profile-card:hover { border-color: #3b82f6; }
+  .profile-card.active { border-color: #4ade80; background: #0f1a14; }
+  .profile-card.suggested { border-color: #f0b429; }
+  .profile-card .nm { font-weight: 800; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .badge { font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
+  .badge.active-b { background: #14532d; color: #4ade80; }
+  .badge.sugg-b { background: #4d3d00; color: #f0b429; }
+  .profile-card .desc { font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.4; }
+
+  .suggestion { display: flex; align-items: center; gap: 10px; margin-top: 12px;
+    padding: 10px 12px; border-radius: 8px; background: #4d3d00; border: 1px solid #f0b429; }
+  .suggestion.none { background: #0d1420; border-color: #1f2937; }
+  .suggestion .txt { flex: 1; font-size: 12px; }
+  .suggestion .act { font-size: 11px; font-weight: 700; }
+
+  /* Status rows */
+  .rows { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 18px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; }
+  .row .k { color: #94a3b8; }
+  .row .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .row .v.warn { color: #f0b429; }
+  .row .v.bad { color: #f87171; }
+  .row .v.good { color: #4ade80; }
+
+  /* Tiers / events */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 5px;
+    background: #1f2937; color: #94a3b8; border: 1px solid #30363d; }
+  .chip.on { background: #4d3d00; color: #f0b429; border-color: #f0b429; }
+
+  .evt { font-size: 11px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; border: 1px solid #1f2937; }
+  .evt.bad { background: #3b0d0d; border-color: #f87171; color: #fca5a5; }
+  .evt.warn { background: #4d3d00; border-color: #f0b429; color: #fde68a; }
+  .evt.good { background: #0f1a14; border-color: #4ade80; color: #86efac; }
+  .evt .e-h { font-weight: 800; }
+  .evt .e-d { color: #94a3b8; margin-top: 2px; }
+  .empty-note { font-size: 11px; color: #64748b; font-style: italic; }
+
+  /* Forms */
+  .scenario-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 9.5px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  .field input, .field select {
+    background: #0d1420; border: 1px solid #30363d; border-radius: 6px;
+    color: #dbe4f0; padding: 6px 8px; font-size: 12px; min-width: 110px;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: #3b82f6; }
+
+  .mode-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+  .mode-tab { padding: 6px 12px; border-radius: 6px; border: 1px solid #30363d;
+    background: #0d1420; color: #94a3b8; cursor: pointer; font-size: 11px; font-weight: 700; }
+  .mode-tab.active { background: #1f2937; color: #4ade80; border-color: #4ade80; }
+  .scenario-form.hidden, .mode-body.hidden { display: none; }
+
+  /* Funding paths */
+  .path { font-size: 11px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px;
+    border: 1px solid #1f2937; background: #0d1420; }
+  .path .p-h { font-weight: 700; color: #94a3b8; }
+  .path .p-m { color: #dbe4f0; margin-top: 3px; white-space: pre-wrap; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
+
+  .btn {
+    padding: 8px 14px; border-radius: 6px; border: 1px solid #30363d;
+    background: #1f2937; color: #dbe4f0; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .btn:hover { border-color: #4ade80; color: #4ade80; }
+  .btn.primary { background: #14532d; border-color: #4ade80; color: #4ade80; }
+
+  .err { color: #f87171; font-size: 12px; margin-top: 10px; }
+  .ok { color: #4ade80; font-size: 12px; margin-top: 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2937; }
+  th { color: #64748b; font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; }
+  td { font-variant-numeric: tabular-nums; }
+  .u-URGENT { color: #f87171; font-weight: 800; }
+  .u-RECOMMENDED { color: #f0b429; font-weight: 700; }
+  .u-CONSIDER { color: #93c5fd; }
+  .u-MONITOR { color: #64748b; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: #111827; border: 1px solid #30363d; border-radius: 10px;
+    max-width: 520px; width: 90%; max-height: 80vh; overflow: auto; padding: 16px 18px;
+  }
+  .modal h3 { font-size: 13px; font-weight: 800; margin-bottom: 10px; color: #dbe4f0; }
+  .modal .close { float: right; cursor: pointer; color: #64748b; font-size: 16px; font-weight: 700; }
+  .modal .close:hover { color: #f87171; }
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1>NS-6 Drawdown Engine</h1>
+  <div class="sub">Scenario Cockpit · Target-Point Profiles · Fast De-Risking · Regime Nudge</div>
+  <div class="spacer"></div>
+  <div class="asof">updated <span id="asof">—</span></div>
+</div>
+
+<div class="shell">
+  <div class="main">
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Exposure Multiplier</div>
+        <div class="val" id="kpi-mult">—</div><div class="note">fast VIX-smile cap</div></div>
+      <div class="kpi"><div class="lab">Budget Remaining</div>
+        <div class="val" id="kpi-budget">—</div><div class="note">drawdown budget left</div></div>
+      <div class="kpi"><div class="lab">Current Drawdown</div>
+        <div class="val" id="kpi-dd">—</div><div class="note">portfolio drawdown</div></div>
+      <div class="kpi"><div class="lab">Macro Regime</div>
+        <div class="val" id="kpi-regime">—</div><div class="note" id="kpi-regime-note">R1-R4 axis</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Target-Point Profile — PM Switch (advisory nudge, never auto)</h3>
+      <div class="profile-grid" id="profileGrid"></div>
+      <div class="suggestion" id="suggestion">
+        <span class="txt" id="sugg-text">Loading...</span>
+        <button class="act btn" id="sugg-btn" style="display:none">Switch</button>
+      </div>
+      <div class="err" id="err"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Portfolio — drawdown cockpit source</h3>
+      <div class="scenario-form">
+        <div class="field"><label>Portfolio source</label>
+          <select id="portfolioSelect" onchange="onPortfolioChange()"></select></div>
+        <button class="btn" onclick="showPortfolioModal()">View composition</button>
+      </div>
+      <div class="row" style="margin-top:4px"><span class="k">Current</span>
+        <span class="v" id="pf-current">—</span></div>
+      <div class="row"><span class="k">Source type</span>
+        <span class="v" id="pf-type">—</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Enforcement Status</h3>
+      <div class="rows">
+        <div class="row"><span class="k">Active profile</span><span class="v" id="s-active">—</span></div>
+        <div class="row"><span class="k">Suggested profile</span><span class="v" id="s-suggested">—</span></div>
+        <div class="row"><span class="k">Regime</span><span class="v" id="s-regime">—</span></div>
+        <div class="row"><span class="k">Exposure multiplier</span><span class="v" id="s-mult">—</span></div>
+        <div class="row"><span class="k">SPY drawdown</span><span class="v" id="s-spydd">—</span></div>
+        <div class="row"><span class="k">Budget pct</span><span class="v" id="s-budget">—</span></div>
+        <div class="row"><span class="k">Budget remaining</span><span class="v" id="s-rem">—</span></div>
+        <div class="row"><span class="k">Covered calls</span><span class="v" id="s-cc">—</span></div>
+      </div>
+      <div style="margin-top:10px"><div class="row"><span class="k">Active signal tiers</span></div>
+        <div class="chips" id="s-tiers"></div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Enforcement Events</h3>
+      <div id="events"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Scenario Cockpit <span class="summary">advisory — PM decides</span></h3>
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="add" onclick="setMode('add')">Add</button>
+        <button class="mode-tab" data-mode="remove" onclick="setMode('remove')">Remove</button>
+        <button class="mode-tab" data-mode="replace" onclick="setMode('replace')">Replace</button>
+      </div>
+
+      <div class="mode-body" id="mode-add">
+        <div class="scenario-form">
+          <div class="field"><label>Ticker</label><input id="sc-add-ticker" placeholder="AAPL"></div>
+          <div class="field"><label>Weight (0-1)</label><input id="sc-add-wt" type="number" step="0.01" min="0" max="1" value="0.03"></div>
+          <div class="field"><label>NAV</label><input id="sc-add-nav" type="number" step="10000" value="1000000"></div>
+          <button class="btn primary" onclick="runScenario('add')">Analyze Add</button>
+        </div>
+      </div>
+      <div class="mode-body hidden" id="mode-remove">
+        <div class="scenario-form">
+          <div class="field"><label>Ticker</label><input id="sc-rm-ticker" placeholder="AAPL"></div>
+          <div class="field"><label>NAV</label><input id="sc-rm-nav" type="number" step="10000" value="1000000"></div>
+          <button class="btn primary" onclick="runScenario('remove')">Analyze Remove</button>
+        </div>
+      </div>
+      <div class="mode-body hidden" id="mode-replace">
+        <div class="scenario-form">
+          <div class="field"><label>Remove</label><input id="sc-rp-rm" placeholder="AAPL"></div>
+          <div class="field"><label>Add</label><input id="sc-rp-add" placeholder="MSFT"></div>
+          <div class="field"><label>Weight (0-1)</label><input id="sc-rp-wt" type="number" step="0.01" min="0" max="1" value="0.03"></div>
+          <div class="field"><label>NAV</label><input id="sc-rp-nav" type="number" step="10000" value="1000000"></div>
+          <button class="btn primary" onclick="runScenario('replace')">Analyze Replace</button>
+        </div>
+      </div>
+      <div class="ok" id="sc-ok"></div>
+      <div class="err" id="sc-err"></div>
+      <div id="sc-result"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Drift Alert Inbox</h3>
+      <div id="drift"></div>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="panel" style="margin-bottom:0">
+      <h3>Profile Guide</h3>
+      <div id="guide">
+        <p style="font-size:11px;color:#94a3b8;margin-bottom:8px">
+        Three switchable target points on the return/drawdown frontier. The
+        system computes <b>all three</b>; the PM decides which to be at and
+        flips on regime shift / conviction.</p>
+        <div id="guideCards"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pfModal" onclick="if(event.target===this)closePortfolioModal()">
+  <div class="modal">
+    <span class="close" onclick="closePortfolioModal()">&times;</span>
+    <h3 id="pfModalTitle">Portfolio</h3>
+    <div id="pfModalBody"></div>
+  </div>
+</div>
+
+<script>
+let PROFILES = [];
+let STATUS = {};
+let PORTFOLIO = null;
+
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+async function refreshProfile() {
+  const d = await api('/api/profile');
+  PROFILES = d.available || [];
+  renderProfileGrid(d.active_profile);
+}
+
+async function refreshStatus() {
+  const d = await api('/api/enforcement/status');
+  STATUS = d;
+  renderStatus();
+  renderEvents();
+}
+
+// ── Profile grid + suggestion ───────────────────────────────────────────
+function renderProfileGrid(active) {
+  const grid = document.getElementById('profileGrid');
+  grid.innerHTML = '';
+  PROFILES.forEach(p => {
+    const cls = ['profile-card'];
+    if (p.name === active) cls.push('active');
+    if (STATUS.suggested_profile === p.name && p.name !== active) cls.push('suggested');
+    const btn = document.createElement('button');
+    btn.className = cls.join(' ');
+    const badges = (p.name === active ? '<span class="badge active-b">ACTIVE</span>' : '') +
+      (STATUS.suggested_profile === p.name && p.name !== active ? '<span class="badge sugg-b">SUGGESTED</span>' : '');
+    btn.innerHTML = '<div class="nm">' + p.label.split(' (')[0] + ' ' + badges + '</div>' +
+      '<div class="desc">' + (p.description || '') + '</div>';
+    btn.onclick = () => switchProfile(p.name);
+    grid.appendChild(btn);
+  });
+}
+
+function renderGuide() {
+  const g = document.getElementById('guideCards');
+  g.innerHTML = '';
+  PROFILES.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'profile-card';
+    card.style.cursor = 'default';
+    card.innerHTML = '<div class="nm">' + p.label.split(' (')[0] + '</div>' +
+      '<div class="desc">' + (p.description || '') + '</div>';
+    g.appendChild(card);
+  });
+}
+
+async function switchProfile(name) {
+  try {
+    const d = await api('/api/profile', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({profile: name})
+    });
+    document.getElementById('err').textContent = '';
+    renderProfileGrid(d.active_profile);
+    refreshStatus();
+    refreshPortfolio();
+  } catch (e) {
+    document.getElementById('err').textContent = e.message;
+  }
+}
+
+// ── Portfolio source ────────────────────────────────────────────────────
+async function refreshPortfolio() {
+  try {
+    const d = await api('/api/portfolio');
+    PORTFOLIO = d;
+    const sel = document.getElementById('portfolioSelect');
+    sel.innerHTML = '';
+    const opts = [];
+    // NS-5 portfolios first, then a single "Model (active profile)" option.
+    (d.ns5_portfolios || []).forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      if (d.source === n) o.selected = true;
+      opts.push(o);
+    });
+    const m = document.createElement('option');
+    m.value = 'model';
+    m.dataset.model = '1';
+    m.textContent = 'Model (' + d.active_profile + ')';
+    if (d.is_model) m.selected = true;
+    opts.push(m);
+    opts.forEach(o => sel.appendChild(o));
+    document.getElementById('pf-current').textContent =
+      d.is_model ? 'Model portfolio (' + d.active_profile + ')' : d.source;
+    document.getElementById('pf-type').textContent =
+      d.is_model ? 'Model (per active profile)' : 'NS-5 portfolio';
+  } catch (e) {
+    document.getElementById('err').textContent = 'Portfolio load failed: ' + e.message;
+  }
+}
+
+async function onPortfolioChange() {
+  const sel = document.getElementById('portfolioSelect');
+  const value = sel.value;
+  try {
+    await api('/api/portfolio', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source: value})
+    });
+    await refreshPortfolio();
+    await refreshStatus();
+  } catch (e) {
+    document.getElementById('err').textContent = e.message;
+  }
+}
+
+function showPortfolioModal() {
+  const d = PORTFOLIO;
+  if (!d) return;
+  const isModel = d.is_model;
+  const title = isModel ? 'Model portfolio (' + d.source + ')' : d.source;
+  // NS-5: raw shares from the 'shares' field; model: weights from 'holdings'.
+  const items = isModel ? (d.holdings || {}) : (d.shares || {});
+  let rows = Object.keys(items).map(tk => {
+    const v = items[tk];
+    return '<tr><td><b>' + tk + '</b></td>' +
+      '<td>' + (isModel ? (v * 100).toFixed(1) + '%' : v) + '</td>' +
+      (isModel ? '<td>' + (v * 100).toFixed(1) + '%</td>' : '<td></td>') +
+      '</tr>';
+  }).join('');
+  const modal = document.getElementById('pfModal');
+  document.getElementById('pfModalTitle').textContent = title;
+  document.getElementById('pfModalBody').innerHTML =
+    '<div style="font-size:11px;color:#94a3b8;margin-bottom:8px">' +
+    (isModel ? 'Weights (sum to 100%)' : 'Shares from NS-5') + ' — read only</div>' +
+    '<table><tr><th>Ticker</th><th>' + (isModel ? 'Weight' : 'Shares') + '</th>' +
+    (isModel ? '<th>%</th>' : '<th></th>') + '</tr>' + rows + '</table>';
+  modal.style.display = 'block';
+}
+
+function closePortfolioModal() {
+  document.getElementById('pfModal').style.display = 'none';
+}
+
+// ── Status rendering ────────────────────────────────────────────────────
+function renderStatus() {
+  const set = (id, v, cls) => {
+    const el = document.getElementById(id);
+    el.textContent = v;
+    el.className = 'v' + (cls ? ' ' + cls : '');
+  };
+  set('s-active', STATUS.active_profile || '—');
+  set('s-suggested', STATUS.suggested_profile || '—');
+  set('s-regime', STATUS.regime || '—');
+  set('s-mult', (STATUS.exposure_multiplier ?? '—').toFixed ? (STATUS.exposure_multiplier*100).toFixed(1)+'%' : '—');
+  set('s-spydd', STATUS.spy_drawdown_pct !== undefined ? (STATUS.spy_drawdown_pct*100).toFixed(1)+'%' : '—',
+      STATUS.spy_drawdown_pct < -0.1 ? 'bad' : '');
+  set('s-budget', STATUS.budget_pct !== undefined ? (STATUS.budget_pct*100).toFixed(1)+'%' : '—');
+  set('s-rem', STATUS.budget_remaining_pct !== undefined ? (STATUS.budget_remaining_pct*100).toFixed(0)+'%' : '—');
+  set('s-cc', STATUS.covered_calls_gated ? 'GATED' : 'OPEN', STATUS.covered_calls_gated ? 'warn' : 'good');
+
+  // Tiers
+  const tiers = STATUS.active_tiers || [];
+  const chips = document.getElementById('s-tiers');
+  chips.innerHTML = tiers.length
+    ? tiers.map(t => '<span class="chip on">' + t + '</span>').join('')
+    : '<span class="chip">none</span>';
+
+  // KPIs
+  document.getElementById('kpi-mult').textContent =
+    STATUS.exposure_multiplier !== undefined ? (STATUS.exposure_multiplier*100).toFixed(0)+'%' : '—';
+  document.getElementById('kpi-budget').textContent =
+    STATUS.budget_remaining_pct !== undefined ? (STATUS.budget_remaining_pct*100).toFixed(0)+'%' : '—';
+  document.getElementById('kpi-dd').textContent =
+    STATUS.current_drawdown_pct !== undefined ? (STATUS.current_drawdown_pct*100).toFixed(1)+'%' : '—';
+  const rg = document.getElementById('kpi-regime');
+  rg.textContent = STATUS.regime || '—';
+  document.getElementById('kpi-regime-note').textContent =
+    STATUS.regime === 'R1' ? 'expansion → growth'
+    : STATUS.regime === 'R2' ? 'overheating → balanced'
+    : STATUS.regime === 'R3' ? 'recession → capital preservation'
+    : STATUS.regime === 'R4' ? 'stagflation → capital preservation'
+    : 'R1-R4 axis';
+  document.getElementById('asof').textContent = new Date().toLocaleTimeString();
+
+  // Suggestion — update text only, never destroy the btn ref.
+  const txt = document.getElementById('sugg-text');
+  const btn = document.getElementById('sugg-btn');
+  if (STATUS.suggestion_active && STATUS.suggested_profile) {
+    txt.textContent = 'Nudge: ' + (STATUS.suggestion_reason || 'regime shift') +
+      ' — consider switching to ' + STATUS.suggested_profile.toUpperCase();
+    btn.style.display = '';
+    btn.onclick = () => switchProfile(STATUS.suggested_profile);
+    document.getElementById('suggestion').className = 'suggestion';
+  } else if (STATUS.suggested_profile && STATUS.suggested_profile === STATUS.active_profile) {
+    txt.textContent = 'Profile aligned with regime (' + STATUS.suggestion_reason + ') — no action needed.';
+    btn.style.display = 'none';
+    document.getElementById('suggestion').className = 'suggestion none';
+  } else {
+    txt.textContent = STATUS.suggestion_reason || 'No regime suggestion available.';
+    btn.style.display = 'none';
+    document.getElementById('suggestion').className = 'suggestion none';
+  }
+  renderProfileGrid(STATUS.active_profile);
+  renderGuide();
+}
+
+// ── Enforcement events ──────────────────────────────────────────────────
+function renderEvents() {
+  const box = document.getElementById('events');
+  let html = '';
+  const cb = STATUS.circuit_breakers || [];
+  if (cb.length) {
+    html += cb.map(b =>
+      '<div class="evt bad"><div class="e-h">CIRCUIT BREAKER · ' + (b.breaker_type || '?').toUpperCase() +
+      '</div><div class="e-d">' + (b.detail || '') + (b.ticker ? ' · ' + b.ticker : '') + '</div></div>').join('');
+  }
+  const stops = STATUS.position_stops_triggered || [];
+  if (stops.length) {
+    html += stops.map(s =>
+      '<div class="evt warn"><div class="e-h">POSITION STOP · ' + (s.ticker || '?') +
+      '</div><div class="e-d">' + (s.detail || '') + '</div></div>').join('');
+  }
+  const puts = STATUS.protective_puts;
+  if (puts && puts.type) {
+    html += '<div class="evt warn"><div class="e-h">PROTECTIVE PUT</div><div class="e-d">type: ' +
+      (puts.type || '') + ' · notional ' + (puts.notional_pct != null ? (puts.notional_pct*100).toFixed(0)+'%' : '?') + '</div></div>';
+  }
+  if (STATUS.last_breaker_time) {
+    html += '<div class="evt good"><div class="e-h">LAST BREAKER</div><div class="e-d">' + STATUS.last_breaker_time + '</div></div>';
+  }
+  box.innerHTML = html || '<div class="empty-note">No enforcement events triggered.</div>';
+}
+
+// ── Scenario cockpit ────────────────────────────────────────────────────
+function setMode(mode) {
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.querySelectorAll('.mode-body').forEach(b => b.classList.add('hidden'));
+  document.getElementById('mode-' + mode).classList.remove('hidden');
+  document.getElementById('sc-result').innerHTML = '';
+  document.getElementById('sc-ok').textContent = '';
+  document.getElementById('sc-err').textContent = '';
+}
+
+async function runScenario(kind) {
+  const err = document.getElementById('sc-err');
+  const ok = document.getElementById('sc-ok');
+  err.textContent = ''; ok.textContent = '';
+  try {
+    const body = {};
+    if (kind === 'add') {
+      body.ticker = document.getElementById('sc-add-ticker').value.trim().toUpperCase();
+      body.proposed_weight = parseFloat(document.getElementById('sc-add-wt').value);
+      body.nav = parseFloat(document.getElementById('sc-add-nav').value);
+      if (!body.ticker) throw new Error('ticker required');
+    } else if (kind === 'remove') {
+      body.ticker = document.getElementById('sc-rm-ticker').value.trim().toUpperCase();
+      body.nav = parseFloat(document.getElementById('sc-rm-nav').value);
+      if (!body.ticker) throw new Error('ticker required');
+    } else {
+      body.remove = document.getElementById('sc-rp-rm').value.trim().toUpperCase();
+      body.add = document.getElementById('sc-rp-add').value.trim().toUpperCase();
+      body.proposed_weight = parseFloat(document.getElementById('sc-rp-wt').value);
+      body.nav = parseFloat(document.getElementById('sc-rp-nav').value);
+      if (!body.remove || !body.add) throw new Error('both remove and add required');
+    }
+    const d = await api('/api/scenario/' + kind, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    renderScenario(d);
+  } catch (e) {
+    err.textContent = e.message;
+  }
+}
+
+function renderScenario(d) {
+  const box = document.getElementById('sc-result');
+  const ok = document.getElementById('sc-ok');
+  ok.textContent = 'Scenario analyzed: ' + (d.kind || '') +
+    (d.new_ticker ? ' +' + d.new_ticker : '') + (d.removed_ticker ? ' −' + d.removed_ticker : '');
+
+  let html = '<div style="margin-top:8px"><b>Target weights:</b> ';
+
+  // Profile context — show the active profile's budget so switching is visible.
+  const pc = d.profile_context;
+  if (pc) {
+    html += '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Profile <b>' +
+      (pc.active_profile || '?') + '</b> · hard floor ' + (pc.hard_floor*100).toFixed(0) +
+      '% · SPY dd ratio ' + (pc.spy_dd_ratio*100).toFixed(0) +
+      '% · crisis floor ' + (pc.crisis_floor*100).toFixed(0) + '%</div>';
+  }
+
+  const tw = d.target_weights || {};
+  html += Object.keys(tw).map(t => t + ' ' + (tw[t]*100).toFixed(1) + '%').join(' · ');
+  html += '</div>';
+
+  const dd = d.drawdown_impact || {};
+  if (dd.worst_case_stop_cost != null) {
+    html += '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Worst-case stop cost (new pos): ' +
+      (dd.worst_case_stop_cost*100).toFixed(1) + '% of NAV</div>';
+  }
+
+  const paths = d.funding_paths || [];
+  if (paths.length) {
+    html += '<div style="margin-top:8px"><b>Funding paths:</b></div>';
+    paths.forEach((p, i) => {
+      const name = p && p.name ? p.name : ('Path ' + (i + 1));
+      const trades = p && Array.isArray(p.trades) ? p.trades : null;
+      let body;
+      if (trades && trades.length) {
+        body = trades.map(t =>
+          (t.action === 'SELL' ? 'SELL ' : 'BUY ') +
+          (t.ticker || '?') + ' ' + (t.shares != null ? t.shares + ' sh' : '') +
+          (t.weight_delta != null ? ' (' + (t.weight_delta * 100).toFixed(1) + '%)' : '') +
+          (t.reason ? ' — ' + t.reason : '')).join('\n');
+      } else if (trades && trades.length === 0) {
+        body = 'No trades in this path.';
+      } else {
+        body = JSON.stringify(p);  // unexpected shape — fall back to raw
+      }
+      const meta = (p && p.trade_count != null ? ' · ' + p.trade_count + ' trades' : '') +
+        (p && p.partial ? ' · PARTIAL' : '');
+      html += '<div class="path"><div class="p-h">' + name + meta +
+        '</div><div class="p-m">' + body + '</div></div>';
+    });
+  } else {
+    html += '<div class="empty-note" style="margin-top:6px">No funding paths generated.</div>';
+  }
+  box.innerHTML = html;
+}
+
+// ── Drift inbox ─────────────────────────────────────────────────────────
+async function refreshDrift() {
+  try {
+    // No current_weights in body — the server resolves from the cockpit's
+    // portfolio source (NS-5 portfolio or model). Keeps drift aligned with
+    // the selected portfolio.
+    const d = await api('/api/drift', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: '{}'
+    });
+    const box = document.getElementById('drift');
+    const alerts = d.alerts || [];
+    if (!alerts.length) {
+      box.innerHTML = '<div class="empty-note">' + (d.summary || 'Portfolio at target. No drift.') + '</div>';
+      return;
+    }
+    let html = '<div class="ok" style="font-size:11px">' + (d.summary || '') + '</div><table><tr>' +
+      '<th>Ticker</th><th>Cur</th><th>Tgt</th><th>Δ%</th><th>Dir</th><th>NS-2</th><th>Urgency</th><th>Recommendation</th></tr>';
+    alerts.forEach(a => {
+      html += '<tr><td><b>' + a.ticker + '</b></td><td>' + (a.current_wt*100).toFixed(1) + '%</td>' +
+        '<td>' + (a.target_wt*100).toFixed(1) + '%</td><td>' + a.delta_pct + '</td>' +
+        '<td>' + a.direction + '</td><td>' + a.ns2_regime + '</td>' +
+        '<td class="u-' + a.urgency + '">' + a.urgency + '</td><td>' + a.recommendation + '</td></tr>';
+    });
+    box.innerHTML = html + '</table>';
+  } catch (e) {
+    document.getElementById('drift').innerHTML = '<div class="err">Drift failed: ' + e.message + '</div>';
+  }
+}
+
+// ── Init + poll ─────────────────────────────────────────────────────────
+(async function init() {
+  try {
+    await refreshProfile();
+    await refreshStatus();
+    await refreshPortfolio();
+  } catch (e) {
+    document.getElementById('err').textContent = 'Failed to load: ' + e.message;
+  }
+  setInterval(refreshStatus, 15000);
+  setInterval(refreshProfile, 60000);
+  setInterval(refreshDrift, 60000);
+  setInterval(refreshPortfolio, 30000);
+  refreshDrift();
+})();
+</script>
+</body>
+</html>
