@@ -19,7 +19,7 @@ log = logging.getLogger("ns6.options")
 
 
 # ── Protective put overlay (Phase 2) ──────────────────────────────────────
-def recommend_put_overlay(multiplier, equity_notional, vix_level=None, theta=None):
+def recommend_put_overlay(multiplier, nav, vix_level=None, theta=None):
     """Return a protective put recommendation dict.
 
     Consumed by /api/enforcement/status and the backtest harness.
@@ -27,7 +27,7 @@ def recommend_put_overlay(multiplier, equity_notional, vix_level=None, theta=Non
     Parameters
     ----------
     multiplier : float — current exposure multiplier [0.25, 1.0]
-    equity_notional : float — total equity notional to hedge (NAV × equity_weight)
+    nav : float — total portfolio NAV ($)
     vix_level : float or None — VIX for cost estimation (None → use config proxy)
     theta : dict — config.load_theta() or None
 
@@ -36,39 +36,34 @@ def recommend_put_overlay(multiplier, equity_notional, vix_level=None, theta=Non
     dict: {
         "recommended": bool,
         "put_type": "otm_spy" | "atm_spy" | "itm_plus_individual",
-        "strike_offset_pct": float,   # % ITM/OTM (negative = ITM, positive = OTM)
-        "notional_to_hedge": float,
-        "estimated_premium_pct": float,  # % of notional (monthly)
-        "estimated_annual_cost_pct": float,
+        "strike_offset_pct": float,
+        "notional_to_hedge": float,         # absolute $ notional (scaled by multipler)
+        "estimated_annual_cost_pct": float, # drag as % of NAV (backtest: /252 daily)
         "rationale": str,
     }
 
-    Methodology decisions (frontier):
-      - multiplier ≥ 0.80 → no puts (budget ample, don't waste premium)
-      - multiplier ∈ [0.60, 0.80) → 5-10% OTM SPY puts (cheap, tail hedge only)
-      - multiplier ∈ [0.40, 0.60) → ATM SPY puts (moderate protection)
-      - multiplier < 0.40 → ITM SPY puts + individual position puts
-        (budget critical — max protection, accept premium cost)
-
-    Phase 2 approximation: parametric premium from VIX. Phase 3 wires live
-    Polygon option-chain data for exact pricing.
+    FRONTIER RESOLVED (2026-08): put notional scales with ACTUAL equity exposure
+    (multiplier × nav × coverage), not full NAV. When NS-6 has already de-risked
+    to 25% equity, insurance covers only the remaining 25% — not the full book.
+    Prevents the counterproductive "insure a de-risked position" trap found in
+    Phase 2 backtest (put drag at floor was 17%/yr on 100% NAV vs ≤2%/yr fix).
     """
     theta = theta or config.load_theta()
     pp = theta["protective_puts"]
     gate = pp["gate_multiplier"]
     bands = pp["bands"]
+    nav = nav or 0
 
     if multiplier >= gate:
         return _no_put("multiplier above gate", gate)
 
-    equity_notional = equity_notional or 0
-    premium = estimate_put_cost_pct(vix_level, theta)  # ATM base cost
+    monthly_cost = estimate_put_cost_pct(vix_level, theta)  # ATM base (monthly, % hedge notional)
 
     if multiplier >= bands["otm"]["low"]:  # [0.60, 0.80)
         strike_pct = bands["otm"]["strike_pct"]
         put_type = "otm_spy"
         rationale = "Tail hedge — cheap OTM insurance."
-        premium *= 0.6  # OTM is ~60% of ATM cost
+        monthly_cost *= 0.6  # OTM is ~60% of ATM cost
 
     elif multiplier >= bands["atm"]["low"]:  # [0.40, 0.60)
         strike_pct = bands["atm"]["strike_pct"]
@@ -80,18 +75,19 @@ def recommend_put_overlay(multiplier, equity_notional, vix_level=None, theta=Non
         strike_pct = bands["itm"]["strike_pct"]
         put_type = "itm_plus_individual"
         rationale = "Max protection — budget critical. ITM + individual position puts."
-        premium *= 1.4  # ITM is ~40% more expensive
+        monthly_cost *= 1.4  # ITM is ~40% more expensive
 
-    notional = equity_notional * pp["spy_overlay_coverage"]
-    annual = premium * 12  # annualized (monthly premium × 12)
+    coverage = pp["spy_overlay_coverage"]
+    notional = nav * multiplier * coverage  # actual equity at risk × coverage
+    # annual cost as fraction of NAV: monthly × 12 × (notional/nav) = 12 × monthly × multiplier × coverage
+    annual_cost_pct = monthly_cost * 12 * multiplier * coverage
 
     return {
         "recommended": True,
         "put_type": put_type,
         "strike_offset_pct": round(strike_pct, 3),
         "notional_to_hedge": round(notional, 0),
-        "estimated_premium_pct": round(premium, 4),
-        "estimated_annual_cost_pct": round(annual, 4),
+        "estimated_annual_cost_pct": round(annual_cost_pct, 4),
         "rationale": rationale,
     }
 
@@ -102,7 +98,6 @@ def _no_put(reason, gate):
         "put_type": None,
         "strike_offset_pct": None,
         "notional_to_hedge": 0,
-        "estimated_premium_pct": 0.0,
         "estimated_annual_cost_pct": 0.0,
         "rationale": f"{reason} (≥ {gate})",
     }
