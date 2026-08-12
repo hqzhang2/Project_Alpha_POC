@@ -55,6 +55,21 @@ DEFAULT_WEIGHTS = {
 }
 
 
+def _serve_dashboard(handler):
+    """Serve ns6_dashboard.html (the portal-facing UI)."""
+    dash_path = Path(__file__).resolve().parent / "ns6_dashboard.html"
+    if not dash_path.exists():
+        handler._json({"error": "ns6_dashboard.html not found"}, 404)
+        return
+    with open(dash_path, "rb") as fh:
+        body = fh.read()
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/html; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 class NS6Handler(BaseHTTPRequestHandler):
     # ── HTTP plumbing ────────────────────────────────────────────────────
     def log_message(self, format, *args):  # quieter
@@ -91,6 +106,8 @@ class NS6Handler(BaseHTTPRequestHandler):
     # ── Routes ───────────────────────────────────────────────────────────
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path in ("/", "/index.html", "/ns6_dashboard.html"):
+            return _serve_dashboard(self)
         if path == "/health":
             return self._json({"status": "ok", "service": "NS-6", "env": ENV,
                                "port": PORT})

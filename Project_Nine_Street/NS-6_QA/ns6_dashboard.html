@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-6 Drawdown Engine</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0b0f17; color: #dbe4f0; font-size: 13px; line-height: 1.5;
+  }
+  .hdr {
+    display: flex; align-items: center; gap: 12px; padding: 12px 24px;
+    background: #111827; border-bottom: 1px solid #1f2937;
+  }
+  .hdr h1 { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .hdr .sub { font-size: 11px; color: #64748b; }
+  .hdr .spacer { flex: 1; }
+  .hdr .asof { font-size: 11.5px; color: #64748b; font-variant-numeric: tabular-nums; }
+
+  .shell { display: grid; grid-template-columns: 1fr 360px; max-width: 1500px; margin: 0 auto; }
+  .main { padding: 18px 22px; min-width: 0; }
+  .rail {
+    background: #0d1420; border-left: 1px solid #1f2937; padding: 14px;
+    overflow-y: auto; max-height: calc(100vh - 50px); position: sticky; top: 50px;
+  }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .kpi {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px 14px;
+  }
+  .kpi .lab { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  .kpi .val { font-size: 20px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .val .u { font-size: 12px; color: #64748b; font-weight: 600; margin-left: 2px; }
+  .kpi .note { font-size: 10px; color: #94a3b8; margin-top: 3px; }
+
+  .panel {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .panel h3 { font-size: 12px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+
+  /* Profile switch */
+  .profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .profile-card {
+    background: #0d1420; border: 1px solid #1f2937; border-radius: 8px; padding: 12px;
+    cursor: pointer; transition: all .15s; text-align: left; color: inherit; font: inherit;
+  }
+  .profile-card:hover { border-color: #3b82f6; }
+  .profile-card.active { border-color: #4ade80; background: #0f1a14; }
+  .profile-card.suggested { border-color: #f0b429; }
+  .profile-card .nm { font-weight: 800; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .profile-card .badge { font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
+  .badge.active-b { background: #14532d; color: #4ade80; }
+  .badge.sugg-b { background: #4d3d00; color: #f0b429; }
+  .profile-card .desc { font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.4; }
+
+  .suggestion { display: flex; align-items: center; gap: 10px; margin-top: 12px;
+    padding: 10px 12px; border-radius: 8px; background: #4d3d00; border: 1px solid #f0b429; }
+  .suggestion.none { background: #0d1420; border-color: #1f2937; }
+  .suggestion .txt { flex: 1; font-size: 12px; }
+  .suggestion .act { font-size: 11px; font-weight: 700; }
+
+  /* Status rows */
+  .rows { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 18px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; }
+  .row .k { color: #94a3b8; }
+  .row .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .row .v.warn { color: #f0b429; }
+  .row .v.bad { color: #f87171; }
+  .row .v.good { color: #4ade80; }
+
+  .btn {
+    padding: 8px 14px; border-radius: 6px; border: 1px solid #30363d;
+    background: #1f2937; color: #dbe4f0; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .btn:hover { border-color: #4ade80; color: #4ade80; }
+  .btn.primary { background: #14532d; border-color: #4ade80; color: #4ade80; }
+
+  .err { color: #f87171; font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1>NS-6 Drawdown Engine</h1>
+  <div class="sub">Target-Point Profiles · Fast De-Risking · Regime Nudge</div>
+  <div class="spacer"></div>
+  <div class="asof">updated <span id="asof">—</span></div>
+</div>
+
+<div class="shell">
+  <div class="main">
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Exposure Multiplier</div>
+        <div class="val" id="kpi-mult">—</div><div class="note">fast VIX-smile cap</div></div>
+      <div class="kpi"><div class="lab">Budget Remaining</div>
+        <div class="val" id="kpi-budget">—</div><div class="note">drawdown budget left</div></div>
+      <div class="kpi"><div class="lab">Current Drawdown</div>
+        <div class="val" id="kpi-dd">—</div><div class="note">portfolio drawdown</div></div>
+      <div class="kpi"><div class="lab">Macro Regime</div>
+        <div class="val" id="kpi-regime">—</div><div class="note" id="kpi-regime-note">R1-R4 axis</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Target-Point Profile — PM Switch (advisory nudge, never auto)</h3>
+      <div class="profile-grid" id="profileGrid"></div>
+      <div class="suggestion" id="suggestion">
+        <span class="txt" id="sugg-text">Loading...</span>
+      </div>
+      <div class="err" id="err"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Enforcement Status</h3>
+      <div class="rows">
+        <div class="row"><span class="k">Active profile</span><span class="v" id="s-active">—</span></div>
+        <div class="row"><span class="k">Suggested profile</span><span class="v" id="s-suggested">—</span></div>
+        <div class="row"><span class="k">Regime</span><span class="v" id="s-regime">—</span></div>
+        <div class="row"><span class="k">Exposure multiplier</span><span class="v" id="s-mult">—</span></div>
+        <div class="row"><span class="k">SPY drawdown</span><span class="v" id="s-spydd">—</span></div>
+        <div class="row"><span class="k">Budget pct</span><span class="v" id="s-budget">—</span></div>
+        <div class="row"><span class="k">Budget remaining</span><span class="v" id="s-rem">—</span></div>
+        <div class="row"><span class="k">Covered calls</span><span class="v" id="s-cc">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="panel" style="margin-bottom:0">
+      <h3>Profile Guide</h3>
+      <div id="guide">
+        <p style="font-size:11px;color:#94a3b8;margin-bottom:8px">
+        Three switchable target points on the return/drawdown frontier. The
+        system computes <b>all three</b>; the PM decides which to be at and
+        flips on regime shift / conviction.</p>
+        <div id="guideCards"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let PROFILES = [];
+let STATUS = {};
+
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+async function refreshProfile() {
+  const d = await api('/api/profile');
+  PROFILES = d.available || [];
+  renderProfileGrid(d.active_profile);
+}
+
+async function refreshStatus() {
+  const d = await api('/api/enforcement/status');
+  STATUS = d;
+  renderStatus();
+  updateSuggestion();
+}
+
+function renderProfileGrid(active) {
+  const grid = document.getElementById('profileGrid');
+  grid.innerHTML = '';
+  PROFILES.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'profile-card' + (p.name === active ? ' active' : '');
+    btn.innerHTML = '<div class="nm">' + p.label.split(' (')[0] +
+      (p.name === active ? ' <span class="badge active-b">ACTIVE</span>' : '') +
+      '</div><div class="desc">' + (p.description || '') + '</div>';
+    btn.onclick = () => switchProfile(p.name);
+    grid.appendChild(btn);
+  });
+}
+
+async function switchProfile(name) {
+  try {
+    const d = await api('/api/profile', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({profile: name})
+    });
+    document.getElementById('err').textContent = '';
+    renderProfileGrid(d.active_profile);
+    refreshStatus();
+  } catch (e) {
+    document.getElementById('err').textContent = e.message;
+  }
+}
+
+function renderStatus() {
+  const set = (id, v, cls) => {
+    const el = document.getElementById(id);
+    el.textContent = v;
+    el.className = 'v' + (cls ? ' ' + cls : '');
+  };
+  set('s-active', STATUS.active_profile || '—');
+  set('s-suggested', STATUS.suggested_profile || '—');
+  set('s-regime', STATUS.regime || '—');
+  set('s-mult', (STATUS.exposure_multiplier ?? '—').toFixed ? (STATUS.exposure_multiplier*100).toFixed(1)+'%' : '—');
+  set('s-spydd', STATUS.spy_drawdown_pct !== undefined ? (STATUS.spy_drawdown_pct*100).toFixed(1)+'%' : '—',
+      STATUS.spy_drawdown_pct < -0.1 ? 'bad' : '');
+  set('s-budget', STATUS.budget_pct !== undefined ? (STATUS.budget_pct*100).toFixed(1)+'%' : '—');
+  set('s-rem', STATUS.budget_remaining_pct !== undefined ? (STATUS.budget_remaining_pct*100).toFixed(0)+'%' : '—');
+  set('s-cc', STATUS.covered_calls_gated ? 'GATED' : 'OPEN', STATUS.covered_calls_gated ? 'warn' : 'good');
+
+  // KPIs
+  document.getElementById('kpi-mult').textContent =
+    STATUS.exposure_multiplier !== undefined ? (STATUS.exposure_multiplier*100).toFixed(0)+'%' : '—';
+  document.getElementById('kpi-budget').textContent =
+    STATUS.budget_remaining_pct !== undefined ? (STATUS.budget_remaining_pct*100).toFixed(0)+'%' : '—';
+  document.getElementById('kpi-dd').textContent =
+    STATUS.current_drawdown_pct !== undefined ? (STATUS.current_drawdown_pct*100).toFixed(1)+'%' : '—';
+  const rg = document.getElementById('kpi-regime');
+  rg.textContent = STATUS.regime || '—';
+  const regNote = document.getElementById('kpi-regime-note');
+  regNote.textContent = STATUS.regime === 'R1' ? 'expansion → growth'
+    : STATUS.regime === 'R2' ? 'overheating → balanced'
+    : STATUS.regime === 'R3' ? 'recession → capital preservation'
+    : STATUS.regime === 'R4' ? 'stagflation → capital preservation'
+    : 'R1-R4 axis';
+  document.getElementById('asof').textContent = new Date().toLocaleTimeString();
+}
+
+function updateSuggestion() {
+  const box = document.getElementById('suggestion');
+  const txt = document.getElementById('sugg-text');
+  if (STATUS.suggestion_active && STATUS.suggested_profile) {
+    box.className = 'suggestion';
+    txt.textContent = 'Nudge: ' + (STATUS.suggestion_reason || 'regime shift') +
+      ' — consider switching to ' + STATUS.suggested_profile.toUpperCase();
+    box.innerHTML = '<span class="txt">' + txt.textContent +
+      '</span><button class="act btn" onclick="switchProfile(\'' +
+      STATUS.suggested_profile + '\')">Switch</button>';
+  } else if (STATUS.suggested_profile && STATUS.suggested_profile === STATUS.active_profile) {
+    box.className = 'suggestion none';
+    txt.textContent = 'Profile aligned with regime (' + STATUS.suggestion_reason + ') — no action needed.';
+    box.innerHTML = '<span class="txt">' + txt.textContent + '</span>';
+  } else {
+    box.className = 'suggestion none';
+    txt.textContent = STATUS.suggestion_reason || 'No regime suggestion available.';
+    box.innerHTML = '<span class="txt">' + txt.textContent + '</span>';
+  }
+}
+
+// Initial load + poll
+(async function init() {
+  try {
+    await refreshProfile();
+    await refreshStatus();
+  } catch (e) {
+    document.getElementById('err').textContent = 'Failed to load: ' + e.message;
+  }
+  setInterval(refreshStatus, 15000);
+  setInterval(refreshProfile, 60000);
+})();
+</script>
+</body>
+</html>
