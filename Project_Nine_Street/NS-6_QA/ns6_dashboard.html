@@ -461,8 +461,24 @@ function renderScenario(d) {
   if (paths.length) {
     html += '<div style="margin-top:8px"><b>Funding paths:</b></div>';
     paths.forEach((p, i) => {
-      html += '<div class="path"><div class="p-h">Path ' + (i+1) + '</div>' +
-        '<div class="p-m">' + (p.detail || JSON.stringify(p)) + '</div></div>';
+      const name = p && p.name ? p.name : ('Path ' + (i + 1));
+      const trades = p && Array.isArray(p.trades) ? p.trades : null;
+      let body;
+      if (trades && trades.length) {
+        body = trades.map(t =>
+          (t.action === 'SELL' ? 'SELL ' : 'BUY ') +
+          (t.ticker || '?') + ' ' + (t.shares != null ? t.shares + ' sh' : '') +
+          (t.weight_delta != null ? ' (' + (t.weight_delta * 100).toFixed(1) + '%)' : '') +
+          (t.reason ? ' — ' + t.reason : '')).join('\n');
+      } else if (trades && trades.length === 0) {
+        body = 'No trades in this path.';
+      } else {
+        body = JSON.stringify(p);  // unexpected shape — fall back to raw
+      }
+      const meta = (p && p.trade_count != null ? ' · ' + p.trade_count + ' trades' : '') +
+        (p && p.partial ? ' · PARTIAL' : '');
+      html += '<div class="path"><div class="p-h">' + name + meta +
+        '</div><div class="p-m">' + body + '</div></div>';
     });
   } else {
     html += '<div class="empty-note" style="margin-top:6px">No funding paths generated.</div>';
