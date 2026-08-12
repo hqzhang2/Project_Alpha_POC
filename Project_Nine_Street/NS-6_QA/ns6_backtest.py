@@ -173,13 +173,18 @@ def _vix_regime(vix):
     return "R4"       # Stagflation
 
 
-def _ns5_target_weights(closes, tickers, as_of, lookback=504):
-    """NS-5 frontier target weights via closed-form tangency (max Sharpe).
+def _ns5_target_weights(closes, tickers, as_of, lookback=504, method="tangency"):
+    """NS-5 frontier target weights via closed-form frontier solutions.
 
     compute_frontier() returns the frontier CURVE but NOT the weight vector,
     so we replicate NS-5's methodology: Ledoit-Wolf shrunk covariance +
-    closed-form tangency w = inv(Σ)μ, clipped ≥0, normalized — the same
-    approach the NS-5 regime checkers use. Causal (data ≤ as_of only).
+    closed-form solution, clipped ≥0, normalized. Causal (data ≤ as_of only).
+
+    method:
+      "tangency" — max-Sharpe portfolio w = inv(Σ)μ (return-sensitive).
+      "gmv"      — global minimum variance w = inv(Σ)1/(1'inv(Σ)1)
+                   (covariance-only, no expected-return estimates → more
+                   robust, less concentrated).
 
     NOTE: Ledoit-Wolf is inlined here (not `from frontier import`) because
     NS-5's frontier.py imports NS-5 config/data_fetcher, whose `config`
@@ -200,10 +205,14 @@ def _ns5_target_weights(closes, tickers, as_of, lookback=504):
         return None
     mu = rets.mean().to_numpy() * 252.0
     cov = LedoitWolf().fit(rets.to_numpy()).covariance_ * 252.0
-    # Tangency weights: w = inv(Σ)μ, then clip ≥0 and normalize.
+    # Closed-form weight vector per method.
     try:
         inv_cov = np.linalg.inv(cov)
-        w = inv_cov @ mu
+        if method == "gmv":
+            ones = np.ones(len(available))
+            w = inv_cov @ ones / (ones @ inv_cov @ ones)
+        else:  # tangency (max Sharpe)
+            w = inv_cov @ mu
         w = np.clip(w, 0, None)
         s = w.sum()
         if s <= 1e-9:
@@ -306,8 +315,9 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
         sel = list(dict.fromkeys(sel))  # dedupe, keep order
 
         # 2. Target weights across the selection.
-        if weighting == "ns5":
-            tgt = _ns5_target_weights(valid, sel, day) or target_weights(sel)
+        if weighting.startswith("ns5"):
+            method = "gmv" if weighting == "ns5-gmv" else "tangency"
+            tgt = _ns5_target_weights(valid, sel, day, method=method) or target_weights(sel)
         else:
             tgt = target_weights(sel)
 
@@ -445,8 +455,8 @@ def main():
     ap.add_argument("--end", default="2026-08-01")
     ap.add_argument("--top-n", type=int, default=12)
     ap.add_argument("--cost-bps", type=float, default=10.0)
-    ap.add_argument("--weighting", choices=["equal", "ns5"], default="equal",
-                    help="target-weight method: equal-weight or NS-5 frontier tangency")
+    ap.add_argument("--weighting", choices=["equal", "ns5", "ns5-gmv"], default="equal",
+                    help="target-weight method: equal-weight, NS-5 tangency, or NS-5 GMV")
     ap.add_argument("--compare-weighting", action="store_true",
                     help="run both equal and ns5 weighting side-by-side (uses --phase)")
     ap.add_argument("--phase", type=int, default=2, choices=[1, 2])
@@ -475,7 +485,10 @@ def main():
                       cost_bps=args.cost_bps, phase=args.phase, weighting="equal")
         r2 = simulate(closes, args.start, args.end, top_n=args.top_n,
                       cost_bps=args.cost_bps, phase=args.phase, weighting="ns5")
-        _report_weighting(r1, r2, args, closes, phase_label=f"Phase {args.phase}")
+        r3 = simulate(closes, args.start, args.end, top_n=args.top_n,
+                      cost_bps=args.cost_bps, phase=args.phase, weighting="ns5-gmv")
+        _report_weighting([r1, r2, r3], ["equal", "tangency", "gmv"],
+                          args, phase_label=f"Phase {args.phase}")
         return
 
     print(f"  simulating Phase {args.phase} (weighting={args.weighting})...", flush=True)
@@ -521,33 +534,40 @@ def main():
     print(f"Report: {REPORT}")
 
 
-def _report_weighting(r_eq, r_ns5, args, closes, phase_label="Phase 2"):
-    """Side-by-side equal vs ns5 weighting report for a fixed phase."""
-    g_eq = evaluate(r_eq)[1]
-    g_ns5 = evaluate(r_ns5)[1]
-    print(f"\n## {phase_label}: equal vs NS-5 frontier weighting")
-    print(f"  equal: {'PASS' if g_eq['passed'] else 'FAIL'} — excess {g_eq['excess_positive_years']}/{g_eq['n_years']}, "
-          f"DD halved {g_eq['dd_halved_years']}/{g_eq['n_years']}, trades/qtr {g_eq['avg_trades_per_quarter']:.1f}")
-    print(f"  ns5:   {'PASS' if g_ns5['passed'] else 'FAIL'} — excess {g_ns5['excess_positive_years']}/{g_ns5['n_years']}, "
-          f"DD halved {g_ns5['dd_halved_years']}/{g_ns5['n_years']}, trades/qtr {g_ns5['avg_trades_per_quarter']:.1f}")
+def _report_weighting(results, labels, args, phase_label="Phase 2"):
+    """Side-by-side weighting report (2+ variants) for a fixed phase."""
+    gates = [evaluate(r)[1] for r in results]
+    print(f"\n## {phase_label}: weighting comparison")
+    for lbl, g in zip(labels, gates):
+        print(f"  {lbl:8} {'PASS' if g['passed'] else 'FAIL'} — excess {g['excess_positive_years']}/{g['n_years']}, "
+              f"DD halved {g['dd_halved_years']}/{g['n_years']}, trades/qtr {g['avg_trades_per_quarter']:.1f}")
 
-    print("\n| Metric | equal | ns5 | Delta |")
-    print("|--------|-------|-----|-------|")
-    rows = [
-        ("total port ret%", r_eq['total_port_ret']*100, r_ns5['total_port_ret']*100),
-        ("total SPY ret%", r_eq['total_spy_ret']*100, r_ns5['total_spy_ret']*100),
-        ("port max DD%", r_eq['port_max_dd']*100, r_ns5['port_max_dd']*100),
-        ("DD ratio", r_eq['dd_ratio'], r_ns5['dd_ratio']),
-        ("excess pos yrs", g_eq['excess_positive_years'], g_ns5['excess_positive_years']),
-        ("DD halved yrs", g_eq['dd_halved_years'], g_ns5['dd_halved_years']),
-        ("trades/qtr", r_eq['avg_trades_per_quarter'], r_ns5['avg_trades_per_quarter']),
+    hdr = "| Metric |" + "|".join(f" {l} |" for l in labels)
+    print("\n" + hdr)
+    print("|" + "|".join("--------" for _ in labels) + "|")
+    metric_defs = [
+        ("total port ret%", lambda r: r['total_port_ret']*100),
+        ("total SPY ret%", lambda r: r['total_spy_ret']*100),
+        ("port max DD%", lambda r: r['port_max_dd']*100),
+        ("DD ratio", lambda r: r['dd_ratio']),
+        ("excess pos yrs", lambda r: None),
+        ("DD halved yrs", lambda r: None),
+        ("trades/qtr", lambda r: r['avg_trades_per_quarter']),
     ]
-    for name, v1, v2 in rows:
-        print(f"| {name} | {v1:.1f} | {v2:.1f} | {v2 - v1:+.1f} |")
+    for name, fn in metric_defs:
+        vals = []
+        for r, g in zip(results, gates):
+            if name.startswith("excess pos"):
+                vals.append(g['excess_positive_years'])
+            elif name.startswith("DD halved"):
+                vals.append(g['dd_halved_years'])
+            else:
+                vals.append(fn(r))
+        print(f"| {name} |" + "|".join(f" {v:.1f} " if isinstance(v, float) else f" {v} " for v in vals) + "|")
 
     out = {"generated": datetime.now().isoformat(), "config": vars(args),
-           "equal": {"results": r_eq, "gate": g_eq},
-           "ns5": {"results": r_ns5, "gate": g_ns5}}
+           "weightings": {lbl: {"results": r, "gate": g}
+                          for lbl, r, g in zip(labels, results, gates)}}
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2, default=str)
     print(f"\nJSON: {args.out}")
