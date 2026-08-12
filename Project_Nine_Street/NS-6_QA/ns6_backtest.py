@@ -269,13 +269,20 @@ def _phase2_signals(valid, dates, day, theta):
     return regime, vol_ratio, corr, vix_level, vix_trend
 
 
-def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="equal"):
+def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="equal",
+             selector=None, weighter=None):
     """Run quarterly rebalance with NS-6 exposure multiplier.
 
     phase=1: budget-only multiplier (compute_exposure_multiplier).
     phase=2: multi-signal v2 multiplier + protective put drag.
     weighting="equal": equal-weight the selection.
     weighting="ns5":   NS-5 frontier tangency (max-Sharpe) target weights.
+
+    selector : optional callable(closes, day, top_n) -> list[str] equity tickers.
+               Replaces select_stocks (used by experiments; default = screener).
+    weighter : optional callable(closes, sel, day) -> dict {ticker: weight}.
+               Replaces target_weights (used by experiments). May return None
+               to fall back to equal-weight.
 
     Returns dict: {years: {year: {...}}, trades_per_quarter, totals}.
     """
@@ -309,13 +316,19 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
     for i, day in enumerate(reb_days):
         as_of = day.strftime("%Y-%m-%d")
 
-        # 1. Select stocks (screener) + fixed non-equity sleeve
-        sel = [t for t in select_stocks(as_of, top_n=top_n) if t in valid.columns]
+        # 1. Select stocks + fixed non-equity sleeve
+        if selector is not None:
+            picked = selector(closes, day, top_n)
+            sel = [t for t in picked if t in valid.columns]
+        else:
+            sel = [t for t in select_stocks(as_of, top_n=top_n) if t in valid.columns]
         sel = sel + [t for t in NON_EQUITY if t in valid.columns]
         sel = list(dict.fromkeys(sel))  # dedupe, keep order
 
-        # 2. Target weights across the selection.
-        if weighting.startswith("ns5"):
+        # 2. Target weights across the selection (equity + non-equity sleeve).
+        if weighter is not None:
+            tgt = weighter(closes, sel, day) or target_weights(sel)
+        elif weighting.startswith("ns5"):
             method = "gmv" if weighting == "ns5-gmv" else "tangency"
             tgt = _ns5_target_weights(valid, sel, day, method=method) or target_weights(sel)
         else:
