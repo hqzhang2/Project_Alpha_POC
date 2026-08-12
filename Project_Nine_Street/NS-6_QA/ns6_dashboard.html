@@ -447,6 +447,16 @@ function renderScenario(d) {
     (d.new_ticker ? ' +' + d.new_ticker : '') + (d.removed_ticker ? ' −' + d.removed_ticker : '');
 
   let html = '<div style="margin-top:8px"><b>Target weights:</b> ';
+
+  // Profile context — show the active profile's budget so switching is visible.
+  const pc = d.profile_context;
+  if (pc) {
+    html += '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Profile <b>' +
+      (pc.active_profile || '?') + '</b> · hard floor ' + (pc.hard_floor*100).toFixed(0) +
+      '% · SPY dd ratio ' + (pc.spy_dd_ratio*100).toFixed(0) +
+      '% · crisis floor ' + (pc.crisis_floor*100).toFixed(0) + '%</div>';
+  }
+
   const tw = d.target_weights || {};
   html += Object.keys(tw).map(t => t + ' ' + (tw[t]*100).toFixed(1) + '%').join(' · ');
   html += '</div>';

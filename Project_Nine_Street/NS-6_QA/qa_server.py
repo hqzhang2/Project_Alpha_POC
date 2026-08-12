@@ -231,16 +231,32 @@ class NS6Handler(BaseHTTPRequestHandler):
                     "profile_label": config.PROFILES[saved]["label"],
                     "ok": True})
 
+    def _active_theta(self):
+        """Theta for the active profile (not the default)."""
+        active = store.get_active_profile()
+        return config.load_profile(active)[0]
+
+    def _profile_context(self, theta):
+        """Profile-dependent budget context, surfaced so the PM sees the
+        effect of switching profiles (the profile overrides budget/de-risk)."""
+        return {
+            "active_profile": store.get_active_profile(),
+            "hard_floor": round(theta["budget"]["hard_floor"], 4),
+            "spy_dd_ratio": round(theta["budget"]["spy_dd_ratio"], 4),
+            "crisis_floor": round(theta["fast_derisk"]["crisis_floor"], 4),
+        }
+
     def _drift(self, body=None):
-        theta = config.load_theta()
+        theta = self._active_theta()
         current = self._portfolio_weights(body or {})
         # Phase 1: no frontier targets — use default as a stand-in.
         target = {k: v for k, v in DEFAULT_WEIGHTS.items()}
         result = drift_mod.run_drift_check(current, target, theta=theta)
+        result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
     def _scenario_add(self, body):
-        theta = config.load_theta()
+        theta = self._active_theta()
         ticker = str(body.get("ticker", "")).strip().upper()
         if not ticker:
             return self._json({"error": "ticker required"}, 400)
@@ -252,10 +268,11 @@ class NS6Handler(BaseHTTPRequestHandler):
             ticker, proposed, current, nav,
             prices=prices, screener_scores=body.get("screener_scores"),
             ns2_regimes=body.get("ns2_regimes"), theta=theta)
+        result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
     def _scenario_remove(self, body):
-        theta = config.load_theta()
+        theta = self._active_theta()
         ticker = str(body.get("ticker", "")).strip().upper()
         if not ticker:
             return self._json({"error": "ticker required"}, 400)
@@ -265,10 +282,11 @@ class NS6Handler(BaseHTTPRequestHandler):
             ticker, current, nav, prices=body.get("prices") or {},
             screener_scores=body.get("screener_scores"),
             ns2_regimes=body.get("ns2_regimes"), theta=theta)
+        result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
     def _scenario_replace(self, body):
-        theta = config.load_theta()
+        theta = self._active_theta()
         add = str(body.get("add", "")).strip().upper()
         rem = str(body.get("remove", "")).strip().upper()
         if not add or not rem:
@@ -281,6 +299,7 @@ class NS6Handler(BaseHTTPRequestHandler):
             prices=body.get("prices") or {},
             screener_scores=body.get("screener_scores"),
             ns2_regimes=body.get("ns2_regimes"), theta=theta)
+        result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
 
