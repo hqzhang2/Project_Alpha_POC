@@ -24,6 +24,7 @@ import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Dict
 
 # Repo-root sys.path bootstrap — shared common/ + env -u PYTHONPATH at runtime.
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -39,6 +40,12 @@ import enforcement as enforcement_mod
 import rebalance as rebalance_mod
 import scenario as scenario_mod
 import store
+
+# NS-5's portfolio store is a JSON file (direct read, no import / no HTTP —
+# keeps NS-6 fully decoupled; works even if NS-5 server is down).
+NS5_PORTFOLIOS_PATH = (
+    Path(__file__).resolve().parent.parent / "NS-5_QA" / "data" / "portfolios.json"
+)
 
 PORT = int(os.environ.get("PORT", 9261))
 ENV = os.environ.get("ENV", "QA")
@@ -115,6 +122,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._enforcement_status()
         if path == "/api/profile":
             return self._profile_get()
+        if path == "/api/portfolio":
+            return self._portfolio_get()
         if path == "/api/drift":
             return self._drift()
         self._json({"error": f"not found: {path}"}, 404)
@@ -130,16 +139,24 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._scenario_replace(body)
         if path == "/api/profile":
             return self._profile_set(body)
+        if path == "/api/portfolio":
+            return self._portfolio_set(body)
         if path == "/api/drift":
             return self._drift(body)
         self._json({"error": f"not found: {path}"}, 404)
 
     # ── Handlers ─────────────────────────────────────────────────────────
     def _portfolio_weights(self, body):
-        """Extract current_weights from body or fall back to DEFAULT_WEIGHTS."""
+        """Extract current_weights from body, else the resolved portfolio
+        source (NS-5 portfolio or model), else DEFAULT_WEIGHTS."""
         w = body.get("current_weights")
         if isinstance(w, dict) and w:
             return w
+        _, _, holdings = self._portfolio_holdings()
+        if holdings:
+            # NS-5 holdings are shares — leave as-is (relative weights are what
+            # drift/scenario need; share ratios are proportional).
+            return dict(holdings)
         return DEFAULT_WEIGHTS
 
     def _regime_suggestion(self, active_profile):
@@ -188,10 +205,13 @@ class NS6Handler(BaseHTTPRequestHandler):
         suggestion_active = bool(
             suggested and suggested != active_profile
         )
+        port_source, port_is_model, _ = self._portfolio_holdings()
 
         self._json({
             "active_profile": active_profile,
             "profile_label": config.PROFILES[active_profile]["label"],
+            "portfolio_source": port_source,
+            "portfolio_is_model": port_is_model,
             "suggested_profile": suggested,
             "suggestion_reason": suggestion_reason,
             "suggestion_active": suggestion_active,
@@ -245,6 +265,75 @@ class NS6Handler(BaseHTTPRequestHandler):
             "spy_dd_ratio": round(theta["budget"]["spy_dd_ratio"], 4),
             "crisis_floor": round(theta["fast_derisk"]["crisis_floor"], 4),
         }
+
+    # ── Portfolio source (decoupled from NS-5) ─────────────────────────
+    def _ns5_portfolios(self) -> Dict[str, dict]:
+        """Raw NS-5 portfolio holdings {name: {ticker: shares}}. Fail-open."""
+        try:
+            if NS5_PORTFOLIOS_PATH.exists():
+                with open(NS5_PORTFOLIOS_PATH) as fh:
+                    data = json.load(fh)
+                return data if isinstance(data, dict) else {}
+        except Exception as exc:  # noqa: BLE001
+            log.warning("read NS-5 portfolios failed: %s", exc)
+        return {}
+
+    def _portfolio_holdings(self):
+        """Resolve the cockpit's current portfolio holdings + source info.
+
+        Returns (source_name, is_model, holdings_dict).
+        - If portfolio_source is a real NS-5 portfolio name -> its holdings,
+          is_model=False. NS-5 v2 positions {shares, account, lots} are
+          normalized to flat {ticker: shares}; v1 flat shares pass through.
+        - If "model" or the stored name is gone -> the active profile's model
+          portfolio (weights), is_model=True.
+        """
+        active = store.get_active_profile()
+        source = store.get_portfolio_source()
+        if source != store.MODEL_SOURCE:
+            ns5 = self._ns5_portfolios()
+            if source in ns5:
+                raw = ns5[source]
+                flat = {}
+                for tk, v in raw.items():
+                    if isinstance(v, dict):
+                        flat[str(tk).upper()] = float(v.get("shares", 0))
+                    else:
+                        flat[str(tk).upper()] = float(v)
+                return source, False, flat
+            # stored name vanished -> fall back to model
+            log.warning("portfolio '%s' not in NS-5 store; using model", source)
+        return active, True, config.model_portfolio(active)
+
+    def _portfolio_get(self):
+        """GET /api/portfolio -> source, portfolio names (NS-5 + model), holdings."""
+        ns5 = self._ns5_portfolios()
+        active = store.get_active_profile()
+        source, is_model, holdings = self._portfolio_holdings()
+        self._json({
+            "active_profile": active,
+            "source": source,
+            "is_model": is_model,
+            "holdings": {k: round(v, 6) for k, v in holdings.items()},
+            "ns5_portfolios": sorted(ns5.keys()),
+            "model_portfolios": {
+                name: {k: round(v, 6) for k, v in config.model_portfolio(name).items()}
+                for name in config.PROFILES
+            },
+        })
+
+    def _portfolio_set(self, body):
+        """POST /api/portfolio {source: 'model' | <ns5 portfolio name>}."""
+        source = str(body.get("source", "")).strip()
+        if source == store.MODEL_SOURCE:
+            saved = store.set_portfolio_source(store.MODEL_SOURCE)
+            return self._json({"ok": True, "source": saved, "is_model": True})
+        ns5 = self._ns5_portfolios()
+        if source not in ns5:
+            return self._json({"error": f"unknown portfolio '{source}'",
+                               "valid": sorted(ns5.keys()) + [store.MODEL_SOURCE]}, 400)
+        saved = store.set_portfolio_source(source)
+        self._json({"ok": True, "source": saved, "is_model": False})
 
     def _drift(self, body=None):
         theta = self._active_theta()

@@ -187,3 +187,30 @@ def set_active_profile(name: str) -> str:
         return get_active_profile()
     set_setting(ACTIVE_PROFILE_KEY, name)
     return name
+
+
+# ── Portfolio source (decoupled from NS-5) ──────────────────────────────
+# The drawdown cockpit's portfolio source. "model" = per-profile model
+# portfolio; otherwise an NS-5 portfolio NAME (read from NS-5's
+# portfolios.json on demand — no import, no HTTP).
+PORTFOLIO_SOURCE_KEY = "portfolio_source"
+MODEL_SOURCE = "model"
+
+
+def get_portfolio_source() -> str:
+    """Persisted portfolio source. 'model' or an NS-5 portfolio name.
+
+    Defaults to MODEL_SOURCE. If a stored name no longer exists in NS-5's
+    store, callers fall back to model (handled at read time in qa_server).
+    """
+    p = get_setting(PORTFOLIO_SOURCE_KEY)
+    return p if p else MODEL_SOURCE
+
+
+def set_portfolio_source(name: str) -> str:
+    """Persist the portfolio source. 'model' or any non-empty name."""
+    name = (name or "").strip()
+    if not name:
+        name = MODEL_SOURCE
+    set_setting(PORTFOLIO_SOURCE_KEY, name)
+    return name

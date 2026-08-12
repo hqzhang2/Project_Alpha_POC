@@ -433,3 +433,34 @@ def suggest_profile(regime):
     whether to surface it based on freshness/active-vs-suggested.
     """
     return REGIME_TO_PROFILE.get(regime)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# MODEL PORTFOLIOS — per-profile default compositions (fallback)
+# ═══════════════════════════════════════════════════════════════════════
+# Used when NO NS-5 portfolio is selected in the cockpit (portfolio_source
+# is "model"). Weights sum to 1.0. Derived from the validated experiments.
+# Each is the "model portfolio name" the dashboard shows per profile.
+MODEL_PORTFOLIOS = {
+    "growth": {
+        # MAG7 equal-weight growth basket (the return engine, Sharpe 1.33).
+        "AAPL": 0.143, "MSFT": 0.143, "NVDA": 0.143, "GOOGL": 0.143,
+        "AMZN": 0.143, "META": 0.143, "TSLA": 0.142,
+    },
+    "balanced": {
+        # 60% growth basket / 40% defensive sleeve (sweet spot, Sharpe 1.22).
+        "AAPL": 0.086, "MSFT": 0.086, "NVDA": 0.086, "GOOGL": 0.086,
+        "AMZN": 0.086, "META": 0.086, "TSLA": 0.084,
+        "TLT": 0.20, "GLD": 0.10, "IEF": 0.05, "BIL": 0.04, "DBC": 0.01,
+    },
+    "capital_preservation": {
+        # GMV tilt → defensive sleeve + cash (drawdown-min, 0.22x DD).
+        "TLT": 0.30, "GLD": 0.20, "IEF": 0.15, "BIL": 0.25, "DBC": 0.05,
+        "SPY": 0.05,  # minimal equity for liquidity/participation
+    },
+}
+
+
+def model_portfolio(profile):
+    """Return the model portfolio weights dict for a profile, or {} if unknown."""
+    return dict(MODEL_PORTFOLIOS.get(profile, {}))

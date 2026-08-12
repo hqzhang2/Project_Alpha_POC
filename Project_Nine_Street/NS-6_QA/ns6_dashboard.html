@@ -127,6 +127,19 @@
   .u-RECOMMENDED { color: #f0b429; font-weight: 700; }
   .u-CONSIDER { color: #93c5fd; }
   .u-MONITOR { color: #64748b; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: #111827; border: 1px solid #30363d; border-radius: 10px;
+    max-width: 520px; width: 90%; max-height: 80vh; overflow: auto; padding: 16px 18px;
+  }
+  .modal h3 { font-size: 13px; font-weight: 800; margin-bottom: 10px; color: #dbe4f0; }
+  .modal .close { float: right; cursor: pointer; color: #64748b; font-size: 16px; font-weight: 700; }
+  .modal .close:hover { color: #f87171; }
 </style>
 </head>
 <body>
@@ -158,6 +171,19 @@
         <button class="act btn" id="sugg-btn" style="display:none">Switch</button>
       </div>
       <div class="err" id="err"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Portfolio — drawdown cockpit source</h3>
+      <div class="scenario-form">
+        <div class="field"><label>Portfolio source</label>
+          <select id="portfolioSelect" onchange="onPortfolioChange()"></select></div>
+        <button class="btn" onclick="showPortfolioModal()">View composition</button>
+      </div>
+      <div class="row" style="margin-top:4px"><span class="k">Current</span>
+        <span class="v" id="pf-current">—</span></div>
+      <div class="row"><span class="k">Source type</span>
+        <span class="v" id="pf-type">—</span></div>
     </div>
 
     <div class="panel">
@@ -238,9 +264,18 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="pfModal" onclick="if(event.target===this)closePortfolioModal()">
+  <div class="modal">
+    <span class="close" onclick="closePortfolioModal()">&times;</span>
+    <h3 id="pfModalTitle">Portfolio</h3>
+    <div id="pfModalBody"></div>
+  </div>
+</div>
+
 <script>
 let PROFILES = [];
 let STATUS = {};
+let PORTFOLIO = null;
 const WEIGHTS = {"AAPL":0.12,"MSFT":0.10,"NVDA":0.08,"GOOGL":0.07,"AMZN":0.06,"META":0.05,"JPM":0.05,"XOM":0.04,"TLT":0.20,"GLD":0.10,"BIL":0.13};
 
 async function api(url, opts) {
@@ -304,9 +339,83 @@ async function switchProfile(name) {
     document.getElementById('err').textContent = '';
     renderProfileGrid(d.active_profile);
     refreshStatus();
+    refreshPortfolio();
   } catch (e) {
     document.getElementById('err').textContent = e.message;
   }
+}
+
+// ── Portfolio source ────────────────────────────────────────────────────
+async function refreshPortfolio() {
+  try {
+    const d = await api('/api/portfolio');
+    PORTFOLIO = d;
+    const sel = document.getElementById('portfolioSelect');
+    sel.innerHTML = '';
+    const opts = [];
+    // NS-5 portfolios first, then a single "Model (active profile)" option.
+    (d.ns5_portfolios || []).forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      if (d.source === n) o.selected = true;
+      opts.push(o);
+    });
+    const m = document.createElement('option');
+    m.value = 'model';
+    m.dataset.model = '1';
+    m.textContent = 'Model (' + d.active_profile + ')';
+    if (d.is_model) m.selected = true;
+    opts.push(m);
+    opts.forEach(o => sel.appendChild(o));
+    document.getElementById('pf-current').textContent =
+      d.is_model ? 'Model portfolio (' + d.active_profile + ')' : d.source;
+    document.getElementById('pf-type').textContent =
+      d.is_model ? 'Model (per active profile)' : 'NS-5 portfolio';
+  } catch (e) {
+    document.getElementById('err').textContent = 'Portfolio load failed: ' + e.message;
+  }
+}
+
+async function onPortfolioChange() {
+  const sel = document.getElementById('portfolioSelect');
+  const value = sel.value;
+  try {
+    await api('/api/portfolio', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source: value})
+    });
+    await refreshPortfolio();
+    await refreshStatus();
+  } catch (e) {
+    document.getElementById('err').textContent = e.message;
+  }
+}
+
+function showPortfolioModal() {
+  const d = PORTFOLIO;
+  if (!d) return;
+  const isModel = d.is_model;
+  const title = isModel ? 'Model portfolio (' + d.source + ')' : d.source;
+  const holdings = d.holdings || {};
+  let rows = Object.keys(holdings).map(tk => {
+    const v = holdings[tk];
+    return '<tr><td><b>' + tk + '</b></td>' +
+      '<td>' + (isModel ? (v * 100).toFixed(1) + '%' : v) + '</td>' +
+      (isModel ? '<td>' + (v * 100).toFixed(1) + '%</td>' : '<td></td>') +
+      '</tr>';
+  }).join('');
+  const modal = document.getElementById('pfModal');
+  document.getElementById('pfModalTitle').textContent = title;
+  document.getElementById('pfModalBody').innerHTML =
+    '<div style="font-size:11px;color:#94a3b8;margin-bottom:8px">' +
+    (isModel ? 'Weights (sum to 100%)' : 'Shares from NS-5') + ' — read only</div>' +
+    '<table><tr><th>Ticker</th><th>' + (isModel ? 'Weight' : 'Shares') + '</th>' +
+    (isModel ? '<th>%</th>' : '<th></th>') + '</tr>' + rows + '</table>';
+  modal.style.display = 'block';
+}
+
+function closePortfolioModal() {
+  document.getElementById('pfModal').style.display = 'none';
 }
 
 // ── Status rendering ────────────────────────────────────────────────────
@@ -528,12 +637,14 @@ async function refreshDrift() {
   try {
     await refreshProfile();
     await refreshStatus();
+    await refreshPortfolio();
   } catch (e) {
     document.getElementById('err').textContent = 'Failed to load: ' + e.message;
   }
   setInterval(refreshStatus, 15000);
   setInterval(refreshProfile, 60000);
   setInterval(refreshDrift, 60000);
+  setInterval(refreshPortfolio, 30000);
   refreshDrift();
 })();
 </script>

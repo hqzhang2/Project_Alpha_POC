@@ -180,10 +180,52 @@ def test_drift_accepts_current_weights_body():
     assert len(body["alerts"]) > 0  # drift detected vs defaults
 
 
-def test_drift_no_body_defaults():
-    """No body → uses DEFAULT_WEIGHTS as current, no drift (at target)."""
+def test_drift_no_body_uses_model_portfolio():
+    """No body → uses the active profile's MODEL portfolio (not DEFAULT_WEIGHTS)."""
     h = _make_handler()
+    store.set_active_profile("balanced")
     h._drift(None)
     body = h._sent["body"]
-    assert body["summary"] == "Portfolio at target. No drift detected."
-    assert body["alerts"] == []
+    assert "alerts" in body and "summary" in body
+    # balanced model portfolio differs from DEFAULT_WEIGHTS target → drift
+    assert len(body["alerts"]) > 0
+
+
+# ── Portfolio source (decoupled from NS-5) ──────────────────────────────
+def test_portfolio_get_default_model():
+    h = _make_handler()
+    store.set_active_profile("balanced")
+    h._portfolio_get()
+    d = h._sent["body"]
+    assert d["is_model"] is True and d["source"] == "balanced"
+    assert set(d["model_portfolios"]) == {"growth", "balanced", "capital_preservation"}
+    assert "ns5_portfolios" in d
+
+
+def test_portfolio_get_ns5(tmp_path, monkeypatch):
+    h = _make_handler()
+    store.set_active_profile("balanced")
+    h._portfolio_get()
+    names = h._sent["body"]["ns5_portfolios"]
+    if not names:
+        return  # nothing to test against
+    h._portfolio_set({"source": names[0]})
+    assert h._sent["body"]["is_model"] is False
+    h._portfolio_get()
+    body = h._sent["body"]
+    assert body["is_model"] is False and body["source"] == names[0]
+    assert body["holdings"]  # non-empty
+
+
+def test_portfolio_set_invalid_400():
+    h = _make_handler()
+    h._portfolio_set({"source": "does_not_exist"})
+    assert h._sent["status"] == 400
+    assert "error" in h._sent["body"]
+
+
+def test_portfolio_set_model():
+    h = _make_handler()
+    h._portfolio_set({"source": "model"})
+    assert h._sent["body"]["is_model"] is True
+    assert h._sent["status"] == 200
