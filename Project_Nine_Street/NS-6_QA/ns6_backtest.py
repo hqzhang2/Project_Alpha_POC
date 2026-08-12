@@ -329,9 +329,11 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
         remaining = budget_mod.budget_remaining(cur_dd, budget_pct, theta)
 
         put_drag = 0.0  # daily drag applied during this segment (phase 2)
+        call_yield = 0.0  # daily boost (phase 3 covered call proxy)
+        tax_proxy = 0.0  # one-off drag on rebalance day (phase 3)
         if phase == 1:
             multiplier = enforcement_mod.compute_exposure_multiplier(remaining, theta)
-        else:  # phase 2: multi-signal v2 + put drag
+        else:  # phase 2+: multi-signal v2 + put drag
             regime, vol_ratio, corr, vix_level, vix_trend = _phase2_signals(
                 valid, dates, day, theta)
             multiplier = enforcement_mod.compute_exposure_multiplier_v2(
@@ -341,6 +343,12 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
                 multiplier, 1_000_000, vix_level, theta)
             if put["recommended"] and put["estimated_annual_cost_pct"] > 0:
                 put_drag = put["estimated_annual_cost_pct"] / 252.0
+
+        if phase >= 3:
+            # Covered call yield: daily boost when gate allows.
+            cc = options_mod.covered_call_gate(multiplier, None, theta)
+            if cc["allowed"]:
+                call_yield = 0.04 * cc["overwrite_pct"] / 252.0
 
         # Apply multiplier to equity sleeve only (non-equity unchanged).
         eff_tgt = {}
@@ -358,6 +366,12 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
         chosen = paths[0] if paths else None
         n_trades = len(chosen["trades"]) if chosen else 0
         quarter_trades.append(n_trades)
+
+        if phase >= 3 and chosen:
+            # Tax proxy: drag on rebalance day ≈ SELL weight × 5% (no lot history).
+            # fraction of NAV (weight_delta × 0.05), NOT dollars.
+            tax_proxy = sum(abs(t["weight_delta"]) * 0.05
+                            for t in chosen["trades"] if t["action"] == "SELL")
 
         # Simulate returns to next rebalance with the NEW weights.
         portfolio = eff_tgt
@@ -377,6 +391,10 @@ def simulate(closes, start, end, top_n=12, cost_bps=10.0, phase=1, weighting="eq
                 r -= cost  # pay trade cost on rebalance day
             if put_drag > 0:
                 r -= put_drag  # protective put premium (phase 2)
+            if call_yield > 0:
+                r += call_yield  # covered call income (phase 3)
+            if j == start_i and tax_proxy > 0:
+                r -= tax_proxy  # tax drag on rebalance day (phase 3)
             daily_port_ret.iloc[j] = r
         last_weights = eff_tgt
 
@@ -459,7 +477,7 @@ def main():
                     help="target-weight method: equal-weight, NS-5 tangency, or NS-5 GMV")
     ap.add_argument("--compare-weighting", action="store_true",
                     help="run both equal and ns5 weighting side-by-side (uses --phase)")
-    ap.add_argument("--phase", type=int, default=2, choices=[1, 2])
+    ap.add_argument("--phase", type=int, default=2, choices=[1, 2, 3])
     ap.add_argument("--force-fetch", action="store_true")
     ap.add_argument("--out", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)),

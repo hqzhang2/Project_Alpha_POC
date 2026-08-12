@@ -1,117 +1,194 @@
 """
 tax_context.py — Tax-aware funding path ranking (Phase 3).
 
-FRONTIER SPECIFICATION (junior implements this methodology).
+Implements the frontier spec: after-tax cost of a funding path (lot-level
+gain calc, LTCG/STCG classification, TLH offset) and re-ranking by
+after-tax cost. Pure functions — no API calls. Lot selection is
+highest-cost-basis-first (minimise realized gain).
 
-────────────────────────────────────────────────────────────────────────
-PHASE 3 TAX-AWARE RANKING
-────────────────────────────────────────────────────────────────────────
-
-Consumes NS-5 tax axis data (lot-level cost basis, TLH availability,
-tax profile) and re-ranks the funding paths from rebalance.py by
-after-tax cost. The BEFORE-TAX paths are generated as-is (rebalance.py
-owns all path-construction methodology); this module computes the
-AFTER-TAX cost per path and optionally re-ranks.
-
-────────────────────────────────────────────────────────────────────────
-TAX COST FORMULA
-────────────────────────────────────────────────────────────────────────
-
-compute_funding_tax_cost(funding_path, tax_lot_data, tlh_available,
-                         tax_profile, theta) → float
-
-  funding_path : dict       — one path dict from rebalance.generate_funding_paths()
-  tax_lot_data : dict       — {ticker: {lots: [{date, shares, cost_per_share}]}}
-                              from NS-5 tax axis (/api/grade response, tax axis)
-  tlh_available : float     — unrealized ST losses available for harvest ($)
-  tax_profile   : dict      — {federal_bracket: 0.24, state_rate: 0.05, niit: True}
-                              from NS-5 tax axis (same schema as TAX_DEFAULTS)
-  theta         : dict      — config.load_theta() (tax rates not used here;
-                              rates come from tax_profile)
-
-  COMPUTATION:
-
-  1. For each SELL trade in the path:
-     a. Look up ticker in tax_lot_data. If no lot data: assume 0 cost basis
-        (worst case — entire proceeds are taxable gain). Flag as unclassified.
-
-     b. Select lots by HIGHEST COST BASIS FIRST (minimise realized gain).
-        Iterate lots sorted by cost_per_share DESC, allocate shares to the
-        sell until the sell quantity is filled.
-
-     c. Compute gain = (sell_price − cost_per_share) × shares_sold.
-        sell_price comes from the path's price context (passed in or
-        fetched by caller).
-
-     d. Classify gain: held > 365 days → LTCG, ≤ 365 days → STCG.
-        A lot with unknown date → STCG (conservative).
-
-     e. Apply tax rate:
-        STCG: marginal_ordinary = federal_bracket + state_rate + (3.8% if NIIT)
-        LTCG: marginal_ltcg = 0.20 + state_rate + (3.8% if NIIT)
-        (2026 US rates: 20% max LTCG, 0/15/20 brackets simplified to 20%
-         for this level — exact bracket is Phase 3+ precision)
-
-  2. Net against TLH available (FIRST DOLLAR OF HARVEST offsets highest-rate
-     gains — STCG first, then LTCG).
-     Available TLH = max(tlh_available, 0).
-     Net tax = max(0, gross_tax − available_tlh).
-
-  3. Returns total tax cost in $ (positive = cost, 0 = fully offset).
-
-────────────────────────────────────────────────────────────────────────
-RANKING
-────────────────────────────────────────────────────────────────────────
-
-rank_paths_by_after_tax_cost(paths, tax_lot_data, tlh_available,
-                             tax_profile, prices, theta) → list[FundingPath]
-
-  Re-sorts the paths by (after_tax_cost ASC → trade_count ASC →
-  risk_impact.sharpe_delta DESC).
-
-  Each path gets a new key: "after_tax_cost": float (added to the path dict
-  in-place).
-
-────────────────────────────────────────────────────────────────────────
-BACKTEST WIRING
-────────────────────────────────────────────────────────────────────────
-
-For the Phase 3 backtest, tax_lot_data and tlh_available are phantom
-inputs (the backtest doesn't have multi-year lot history). The simplest
-honest approach:
-
-  1. TAX COST PROXY: assume a flat tax drag equal to a fixed % of the
-     total SELL notional per quarter. E.g. LTCG rate ~15-24% × gain fraction.
-     In the absence of lot data, use:
-       tax_cost = Σ(sell_notional) × 0.05  (assume ~20% of position is gain,
-                                            taxed at ~24% = 4.8% drag)
-
-     This is labeled "TAX PROXY" in the output — not precise, but honest
-     about the direction and magnitude.
-
-  2. COVERED CALL PROXY: when covered_call_gate() returns True, add an
-     annualized yield boost to daily returns:
-       call_yield_annual = 0.04  (4% annual = reasonable 30-45 DTE 0.25Δ
-                                  overwrite on SPY-level IV)
-       Only applies to days when multiplier ≥ gate_multiplier (0.60).
-       Multiplied by overwrite fraction (0.50 or 0.25 based on multiplier).
-
-     Add: daily_port_ret += call_yield_annual / 252 * overwrite_pct
-
-  3. COMPARISON: add a third column to --compare-weighting showing P2+tax.
-     Or run --phase 3 which includes tax proxy + call proxy.
-
-────────────────────────────────────────────────────────────────────────
-JUNIOR IMPLEMENTATION NOTES
-────────────────────────────────────────────────────────────────────────
-
-- compute_funding_tax_cost() is pure math — no API calls.
-- Lot selection follows NS-5 tax.py _compute_stcg_lots pattern (highest
-  cost basis first).
-- Unknown lot date → STCG (conservative, matches NS-5 fail-open principle).
-- Tax rates from tax_profile dict (not theta — tax_profile IS the marginal
-  rate source, matching NS-5's pattern of computing drags from bracket fields).
-- Backtest wiring: tax proxy + call proxy are parametric approximations.
-  Label them clearly as proxies in the output. Done correctly in Phase 3
-  when live services (NS-5 tax + A_T option chains) are consumed.
+Tax rates come from tax_profile dict (not theta) — matching NS-5's pattern
+of computing drags from bracket fields.
 """
+
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional
+
+import config
+
+log = logging.getLogger("ns6.tax_context")
+
+LTCG_MAX = 0.20       # 2026 max long-term capital gains rate
+NIIT = 0.038          # Net Investment Income Tax
+STCG_HOLDING_DAYS = 365  # >365d → LTCG; <=365d → STCG
+
+
+# ── Tax rate helpers ──────────────────────────────────────────────────────
+def _marginal_ordinary(tax_profile) -> float:
+    """STCG marginal rate: federal + state + NIIT."""
+    fb = float(tax_profile.get("federal_bracket", 0.24))
+    st = float(tax_profile.get("state_rate", 0.0))
+    niit = NIIT if tax_profile.get("niit", False) else 0.0
+    return fb + st + niit
+
+
+def _marginal_ltcg(tax_profile) -> float:
+    """LTCG marginal rate: 20% max + state + NIIT."""
+    st = float(tax_profile.get("state_rate", 0.0))
+    niit = NIIT if tax_profile.get("niit", False) else 0.0
+    return LTCG_MAX + st + niit
+
+
+def _holding_days(acquired: str):
+    """Days since acquisition (approx) or None if unknown."""
+    try:
+        return (datetime.now() - datetime.fromisoformat(acquired)).days
+    except (ValueError, TypeError):
+        return None
+
+
+# ── Lot selection ─────────────────────────────────────────────────────────
+def _select_lots(ticker, shares_to_sell, tax_lot_data, sell_price):
+    """Allocate a sell across lots, highest cost basis first.
+
+    Returns (total_gain, ltcg_gain, stcg_gain, unclassified) in $.
+    No lot data → worst case: entire proceeds taxable, treated as STCG.
+    """
+    position = tax_lot_data.get(ticker) if tax_lot_data else None
+    lots = []
+    if position and isinstance(position, dict):
+        lots = position.get("lots") or []
+
+    if not lots:
+        # no cost basis — entire proceeds are gain, STCG (conservative)
+        return sell_price * shares_to_sell, 0.0, sell_price * shares_to_sell, True
+
+    # highest cost basis first → minimise realized gain
+    lots_sorted = sorted(lots, key=lambda l: l.get("cost_per_share", 0.0), reverse=True)
+
+    total_gain = ltcg = stcg = 0.0
+    remaining = shares_to_sell
+    for lot in lots_sorted:
+        if remaining <= 0:
+            break
+        lot_shares = float(lot.get("shares", 0))
+        cost = float(lot.get("cost_per_share", 0))
+        if lot_shares <= 0:
+            continue
+        used = min(remaining, lot_shares)
+        gain = (sell_price - cost) * used
+        days = _holding_days(lot.get("date"))
+        if days is None or days <= STCG_HOLDING_DAYS:
+            stcg += gain
+        else:
+            ltcg += gain
+        total_gain += gain
+        remaining -= used
+
+    # any unsold shares (lot data insufficient) → no basis, STCG
+    if remaining > 1e-9:
+        extra = sell_price * remaining
+        total_gain += extra
+        stcg += extra
+
+    return total_gain, ltcg, stcg, False
+
+
+# ── Tax cost ──────────────────────────────────────────────────────────────
+def compute_funding_tax_cost(funding_path, tax_lot_data=None, tlh_available=0.0,
+                             tax_profile=None, prices=None, theta=None) -> float:
+    """After-tax cost (in $) of a funding path's SELL trades.
+
+    funding_path : dict — from rebalance.generate_funding_paths()
+    tax_lot_data : dict — {ticker: {lots: [{date, shares, cost_per_share}]}}
+    tlh_available : float — unrealized ST losses harvestable ($)
+    tax_profile  : dict — {federal_bracket, state_rate, niit}
+    prices       : dict — {ticker: sell_price}; defaults to $0 → all-gain
+    theta        : dict — config (unused for rates, kept for signature parity)
+
+    Returns total tax cost in $ (positive = cost, 0 = fully offset).
+    """
+    tax_profile = tax_profile or {}
+    prices = prices or {}
+    tlh_available = max(float(tlh_available or 0.0), 0.0)
+
+    stcg_rate = _marginal_ordinary(tax_profile)
+    ltcg_rate = _marginal_ltcg(tax_profile)
+
+    gross = 0.0
+    stcg_gross = 0.0
+    ltcg_gross = 0.0
+    for trade in (funding_path or {}).get("trades", []):
+        if trade.get("action") != "SELL":
+            continue
+        ticker = trade["ticker"]
+        shares = float(trade.get("shares", 0))
+        sell_price = float(prices.get(ticker, 0.0))
+        _, ltcg_gain, stcg_gain, _ = _select_lots(ticker, shares, tax_lot_data, sell_price)
+        ltcg_gross += ltcg_gain
+        stcg_gross += stcg_gain
+        gross += ltcg_gain + stcg_gain
+
+    tax_stcg = stcg_gross * stcg_rate
+    tax_ltcg = ltcg_gross * ltcg_rate
+
+    # TLH offsets highest-rate gains FIRST (STCG at higher rate → first).
+    remaining_tlh = tlh_available
+    tax_ltcg = max(0.0, tax_ltcg - min(remaining_tlh, tax_ltcg))
+    remaining_tlh = max(0.0, remaining_tlh - min(remaining_tlh, tax_ltcg))
+
+    return max(0.0, tax_ltcg + tax_stcg)
+
+
+# ── Ranking ───────────────────────────────────────────────────────────────
+def rank_paths_by_after_tax_cost(paths, tax_lot_data=None, tlh_available=0.0,
+                                 tax_profile=None, prices=None, theta=None) -> List[Dict]:
+    """Re-rank funding paths by after-tax cost.
+
+    Adds "after_tax_cost" key to each path in place, then sorts by
+    (after_tax_cost ASC → trade_count ASC → sharpe_delta DESC).
+    """
+    theta = theta or config.load_theta()
+    for p in paths:
+        p["after_tax_cost"] = compute_funding_tax_cost(
+            p, tax_lot_data=tax_lot_data, tlh_available=tlh_available,
+            tax_profile=tax_profile, prices=prices, theta=theta)
+    return sorted(
+        paths,
+        key=lambda p: (p["after_tax_cost"], p["trade_count"],
+                       -p.get("risk_impact", {}).get("sharpe_delta", 0.0)),
+    )
+
+
+# ── Backtest proxy helpers (Phase 3 approximation, labeled as proxies) ────
+def tax_drag_proxy(paths, nav=1_000_000.0) -> float:
+    """TAX PROXY: flat drag = total SELL weight × 5% (fraction of NAV, one quarter).
+
+    Approximates ~20% gain fraction × ~24% tax rate, in the absence of
+    lot history. For backtest only — labeled proxy, not precise.
+    Returns a fraction of NAV (0.05 × total sold weight).
+    """
+    sold_weight = 0.0
+    for p in paths:
+        for t in p.get("trades", []):
+            if t["action"] == "SELL":
+                sold_weight += abs(float(t.get("weight_delta", 0)))
+    return sold_weight * 0.05
+
+
+def covered_call_yield_proxy(multiplier, theta=None) -> float:
+    """COVERED CALL PROXY: annualized yield when the gate allows overwrite.
+
+    Returns daily yield boost (fraction of NAV) when multiplier ≥ gate;
+    0.0 otherwise. Yield = 4%/yr × overwrite fraction.
+    """
+    theta = theta or config.load_theta()
+    cc = theta["covered_calls"]
+    if multiplier < cc["gate_multiplier"]:
+        return 0.0
+    if multiplier >= cc["full_threshold"]:
+        overwrite = cc["overwrite_pct"]["full"]
+    else:
+        overwrite = cc["overwrite_pct"]["reduced"]
+    annual = 0.04 * overwrite
+    return annual / 252.0

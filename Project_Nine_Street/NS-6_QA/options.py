@@ -123,17 +123,29 @@ def estimate_put_cost_pct(vix_level=None, theta=None):
     return min(cost, 0.04)
 
 
-# ── Covered call gate (Phase 3 — spec only) ──────────────────────────────
+# ── Covered call gate (Phase 3) ──────────────────────────────────────────
 def covered_call_gate(multiplier, position_drawdown=None, theta=None):
-    """Return whether covered calls are allowed for a given position.
+    """Return whether covered calls are allowed + overwrite fraction.
 
-    Phase 3 methodology spec (junior wires to live option chains + A_T data):
+    Phase 3 methodology:
       - multiplier ≥ 0.60 AND position NOT flagged for drawdown reduction
-        AND option chain liquid (bid-ask < 5% of premium)
       - Overwrite %: multiplier ≥ 0.80 → 50% of notional;
         multiplier ∈ [0.60, 0.80) → 25%
-      - Specs: 30-45 DTE, 0.20-0.30 delta, roll/close at 21 DTE or 50% profit
+      - (Option liquidity gate → live A_T chain data in production)
 
-    Phase 2 stub: returns False (disabled until Phase 3).
+    Returns dict {allowed: bool, overwrite_pct: float}.
+    position_drawdown: negative drawdown if this position is being reduced
+      (None → not flagged).
     """
-    return False
+    theta = theta or config.load_theta()
+    cc = theta["covered_calls"]
+    # Don't cap upside on positions already being reduced for drawdown.
+    if position_drawdown is not None and position_drawdown < 0:
+        return {"allowed": False, "overwrite_pct": 0.0}
+    if multiplier < cc["gate_multiplier"]:
+        return {"allowed": False, "overwrite_pct": 0.0}
+    if multiplier >= cc["full_threshold"]:
+        overwrite = cc["overwrite_pct"]["full"]
+    else:
+        overwrite = cc["overwrite_pct"]["reduced"]
+    return {"allowed": True, "overwrite_pct": overwrite}
