@@ -105,10 +105,9 @@ def check_circuit_breakers(current_drawdown_pct, budget_pct,
 
     # HARD FLOOR
     if current_drawdown_pct is not None and budget_pct is not None:
-        # Intent: triggered when |dd| >= 90% of |budget| (drawdown consumed
-        # 90% of the rope). Spec's literal `dd >= trigger*abs(budget)` compares
-        # a NEGATIVE dd against a POSITIVE threshold → never fires. Fixed to
-        # `dd <= -(trigger*abs(budget))` (both negative). Flagged to frontier.
+        # FRONTIER RESOLVED: the spec's `dd >= trigger*abs(budget)` was a sign
+        # bug (negative vs positive comparison, could never fire). Correct:
+        # triggered when |dd| >= trigger * |budget| → dd <= -(trigger*|budget|).
         threshold = cb["hard_floor_trigger"] * abs(budget_pct)
         floor_level = -threshold  # negative breach level
         triggered = current_drawdown_pct <= floor_level

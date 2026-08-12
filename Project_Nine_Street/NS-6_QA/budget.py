@@ -57,10 +57,11 @@ def compute_budget(spy_dd_pct, theta=None) -> float:
     If SPY is down 8%, half = 4%, floor = 5% → budget = 5% (floor applies).
     If SPY is down 20%, half = 10%, floor = 5% → budget = 10% (half applies).
 
-    NOTE (flag to frontier): the design doc §3 formula `max(spy*ratio, floor)`
-    contradicts the stated intent ("you always have some room before the
-    floor"). `max(-0.04, -0.05) = -0.04` picks the SMALLER budget. `min`
-    correctly picks the guaranteed larger budget. Implemented intent.
+    FRONTIER RESOLVED: max() vs min() — min() is correct. Both values are
+    negative, so min() picks the larger magnitude (more budget = more rope).
+    The floor guarantees you ALWAYS have at least 5% drawdown tolerance,
+    even when SPY's drawdown is trivial. When SPY drawdown is deep, the
+    half-rule dominates. This matches the design doc intent.
     """
     theta = theta or config.load_theta()
     b = theta["budget"]
