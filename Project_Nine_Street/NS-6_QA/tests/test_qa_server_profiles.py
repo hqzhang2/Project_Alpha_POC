@@ -85,3 +85,85 @@ def test_enforcement_status_profile_theta_used():
     assert body["active_profile"] == store.get_active_profile()
     # multiplier in [hard_floor, 1.0]
     assert 0.25 <= body["exposure_multiplier"] <= 1.0
+
+
+# ── T4: regime-gated switch suggestion (advisory, never auto) ────────────
+def _monkey_regime(monkeypatch, row):
+    """Point qa_server's regime_store.latest() at a fake row."""
+    monkeypatch.setattr(qa_server.regime_store_mod, "latest", lambda: row)
+
+
+def _fresh_row(regime="R2", recorded_at="2026-08-11T20:50:14.510224Z"):
+    return {"regime": regime, "recorded_at": recorded_at}
+
+
+def test_suggestion_aligns_with_active(monkeypatch):
+    _monkey_regime(monkeypatch, _fresh_row("R1"))
+    store.set_active_profile("growth")
+    h = _make_handler()
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["regime"] == "R1"
+    assert body["suggested_profile"] == "growth"
+    assert body["suggestion_active"] is False  # already there
+
+
+def test_suggestion_differs_from_active(monkeypatch):
+    _monkey_regime(monkeypatch, _fresh_row("R3"))
+    store.set_active_profile("growth")
+    h = _make_handler()
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["suggested_profile"] == "capital_preservation"
+    assert body["suggestion_active"] is True
+    assert "R3" in body["suggestion_reason"]
+
+
+def test_suggestion_pm_can_lean_back_in(monkeypatch):
+    # growth regime while PM is defensive → suggest growth
+    _monkey_regime(monkeypatch, _fresh_row("R1"))
+    store.set_active_profile("capital_preservation")
+    h = _make_handler()
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["suggested_profile"] == "growth"
+    assert body["suggestion_active"] is True
+
+
+def test_suggestion_no_regime_data(monkeypatch):
+    _monkey_regime(monkeypatch, None)
+    h = _make_handler()
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["suggested_profile"] is None
+    assert body["suggestion_active"] is False
+    assert body["suggestion_reason"] == "no regime data"
+
+
+def test_suggestion_stale_regime(monkeypatch):
+    # > 45 days old → no suggestion
+    _monkey_regime(monkeypatch, _fresh_row("R3", "2026-01-01T00:00:00Z"))
+    h = _make_handler()
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["suggested_profile"] is None
+    assert body["suggestion_active"] is False
+    assert "stale" in body["suggestion_reason"]
+
+
+def test_suggestion_unknown_regime_fails_open(monkeypatch):
+    _monkey_regime(monkeypatch, _fresh_row("R9"))
+    h = _make_handler()
+    h._enforcement_status()  # must not raise
+    body = h._sent["body"]
+    assert body["suggested_profile"] is None
+    assert body["suggestion_active"] is False
+
+
+def test_suggestion_never_auto_switches(monkeypatch):
+    """Setting a suggestion must NEVER mutate the persisted active profile."""
+    _monkey_regime(monkeypatch, _fresh_row("R3"))  # suggests capital_preservation
+    store.set_active_profile("growth")
+    h = _make_handler()
+    h._enforcement_status()
+    assert store.get_active_profile() == "growth"  # unchanged — advisory only

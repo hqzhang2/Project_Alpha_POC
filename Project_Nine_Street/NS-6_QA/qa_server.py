@@ -4,7 +4,7 @@ NS-6 QA Server — stdlib http.server for the Drawdown Engine & Scenario Cockpit
 
 Endpoints:
   GET  /health                      -> 200 + env/port
-  GET  /api/enforcement/status      -> drawdown budget + exposure multiplier + active profile
+  GET  /api/enforcement/status      -> drawdown budget + exposure multiplier + active profile + regime switch suggestion
   GET  /api/profile                 -> list available profiles + active
   POST /api/profile                 -> set active profile (body: {profile: "growth"})
   GET  /api/drift                   -> drift alerts (quarterly check)
@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -28,6 +29,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+from common import regime_store as regime_store_mod
 
 import budget as budget_mod
 import config
@@ -120,6 +123,30 @@ class NS6Handler(BaseHTTPRequestHandler):
             return w
         return DEFAULT_WEIGHTS
 
+    def _regime_suggestion(self, active_profile):
+        """Advisory profile switch suggestion from the macro regime axis.
+
+        Returns (suggested_profile, reason, regime_code). suggested_profile is
+        None when there's no fresh regime data or the regime is unknown —
+        advisory only, never auto-switch.
+        """
+        row = regime_store_mod.latest()
+        if row is None:
+            return None, "no regime data", None
+        regime = row.get("regime")
+        # Staleness guard: don't nudge on old macro reads.
+        try:
+            recorded = datetime.fromisoformat(row["recorded_at"].replace("Z", "+00:00"))
+        except (KeyError, ValueError, TypeError):
+            recorded = None
+        if recorded is None or (datetime.now(timezone.utc) - recorded).days > config.REGIME_MAX_AGE_DAYS:
+            return None, f"regime data stale (> {config.REGIME_MAX_AGE_DAYS}d)", regime
+        suggested = config.suggest_profile(regime)
+        if suggested is None:
+            return None, f"regime {regime}: unknown", regime
+        reason = f"regime {regime}: {config.PROFILES[suggested]['label']}"
+        return suggested, reason, regime
+
     def _enforcement_status(self):
         active_profile = store.get_active_profile()
         theta = config.load_profile(active_profile)[0]  # profile theta (overrides applied)
@@ -138,16 +165,24 @@ class NS6Handler(BaseHTTPRequestHandler):
 
         multiplier = enforcement_mod.compute_exposure_multiplier(budget_remaining, theta)
 
+        suggested, suggestion_reason, regime = self._regime_suggestion(active_profile)
+        suggestion_active = bool(
+            suggested and suggested != active_profile
+        )
+
         self._json({
             "active_profile": active_profile,
             "profile_label": config.PROFILES[active_profile]["label"],
+            "suggested_profile": suggested,
+            "suggestion_reason": suggestion_reason,
+            "suggestion_active": suggestion_active,
+            "regime": regime or "R1",  # real regime code when available
             "spy_drawdown_pct": round(spy_dd, 4),
             "budget_pct": round(budget_pct, 4),
             "current_drawdown_pct": round(current_dd, 4),
             "budget_remaining_pct": round(budget_remaining, 4),
             "exposure_multiplier": round(multiplier, 4),
             "active_tiers": [],
-            "regime": "R1",  # Phase 2: from NS-5 regime axis
             "covered_calls_gated": multiplier < theta["covered_calls"]["gate_multiplier"],
             "protective_puts": None,
             "circuit_breakers": [],
