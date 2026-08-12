@@ -223,6 +223,7 @@
     </table>
     <div class="btn-row">
       <button class="btn" onclick="cancelEdit()">Cancel</button>
+      <button class="btn" onclick="newPortfolio()">New Portfolio</button>
       <button class="btn primary" onclick="savePortfolio()">Save</button>
     </div>
     <button class="btn danger btn-danger-wide" onclick="deletePortfolio()">Delete Portfolio</button>
@@ -518,6 +519,20 @@ async function cancelEdit() {
   document.getElementById('err').textContent = '';
   if (currentPortfolio) await loadPortfolio(currentPortfolio);
   else { rows = [{ticker: '', shares: '', account: 'taxable', character: 'qualified'}]; lotRows = []; renderRows(); renderLots(); }
+}
+
+// Reset the editor to a blank state so a NEW portfolio can be created.
+function newPortfolio() {
+  if (!confirm('Start a new portfolio? Unsaved changes will be discarded.')) return;
+  currentPortfolio = null;
+  document.getElementById('portfolioSelect').value = '';
+  document.getElementById('portfolioName').value = '';
+  document.getElementById('err').textContent = '';
+  rows = [{ticker: '', shares: '', account: 'taxable', character: 'qualified'}];
+  lotRows = [];
+  renderRows();
+  renderLots();
+  document.getElementById('portfolioName').focus();
 }
 
 async function deletePortfolio() {
