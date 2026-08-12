@@ -64,26 +64,25 @@ def fast_derisk_exposure(vix_level, crisis_mode, theta=None) -> tuple:
 
     exposure_cap:
       - normal:  vix_smile_cap(vix)
-      - crisis:  max(crisis_floor, vix_smile_cap(vix))  → NEVER zero
+      - crisis:  crisis_floor (FLAT — not the smile value). During a genuine
+        spike the smile in the 28-40 band is still 0.35-0.71, which is too
+        exposed; crisis mode drops to the floor immediately, then recovers.
 
-    The floored crisis avoids the "miss the V-recovery" trap that the binary
-    off-switch caused (fast_derisk_experiment: hard zero = Sharpe 0.84, 30%
-    floor = Sharpe 0.98).
+    The flat floor avoids the "miss the V-recovery" trap of a hard zero
+    (fast_derisk_experiment: hard zero = Sharpe 0.84, flat 30% floor = 0.98).
     """
     theta = theta or config.load_theta()
     fd = theta["fast_derisk"]
     if vix_level is None or math.isnan(vix_level):
-        cap = fd["default_cap"]
-    else:
-        vix = float(vix_level)
-        if vix >= fd["crisis_in"]:
-            crisis_mode = True
-        elif vix <= fd["crisis_out"]:
-            crisis_mode = False
-        cap = vix_smile_cap(vix, theta)
-        if crisis_mode:
-            cap = max(cap, fd["crisis_floor"])
-    return cap, crisis_mode
+        return fd["default_cap"], crisis_mode
+    vix = float(vix_level)
+    if vix >= fd["crisis_in"]:
+        crisis_mode = True
+    elif vix <= fd["crisis_out"]:
+        crisis_mode = False
+    if crisis_mode:
+        return fd["crisis_floor"], crisis_mode
+    return vix_smile_cap(vix, theta), crisis_mode
 
 
 # --------------------------------------------------------------------------- #
