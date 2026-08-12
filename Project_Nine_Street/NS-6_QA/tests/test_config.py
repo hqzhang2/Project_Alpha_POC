@@ -81,3 +81,37 @@ def test_letter_bounds_descending():
 def test_severity_bounds_descending():
     sev = [(5.0, "green"), (3.5, "yellow"), (2.0, "orange"), (0.0, "red")]
     assert sev == sorted(sev, reverse=True)  # descending (NS-5 pitfall guard)
+
+
+# ── PROFILES (switchable PM target points) ───────────────────────────────
+def test_profiles_present():
+    from config import PROFILES
+    assert set(PROFILES) == {"growth", "balanced", "capital_preservation"}
+
+
+def test_load_profile_returns_bundle():
+    from config import load_profile
+    theta, sel, wgt = load_profile("growth")
+    assert sel == "growth_basket"
+    assert wgt == "growth_90_10"
+    assert theta["budget"]["hard_floor"] == 0.50  # profile override applied
+
+
+def test_load_profile_unknown_raises():
+    from config import load_profile
+    with pytest.raises(KeyError):
+        load_profile("nope")
+
+
+def test_profile_theta_overrides_monotonic():
+    from config import load_profile
+    floors = [load_profile(n)[0]["budget"]["hard_floor"]
+              for n in ("growth", "balanced", "capital_preservation")]
+    # growth has the highest floor (stays invested), CP the lowest
+    assert floors[0] > floors[1] > floors[2]
+
+
+def test_load_profile_does_not_mutate_defaults():
+    from config import load_profile, THETA_DEFAULTS
+    load_profile("growth")
+    assert THETA_DEFAULTS["budget"]["hard_floor"] == 0.25  # untouched

@@ -4,7 +4,9 @@ NS-6 QA Server — stdlib http.server for the Drawdown Engine & Scenario Cockpit
 
 Endpoints:
   GET  /health                      -> 200 + env/port
-  GET  /api/enforcement/status      -> drawdown budget + exposure multiplier
+  GET  /api/enforcement/status      -> drawdown budget + exposure multiplier + active profile
+  GET  /api/profile                 -> list available profiles + active
+  POST /api/profile                 -> set active profile (body: {profile: "growth"})
   GET  /api/drift                   -> drift alerts (quarterly check)
   POST /api/scenario/add            -> add-stock scenario (JSON body)
   POST /api/scenario/remove         -> remove-stock scenario (JSON body)
@@ -91,6 +93,8 @@ class NS6Handler(BaseHTTPRequestHandler):
                                "port": PORT})
         if path == "/api/enforcement/status":
             return self._enforcement_status()
+        if path == "/api/profile":
+            return self._profile_get()
         if path == "/api/drift":
             return self._drift()
         self._json({"error": f"not found: {path}"}, 404)
@@ -104,6 +108,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._scenario_remove(body)
         if path == "/api/scenario/replace":
             return self._scenario_replace(body)
+        if path == "/api/profile":
+            return self._profile_set(body)
         self._json({"error": f"not found: {path}"}, 404)
 
     # ── Handlers ─────────────────────────────────────────────────────────
@@ -115,7 +121,8 @@ class NS6Handler(BaseHTTPRequestHandler):
         return DEFAULT_WEIGHTS
 
     def _enforcement_status(self):
-        theta = config.load_theta()
+        active_profile = store.get_active_profile()
+        theta = config.load_profile(active_profile)[0]  # profile theta (overrides applied)
         latest = store.latest()
         # Phase 1: no live price ingestion — use last stored row or defaults.
         if latest:
@@ -132,6 +139,8 @@ class NS6Handler(BaseHTTPRequestHandler):
         multiplier = enforcement_mod.compute_exposure_multiplier(budget_remaining, theta)
 
         self._json({
+            "active_profile": active_profile,
+            "profile_label": config.PROFILES[active_profile]["label"],
             "spy_drawdown_pct": round(spy_dd, 4),
             "budget_pct": round(budget_pct, 4),
             "current_drawdown_pct": round(current_dd, 4),
@@ -147,6 +156,26 @@ class NS6Handler(BaseHTTPRequestHandler):
             "phase": 1,
             "note": "Phase 1: budget-only multiplier. Price ingestion lands in Phase 2.",
         })
+
+    def _profile_get(self):
+        active = store.get_active_profile()
+        available = [
+            {"name": name, "label": p["label"], "description": p["description"]}
+            for name, p in config.PROFILES.items()
+        ]
+        self._json({"active_profile": active,
+                    "profile_label": config.PROFILES[active]["label"],
+                    "available": available})
+
+    def _profile_set(self, body):
+        name = str(body.get("profile", "")).strip().lower()
+        if name not in config.PROFILES:
+            return self._json({"error": f"unknown profile '{name}'",
+                               "valid": sorted(config.PROFILES)}, 400)
+        saved = store.set_active_profile(name)
+        self._json({"active_profile": saved,
+                    "profile_label": config.PROFILES[saved]["label"],
+                    "ok": True})
 
     def _drift(self):
         theta = config.load_theta()

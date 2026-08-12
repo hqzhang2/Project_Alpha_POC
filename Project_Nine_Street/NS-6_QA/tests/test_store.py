@@ -75,3 +75,36 @@ def test_breaker_log(tmp_path, monkeypatch):
     assert len(logs) == 2
     assert logs[0]["breaker_type"] == "position_stop"  # newest first
     assert logs[0]["ticker"] == "AAPL"
+
+
+# ── Settings / active profile persistence ───────────────────────────────
+def test_get_setting_default():
+    assert store.get_setting("nope", "fallback") == "fallback"
+
+
+def test_set_get_setting_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "t.db")
+    store.init_db()
+    store.set_setting("active_profile", "growth")
+    assert store.get_setting("active_profile") == "growth"
+
+
+def test_active_profile_default_is_balanced(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "t.db")
+    store.init_db()
+    assert store.get_active_profile() == "balanced"
+
+
+def test_set_active_profile_persists(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "t.db")
+    store.init_db()
+    store.set_active_profile("capital_preservation")
+    assert store.get_active_profile() == "capital_preservation"
+
+
+def test_set_active_profile_rejects_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "t.db")
+    store.init_db()
+    # unknown name refused → stays at default
+    assert store.set_active_profile("nope") == "balanced"
+    assert store.get_active_profile() == "balanced"

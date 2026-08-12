@@ -56,6 +56,14 @@ def init_db() -> None:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS settings (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT
+                )
+                """
+            )
     except Exception as exc:  # noqa: BLE001 — fail-open
         log.warning("init_db failed: %s", exc)
 
@@ -128,3 +136,54 @@ def query_breakers(limit: int = 50) -> List[Dict]:
     except Exception as exc:  # noqa: BLE001
         log.warning("query_breakers failed: %s", exc)
         return []
+
+
+# ── Settings (active profile persistence) ───────────────────────────────
+ACTIVE_PROFILE_KEY = "active_profile"
+DEFAULT_PROFILE = "balanced"
+
+
+def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    """Read a settings row, or None/default if absent. Fail-open."""
+    try:
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row else default
+    except Exception as exc:  # noqa: BLE001
+        log.warning("get_setting(%s) failed: %s", key, exc)
+        return default
+
+
+def set_setting(key: str, value: str) -> None:
+    """Upsert a settings row. Fail-open (log, don't raise)."""
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
+                (key, value),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("set_setting(%s) failed: %s", key, exc)
+
+
+def get_active_profile() -> str:
+    """Persisted active profile, defaulting to DEFAULT_PROFILE."""
+    p = get_setting(ACTIVE_PROFILE_KEY)
+    if p and p in config.PROFILES:
+        return p
+    return DEFAULT_PROFILE
+
+
+def set_active_profile(name: str) -> str:
+    """Persist the active profile. Returns the normalized valid name.
+
+    Invalid name is refused (returns current active) — callers validate
+    against config.PROFILES before persisting via this helper's guard.
+    """
+    if name not in config.PROFILES:
+        log.warning("set_active_profile refused unknown profile '%s'", name)
+        return get_active_profile()
+    set_setting(ACTIVE_PROFILE_KEY, name)
+    return name
