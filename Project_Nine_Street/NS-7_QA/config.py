@@ -10,7 +10,10 @@ PORT = int(os.environ.get("PORT", 9271))          # QA; PROD 9270 (reserved)
 ENV = os.environ.get("ENV", "QA")
 
 # ── Universe eligibility (§3.1 of DESIGN.md) ────────────────────────────
-MARKET_CAP_MIN = 50_000_000_000.0                 # U2: > $50B
+MARKET_CAP_MIN = 50_000_000_000.0                 # U2: > $50B (league floor)
+# PM fast-track (2026-08-13): a NON-SP500 name breaches $75B → immediate
+# Major, no 90-day wait. SP500 membership alone is already immediate Major.
+MARKET_CAP_MAJOR_FASTTRACK = 75_000_000_000.0
 MIN_AVG_DAILY_VOLUME = 100_000.0                  # U3: > 100K shares/day (20d avg)
 VOLUME_WINDOW_DAYS = 20                           # U3 averaging window
 

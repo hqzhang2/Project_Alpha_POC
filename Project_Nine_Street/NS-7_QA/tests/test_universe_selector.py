@@ -45,31 +45,44 @@ def test_meets_all_criteria():
     assert universe.meets_all_criteria(bad) is False
 
 
-# ── League transitions (§3.2 rules) ─────────────────────────────────────
-def test_major_demotes_immediately_on_failure():
-    assert universe.transition("major", False, 0, 0, True) == "minor"
+# ── League transitions (§3.2 — PM-corrected rules) ──────────────────────
+def test_major_demotes_when_below_floor():
+    # Major, not SP500, cap ≤ $50B → demoted immediately.
+    assert universe.transition("major", False, False, 0, 0) == "minor"
 
 
-def test_major_stays_on_compliance():
-    assert universe.transition("major", True, 0, 0, True) == "major"
+def test_major_stays_on_sp500_or_fasttrack():
+    assert universe.transition("major", True, True, 0, 0) == "major"   # SP500
+    assert universe.transition("major", True, False, 0, 0) == "major"   # >$75B
+
+
+def test_major_self_sustaining_while_compliant():
+    # Non-SP500 Major with $50B < cap ≤ $75B stays Major (clock was earned).
+    assert universe.transition("major", False, True, 0, 0) == "major"
 
 
 def test_minor_promotes_after_grace():
     grace = config.GRACE_PERIOD_DAYS
     # 89 compliant days: still minor
-    assert universe.transition("minor", True, grace - 1, 0, True) == "minor"
-    # 90 compliant days: promote
-    assert universe.transition("minor", True, grace, 0, True) == "major"
+    assert universe.transition("minor", False, True, grace - 1, 0) == "minor"
+    # 90 compliant days: promote (non-SP500 $50-75B path)
+    assert universe.transition("minor", False, True, grace, 0) == "major"
+
+
+def test_minor_promotes_immediately_on_sp500_or_75b():
+    # SP500 addition or $75B breach → immediate Major, no 90-day wait.
+    assert universe.transition("minor", True, True, 1, 0) == "major"
+    assert universe.transition("minor", True, False, 0, 5) == "major"
 
 
 def test_minor_expires_after_grace_noncompliance():
     grace = config.GRACE_PERIOD_DAYS
-    assert universe.transition("minor", False, 0, grace - 1, True) == "minor"
-    assert universe.transition("minor", False, 0, grace, True) == "removed"
+    assert universe.transition("minor", False, False, 0, grace - 1) == "minor"
+    assert universe.transition("minor", False, False, 0, grace) == "removed"
 
 
 def test_removed_stays_removed():
-    assert universe.transition("removed", True, 0, 0, True) == "removed"
+    assert universe.transition("removed", True, True, 0, 0) == "removed"
 
 
 def test_tenure_counters_reset_on_flip():
@@ -82,6 +95,21 @@ def test_only_major_is_assessable():
     assert universe.is_assessable("major") is True
     assert universe.is_assessable("minor") is False
     assert universe.is_assessable("removed") is False
+
+
+# ── PM-corrected league gates ───────────────────────────────────────────
+def test_league_compliant_sp500_or_50b():
+    assert universe.league_compliant({"in_sp500": True, "market_cap": None}) is True
+    assert universe.league_compliant({"in_sp500": False, "market_cap": 60e9}) is True
+    assert universe.league_compliant({"in_sp500": False, "market_cap": 40e9}) is False
+    assert universe.league_compliant({"in_sp500": False, "market_cap": None}) is False
+
+
+def test_major_qualifying_sp500_or_75b():
+    assert universe.major_qualifying({"in_sp500": True, "market_cap": 1e9}) is True
+    assert universe.major_qualifying({"in_sp500": False, "market_cap": 80e9}) is True
+    assert universe.major_qualifying({"in_sp500": False, "market_cap": 60e9}) is False
+    assert universe.major_qualifying({"in_sp500": False, "market_cap": 75e9}) is False  # strict >
 
 
 # ── Momentum signal ─────────────────────────────────────────────────────
@@ -124,8 +152,10 @@ def test_rank_major_caps_at_top_n():
         t = f"T{i:02d}"
         prices[t] = [100.0 + i + (j * 0.01) for j in range(n)]
         facts[t] = {"eps_ttm": 1.0, "cfo_ttm": 1.0}
-    ranked = selector.rank_major(prices, facts)
+    ranked = selector.rank_major(prices, facts, top_n=config.TOP_N)
     assert len(ranked) == config.TOP_N
+    # None → ALL scored names (no cap — /api/major + turnover-band input).
+    assert len(selector.rank_major(prices, facts, top_n=None)) == config.TOP_N + 10
 
 
 def test_concentration_guardrail():

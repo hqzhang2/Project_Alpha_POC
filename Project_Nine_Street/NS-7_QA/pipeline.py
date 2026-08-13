@@ -157,6 +157,34 @@ def closes_through(ticker: str, as_of: str, limit: int = 260) -> List[float]:
         conn.close()
 
 
+def momentum_detail(ticker: str, as_of: str) -> Optional[dict]:
+    """The skip-month momentum WINDOW for one ticker (drill-down reasons).
+
+    Returns {p_old, p_old_date, p_skip, p_skip_date, momentum} — the two
+    price points behind P[t-21] / P[t-126] - 1, or None when the series is
+    too short. This is the "why" behind a selection's momentum score.
+    """
+    conn = at_conn()
+    try:
+        cur = conn.execute(
+            "SELECT date, close FROM prices WHERE ticker = ? AND date <= ? "
+            "ORDER BY date DESC LIMIT ?",
+            (ticker.upper(), as_of, config.MOMENTUM_MIN_HISTORY + 30))
+        rows = [(d, float(c)) for d, c in cur.fetchall()]
+        rows.reverse()
+    finally:
+        conn.close()
+    if len(rows) < config.MOMENTUM_MIN_HISTORY:
+        return None
+    old_date, p_old = rows[-config.MOMENTUM_LOOKBACK_DAYS]
+    skip_date, p_skip = rows[-config.MOMENTUM_SKIP_DAYS]
+    if not p_old or p_old <= 0:
+        return None
+    return {"p_old": round(p_old, 2), "p_old_date": old_date,
+            "p_skip": round(p_skip, 2), "p_skip_date": skip_date,
+            "momentum": round((p_skip / p_old) - 1.0, 6)}
+
+
 # ── Facts (per-ticker point-in-time snapshot for eligibility) ───────────
 def snapshot_age_days(snap: dict, as_of: str) -> Optional[int]:
     try:
@@ -202,8 +230,8 @@ def facts_for(ticker: str, as_of: str, in_sp500: bool,
 
 
 def eligible(facts: Dict) -> bool:
-    """meets_all_criteria over the pipeline facts dict."""
-    return universe.meets_all_criteria(facts)
+    """League-floor eligibility (PM-corrected): SP500 OR cap > $50B."""
+    return universe.league_compliant(facts)
 
 
 # ── Volume refresh (U3) ─────────────────────────────────────────────────
@@ -267,16 +295,19 @@ def refresh_volumes(tickers: List[str], as_of: str,
             "systemic_failure": systemic, "skipped": False}
 
 
-# ── League orchestration (§3.2) ─────────────────────────────────────────
-def update_leagues(facts_by_ticker: Dict[str, Dict], as_of: str) -> Dict:
+# ── League orchestration (§3.2, PM-corrected 2026-08-13) ────────────────
+def update_leagues(facts_by_ticker: Dict[str, Dict], as_of: str,
+                   sp500_removed: Optional[set] = None) -> Dict:
     """Advance every tracked/eligible ticker's league state for one day.
 
     Orchestration lives in universe.apply_daily (shared with the walk-forward
     harness — ONE source of truth). This wrapper persists the resulting state
-    to the store.
+    to the store. sp500_removed = tickers that left the index since the last
+    refresh (their non-SP500 cap rule kicks in immediately).
     """
     state = {r["ticker"]: r for r in store.all_leagues()}
-    new_state, counts = universe.apply_daily(state, facts_by_ticker, as_of)
+    new_state, counts = universe.apply_daily(state, facts_by_ticker, as_of,
+                                             sp500_removed=sp500_removed)
     for ticker, row in new_state.items():
         store.upsert_league(ticker, row["league"],
                             row["consecutive_compliant"],
@@ -346,6 +377,16 @@ def run_refresh(as_of: Optional[str] = None, fetch_volumes: bool = True,
     store.init_db()
 
     sp500 = set(sp500_current())
+    # SP500-removal edge (index exit → non-SP500 cap rule kicks in).
+    prev_sp500 = store.get_meta("sp500_members")
+    sp500_removed = set()
+    if prev_sp500:
+        try:
+            sp500_removed = set(json.loads(prev_sp500)) - sp500
+        except (ValueError, TypeError):
+            sp500_removed = set()
+    store.set_meta("sp500_members", json.dumps(sorted(sp500)))
+
     candidates = sorted(set(annual_tickers()) | sp500)
     if limit:
         candidates = candidates[:limit]
@@ -357,14 +398,16 @@ def run_refresh(as_of: Optional[str] = None, fetch_volumes: bool = True,
     volume_waived = bool(volume.get("systemic_failure"))
     if volume_waived:
         store.set_meta("u3_waived", as_of)
-        log.warning("U3 WAIVED for %s: systemic volume outage", as_of)
+        log.warning("volume outage for %s — data flagged, league unaffected "
+                    "(U3 is not a league gate under the corrected criteria)",
+                    as_of)
 
     facts_by_ticker = {}
     for t in candidates:
         facts_by_ticker[t] = facts_for(t, as_of, t in sp500,
                                        volume_waived=volume_waived)
 
-    league = update_leagues(facts_by_ticker, as_of)
+    league = update_leagues(facts_by_ticker, as_of, sp500_removed=sp500_removed)
 
     selection = run_selection(as_of, facts_by_ticker)
 

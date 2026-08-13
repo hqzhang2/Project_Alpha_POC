@@ -47,50 +47,58 @@ is **pure momentum over a broad universe** — which is what NS-7 formalizes.
 
 The selection universe is deliberately **narrower than "all SP500"** and **wider
 than "the value screener's picks."** It is the set of large, liquid names from
-which momentum is chosen — a liquidity-and-size floor, then momentum does the rest.
+which momentum is chosen — a size floor, then momentum does the rest.
 
-### 3.1 Eligibility criteria (all must hold)
+### 3.1 League criteria (PM-corrected 2026-08-13)
 
-| # | Criterion | Threshold |
-|---|---|---|
-| U1 | Index membership | SP500 constituent **OR** |
-| U2 | Market capitalization | **> $50B** |
-| U3 | Liquidity | 20-day average daily dollar volume **> 100K shares** |
-| U4 | Quality floor | Positive trailing-12m EPS **AND** positive trailing-12m operating cash flow |
+The league gates are **SP500 membership ∪ market cap only** — liquidity and
+quality are NOT league gates (they apply at selection time as the pick veto):
 
-U1/U2 are an **OR**: a stock qualifies if it is in the SP500 *or* has >$50B cap
-(the two overlap heavily; the OR keeps large non-SP500 names like a pre-indexing
-mega-cap available). U3 and U4 are absolute **AND** gates applied to everything.
+| # | Criterion | Threshold | League effect |
+|---|---|---|---|
+| L1 | Index membership | SP500 constituent | → **Major immediately** (no probation) |
+| L2 | Market capitalization | **> $75B** (non-SP500) | → **Major immediately** (fast-track) |
+| L3 | Market capitalization | **> $50B** (non-SP500) | → **Minor on day one**; Major after 90d or a $75B breach |
+| L4 | Liquidity | 20-day avg volume > 100K shares | **Selection-time context** (not a league gate) |
+| L5 | Quality floor | Positive TTM EPS **AND** CFO | **Pick-time veto** (not a league gate) |
 
-> Rationale for $50B + 100K/day: momentum over small/illiquid names is where
-> survivorship bias and phantom fills live. The baseball mandate is large-cap
-> home runs, not micro-cap lottery tickets. The floor also keeps NS-7's picks
-> executable at the book's size without market impact.
+> **PM correction (2026-08-13):** the original v1 spec applied a 90-day
+> probation to SP500 members too — wrong: index membership IS the ticket.
+> Any SP500 stock is automatically Major. Non-SP500 names enter Minor at
+> >$50B and promote via the 90-day clock or immediately on breaching $75B.
+> A stock removed from the SP500 loses the index ticket and the non-SP500
+> cap rule kicks in (re-computed fresh: >$75B stays Major, $50-75B → Minor
+> with a fresh clock, ≤$50B → noncompliance clock → removed).
+>
+> The quality veto still protects the book: a negative-EPS SP500 name is
+> Major at the league level but is excluded from the top-N picks.
 
 ### 3.2 Two leagues — Major and Minor
 
 Eligibility is **not binary on any single day**. A stock can transiently dip
-below a threshold (a volume lull, a cap wobble) without being a genuine exit.
-The league system gives a **90-day grace period** to distinguish "noise" from
-"signal" — the mechanism that lets a baseball book *wait* instead of churn.
+below a threshold (a cap wobble) without being a genuine exit. The league
+system gives a **90-day grace period** to distinguish "noise" from "signal" —
+the mechanism that lets a baseball book *wait* instead of churn.
 
 | League | Meaning | Assessment |
 |---|---|---|
-| **Major** | Passes all four criteria; eligible for momentum ranking | **Active** |
-| **Minor** | Failed a criterion, *or* newly met criteria (fresh) | **Paused** |
+| **Major** | SP500 member, OR cap > $75B, OR earned via the 90-day clock | **Active** — eligible for momentum ranking |
+| **Minor** | Non-SP500, $50B < cap ≤ $75B (fresh or on a clock) | **Paused** |
 
-**Rules:**
+**Rules (PM-corrected 2026-08-13):**
 
-1. **Promotion (Minor → Major):** a Minor stock that satisfies all four
-   criteria for **90 consecutive calendar days** is promoted. Assessment resumes.
-2. **Demotion (Major → Minor):** a Major stock that fails any criterion is
-   immediately demoted. Assessment pauses; the grace clock starts.
-3. **Fresh-entry rule:** a stock that *first* enters eligibility (e.g. newly
-   $50B+, newly in SP500) starts in **Minor** and must spend 90 days there
-   before it can be selected. This prevents buying the top of a fresh
-   promotion spike.
-4. **Expiry (Minor → removed):** a Minor stock that stays out of compliance for
-   90 consecutive days is removed from the tracked universe.
+1. **SP500 member → Major immediately**, day one (fresh entry or re-admission
+   alike). Removal from the SP500 → rule 4.
+2. **Fast-track:** a non-SP500 stock breaching **$75B** → Major immediately,
+   no 90-day wait. A non-SP500 Major stays Major while cap > $50B.
+3. **90-day promotion (Minor → Major):** a non-SP500 Minor with
+   $50B < cap ≤ $75B that stays compliant (cap > $50B) for **90 consecutive
+   calendar days** is promoted.
+4. **SP500 removal:** the non-SP500 cap rule kicks in — the name is
+   re-computed fresh: cap > $75B stays Major; $50-75B → Minor with a fresh
+   clock; ≤$50B → Minor on the noncompliance clock.
+5. **Expiry (Minor → removed):** a Minor stock out of compliance (cap ≤ $50B)
+   for 90 consecutive days is removed from the tracked universe.
 
 > **Data is never deleted on demotion.** Momentum history, price history, and
 > league tenure are preserved. When a stock re-promotes, its full history is
@@ -251,44 +259,54 @@ pipeline, server, dashboard, walk-forward harness. 49 unit tests passing.**
 
 | Metric | Result | Gate |
 |---|---|---|
-| Excess vs held universe | **8/11 years** (2016,17,20,22,23,24,25,26) | ≥ 7/10 ✅ |
-| Max drawdown | −13.2% vs SPY −9.2% (ratio 1.44) | G7 note ⚠️ |
-| Annual book turns | 3.1 (76.9% per quarterly rebalance) | G5 ✅ baseball |
+| Excess vs held universe | **8/11 years** (2016,17,20,22,23,25,26 + 2019≈0) | ≥ 7/10 ✅ |
+| Max drawdown | −12.4% vs SPY −9.2% (ratio 1.36) | G7 note ⚠️ |
+| Annual book turns | 2.8 (70.7% per quarterly rebalance) | G5 ✅ baseball |
 | G4 concentration (naive top-20 equal weight) | effective N 20, max 5% | ✅ |
 
-⚠️ The 1.44× drawdown ratio is the **bare selector** (equal-weight top-20, no
+⚠️ The 1.36× drawdown ratio is the **bare selector** (equal-weight top-20, no
 NS-6). The mandate's ≤0.5× SPY gate applies to the FULL stack (NS-7 + NS-5
 frontier + NS-6 fast de-risk). This harness isolates NS-7's selection edge.
+Walk-forward run under the PM-corrected league rules (2026-08-13) with the
+turnover band fully functional.
 
 ### Design decisions made during implementation
 
-1. **Last-known-good metric fill (data-quality layer).** SEC extraction gaps
+1. **League gates = SP500 ∪ market cap (PM correction 2026-08-13).** SP500
+   member → Major immediately; non-SP500 > $75B → Major immediately;
+   non-SP500 $50-75B → Minor (90-day clock or $75B breach); SP500 removal →
+   the cap rule kicks in (fresh recompute). Liquidity/quality are NOT league
+   gates — the quality veto applies at pick time.
+2. **Last-known-good metric fill (data-quality layer).** SEC extraction gaps
    leave some 10-K rows with None `operating_cf`/`eps`. Strict
    "None = not proven" demoted MCD/GOOG/JPM/MA the day a partial filing
    landed — churning the book on DATA, not fundamentals. Each metric now
    falls back to the most recent filing ≤ as-of that reports it. A *reported*
    negative EPS/CFO still demotes; only missing values are bridged.
    Point-in-time preserved.
-2. **Quarterly rebalance (default).** Matches the full-stack review's
-   quarterly selector rhythm. Tested vs monthly: both pass G1 (8/11);
-   quarterly halves annual turnover (3.1 vs 5.9 turns) and improves the
-   drawdown ratio (1.44 vs 1.56). Config `WF_REBALANCE_MONTHS`.
-3. **Turnover band (G5).** A held name ranked up to TOP_N + 10 stays in the
+3. **Quarterly rebalance (default).** Matches the full-stack review's
+   quarterly selector rhythm. Tested vs monthly: both pass G1; quarterly
+   halves annual turnover and improves the drawdown ratio. Config
+   `WF_REBALANCE_MONTHS`.
+4. **Turnover band (G5).** A held name ranked up to TOP_N + 10 stays in the
    book (config `TURNOVER_BAND`) — don't trim on a transient rank wobble.
-4. **Re-admission semantics.** A REMOVED ticker that meets criteria again is
-   re-admitted as a FRESH Minor (new 90-day probation, history preserved) —
-   per §3.2 rule 3 ("newly $50B+ / newly in SP500 start in Minor").
-5. **U3 in the walk-forward** is approximated as satisfied (no historical
-   volume in the store; SP500/$50B+ names are structurally ≫100K shares/day).
-   The LIVE pipeline enforces U3 with real yfinance volume stored in NS-7's
-   own `volume` table; a systemic volume outage waives U3 for that refresh
-   (never mass-demote the book on a data outage).
-6. **A_T integration is read-only SQLite** (decoupled file-read pattern —
+   `rank_major(top_n=None)` returns the FULL ranked list (the band and
+   /api/major need it); the feed caps at TOP_N.
+5. **Re-admission semantics.** A REMOVED ticker that meets criteria again is
+   re-admitted as fresh — Major directly if SP500/>$75B, else fresh Minor.
+6. **Volume (U3)** is stored (yfinance, NS-7-owned table) and shown as
+   context, but no longer gates the league. A systemic volume outage is
+   flagged, never churns the book.
+7. **A_T integration is read-only SQLite** (decoupled file-read pattern —
    same as NS-6 reading NS-5's portfolios.json). NS-7 never imports or
    writes A_T modules/stores. Market cap = price × shares_outstanding from
    the point-in-time snapshot (730-day staleness guard, A_T convention).
-7. **`/api/major` returns ALL scored Major names** (not just top-N) — the
-   selection doc persists `scores` plus the band-filtered `selections`.
+8. **Drill-down reasons (PM request 2026-08-13).** Every pick/candidate row
+   has a **Why** button opening a sectioned reason panel (A_T financials.html
+   pattern): Selection (rank, momentum window P[t−126]→P[t−21], band status),
+   League (qualification path + tenure), Quality veto (EPS/CFO pass-fail),
+   Facts (cap, volume, snapshot age). Backed by `/api/leagues/{ticker}` +
+   `pipeline.momentum_detail()`.
 
 ### Data flow (live)
 

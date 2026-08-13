@@ -54,6 +54,11 @@ def _make_server(tmp_path, monkeypatch):
                             "market_cap": 100e9, "eps_ttm": 6.0,
                             "cfo_ttm": 50e9, "avg_daily_volume": 200_000.0,
                             "snapshot_age_days": 30})
+    monkeypatch.setattr(qa_server.pipeline, "momentum_detail",
+                        lambda t, as_of: {
+                            "p_old": 100.0, "p_old_date": "2026-01-01",
+                            "p_skip": 112.5, "p_skip_date": "2026-07-01",
+                            "momentum": 0.125})
     store.set_meta("last_refresh", "2026-08-01")
 
     # Seed league + a selection doc.
@@ -125,6 +130,13 @@ def test_league_detail(tmp_path, monkeypatch):
         assert body["league"] == "major"
         assert body["compliant_today"] is True
         assert body["facts"]["market_cap"] == 100e9
+        # Drill-down reasons: league qualification + selection status + window.
+        assert body["league_reason"] and "SP500" in body["league_reason"]
+        assert body["selection"]["in_top_n"] is True
+        assert body["selection"]["rank"] == 1
+        assert body["selection"]["band_kept"] is False
+        assert body["momentum_window"]["momentum"] == 0.125
+        assert body["momentum_window"]["p_old_date"] == "2026-01-01"
         status, body = srv.get("/api/leagues/zzzz")
         assert status == 404
         assert body["tracked"] is False

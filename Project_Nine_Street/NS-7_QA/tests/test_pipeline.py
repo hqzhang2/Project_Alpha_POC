@@ -52,13 +52,16 @@ def env(tmp_path, monkeypatch):
     conn.execute("""CREATE TABLE prices (
         ticker TEXT, date TEXT, close REAL, PRIMARY KEY (ticker, date))""")
     # Annual rows: filed dates BEFORE the rebalance date (point-in-time ok).
-    # AAA: fresh, positive — eligible. BBB: negative EPS — fails U4.
-    # CCC: tiny cap (price*shares < $50B) — fails U2 unless in SP500.
+    # AAA: SP500 member → MAJOR immediately. BBB: SP500 member (Major at the
+    # league level despite negative EPS — the quality veto applies at PICK
+    # time, not league). CCC: tiny cap → never tracked. DDD: NON-SP500 with
+    # $50B < cap ≤ $75B → Minor on day one (90-day clock / $75B fast-track).
     # (share counts chosen so price ~130 at series end: AAA/BBB ~$1.3T,
-    #  CCC ~$130M.)
+    #  CCC ~$130M, DDD ~$60B.)
     for t, eps, cfo, shares in [("AAA", 6.0, 100e9, 1e10),
                                 ("BBB", -1.0, 50e9, 1e10),
-                                ("CCC", 2.0, 30e9, 1e6)]:
+                                ("CCC", 2.0, 30e9, 1e6),
+                                ("DDD", 3.0, 40e9, 4.6e8)]:
         conn.execute(
             "INSERT INTO annual VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (t, "0", "2025-12-31", "2026-02-01", 1e11, 1e10, 1e10, 1e10, eps,
@@ -67,7 +70,7 @@ def env(tmp_path, monkeypatch):
     # Prices: rising series through the as-of date (momentum > 0).
     dates = pd.bdate_range("2015-01-01", "2026-07-31")
     n = len(dates)
-    for i, t in enumerate(["AAA", "BBB", "CCC"]):
+    for i, t in enumerate(["AAA", "BBB", "CCC", "DDD"]):
         rows = [(t, d.strftime("%Y-%m-%d"), float(100 + i + j * 0.01))
                 for j, d in enumerate(dates)]
         conn.executemany("INSERT INTO prices VALUES (?,?,?)", rows)
@@ -80,7 +83,7 @@ def env(tmp_path, monkeypatch):
     # league walk tests have volume at every step; tests override as needed).
     end = datetime.strptime("2026-07-31", "%Y-%m-%d")
     rows = []
-    for t in ("AAA", "BBB", "CCC"):
+    for t in ("AAA", "BBB", "CCC", "DDD"):
         rows += [(t, (end - timedelta(days=d)).strftime("%Y-%m-%d"), 200_000.0)
                  for d in range(120)]
     store.upsert_volume_many(rows)
@@ -118,9 +121,13 @@ def test_facts_market_cap_and_quality(env):
     assert pipeline.eligible(f) is True
 
 
-def test_facts_negative_eps_not_eligible(env):
+def test_facts_negative_eps_league_eligible_but_vetoed_at_pick(env):
+    # BBB is in SP500 → league-eligible (Major) despite negative EPS; the
+    # quality veto applies at SELECTION time (selector.rank_major), not league.
     f = pipeline.facts_for("BBB", env["as_of"], in_sp500=True)
-    assert pipeline.eligible(f) is False          # U4 veto
+    assert pipeline.eligible(f) is True            # SP500 → league compliant
+    assert universe.major_qualifying(f) is True
+    assert universe.is_quality(f["eps_ttm"], f["cfo_ttm"]) is False  # veto fires
 
 
 def test_facts_small_cap_not_eligible_unless_sp500(env):
@@ -138,9 +145,14 @@ def test_facts_stale_snapshot_not_proven(env, monkeypatch):
                  "WHERE ticker='AAA'")
     conn.commit()
     conn.close()
-    f = pipeline.facts_for("AAA", env["as_of"], in_sp500=True)
-    assert f["eps_ttm"] is None and f["cfo_ttm"] is None
-    assert pipeline.eligible(f) is False           # stale book = not proven
+    # SP500 member: league status survives (index membership is the ticket),
+    # but the cap/quality facts are not proven.
+    f_sp = pipeline.facts_for("AAA", env["as_of"], in_sp500=True)
+    assert f_sp["eps_ttm"] is None and f_sp["cfo_ttm"] is None
+    assert pipeline.eligible(f_sp) is True          # SP500 → league compliant
+    # Non-SP500 with stale book: cap unknown → not eligible.
+    f_non = pipeline.facts_for("AAA", env["as_of"], in_sp500=False)
+    assert pipeline.eligible(f_non) is False        # cap not proven → below floor
 
 
 def test_last_known_good_bridges_extraction_gap(env, monkeypatch):
@@ -161,7 +173,9 @@ def test_last_known_good_bridges_extraction_gap(env, monkeypatch):
 
 
 def test_last_known_good_reported_negative_still_demotes(env, monkeypatch):
-    # Newest filing REPORTS negative EPS → demotes even with lkg available.
+    # Newest filing REPORTS negative EPS → league OK (SP500) but the pick-time
+    # veto still excludes it — lkg only bridges missing values, never
+    # reported negatives.
     conn = sqlite3.connect(str(config.AT_FUNDAMENTALS_DB))
     conn.execute(
         "INSERT INTO annual VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -172,46 +186,104 @@ def test_last_known_good_reported_negative_still_demotes(env, monkeypatch):
     conn.close()
     f = pipeline.facts_for("AAA", "2026-08-15", in_sp500=True)
     assert f["eps_ttm"] == -2.0
-    assert pipeline.eligible(f) is False               # negative EPS vetoed
+    assert pipeline.eligible(f) is True              # SP500 → league compliant
+    assert selector.passes_quality_veto(-2.0, 50e9) is False  # pick veto fires
 
 
-# ── League orchestration ────────────────────────────────────────────────
+# ── League orchestration (PM-corrected rules) ───────────────────────────
 def _facts_map(env):
     sp500 = {"AAA", "BBB"}
     return {t: pipeline.facts_for(t, env["as_of"], t in sp500)
-            for t in ("AAA", "BBB", "CCC")}
+            for t in ("AAA", "BBB", "CCC", "DDD")}
 
 
-def test_fresh_entry_starts_minor(env):
+def test_sp500_member_is_major_day_one(env):
     counts = pipeline.update_leagues(_facts_map(env), env["as_of"])
-    assert counts["fresh"] == 1                    # AAA (BBB fails U4, CCC fails U2)
-    row = store.get_league("AAA")
-    assert row["league"] == "minor" and row["consecutive_compliant"] == 1
-    assert store.get_league("BBB") is None         # never tracked
+    # AAA + BBB (SP500) → Major immediately; DDD (non-SP500 $60B) → Minor;
+    # CCC (tiny cap) never tracked.
+    assert counts["fresh"] == 3
+    assert store.get_league("AAA")["league"] == "major"
+    assert store.get_league("BBB")["league"] == "major"   # even with neg EPS
+    assert store.get_league("DDD")["league"] == "minor"
+    assert store.get_league("CCC") is None
 
 
-def test_promotion_after_90_days(env):
-    # Walk FORWARD from 90 days before as_of: fresh Minor at day0, one
-    # compliant update per day. Day 89 (cc=90) → Major.
+def test_non_sp500_90_day_promotion(env):
+    # DDD: non-SP500, $60B → fresh Minor; promoted after 90 compliant days.
     d0 = datetime.strptime(env["as_of"], "%Y-%m-%d") - timedelta(days=90)
 
     def upd(day):
-        fm = {"AAA": pipeline.facts_for("AAA", day, True)}
+        fm = {"DDD": pipeline.facts_for("DDD", day, False)}
         pipeline.update_leagues(fm, day)
 
     upd(d0.strftime("%Y-%m-%d"))                     # fresh → minor cc=1
     for i in range(1, 89):                           # cc → 89, still minor
         upd((d0 + timedelta(days=i)).strftime("%Y-%m-%d"))
-    assert store.get_league("AAA")["league"] == "minor"
+    assert store.get_league("DDD")["league"] == "minor"
     upd((d0 + timedelta(days=89)).strftime("%Y-%m-%d"))   # cc=90 → major
+    assert store.get_league("DDD")["league"] == "major"
+
+
+def test_non_sp500_fasttrack_75b_immediate(env, monkeypatch):
+    # DDD with cap > $75B (shares bumped) → Major on day one.
+    conn = sqlite3.connect(str(config.AT_FUNDAMENTALS_DB))
+    conn.execute("UPDATE annual SET shares_outstanding=7e8 WHERE ticker='DDD'")
+    conn.commit()
+    conn.close()
+    pipeline.update_leagues({"DDD": pipeline.facts_for("DDD", env["as_of"], False)},
+                            env["as_of"])
+    assert store.get_league("DDD")["league"] == "major"
+
+
+def test_75b_breach_promotes_minor_immediately(env, monkeypatch):
+    # DDD sits in Minor at $60B; cap breaches $75B → Major the same day.
+    pipeline.update_leagues({"DDD": pipeline.facts_for("DDD", env["as_of"], False)},
+                            env["as_of"])
+    assert store.get_league("DDD")["league"] == "minor"
+    conn = sqlite3.connect(str(config.AT_FUNDAMENTALS_DB))
+    conn.execute("UPDATE annual SET shares_outstanding=7e8 WHERE ticker='DDD'")
+    conn.commit()
+    conn.close()
+    pipeline.update_leagues({"DDD": pipeline.facts_for("DDD", env["as_of"], False)},
+                            env["as_of"])
+    assert store.get_league("DDD")["league"] == "major"
+
+
+def test_sp500_removal_kicks_in_cap_rule(env, monkeypatch):
+    # AAA (Major via SP500) leaves the index with cap ~$60B → fresh Minor.
+    pipeline.update_leagues({"AAA": pipeline.facts_for("AAA", env["as_of"], True)},
+                            env["as_of"])
+    assert store.get_league("AAA")["league"] == "major"
+    conn = sqlite3.connect(str(config.AT_FUNDAMENTALS_DB))
+    conn.execute("UPDATE annual SET shares_outstanding=4.6e8 WHERE ticker='AAA'")
+    conn.commit()
+    conn.close()
+    pipeline.update_leagues(
+        {"AAA": pipeline.facts_for("AAA", env["as_of"], False)},  # left index
+        env["as_of"], sp500_removed={"AAA"})
+    row = store.get_league("AAA")
+    assert row["league"] == "minor"          # non-SP500 rule: fresh Minor clock
+    assert row["consecutive_compliant"] == 1
+
+
+def test_sp500_removal_with_75b_cap_stays_major(env, monkeypatch):
+    # AAA leaves SP500 but cap > $75B → still Major via fast-track.
+    pipeline.update_leagues({"AAA": pipeline.facts_for("AAA", env["as_of"], True)},
+                            env["as_of"])
+    conn = sqlite3.connect(str(config.AT_FUNDAMENTALS_DB))
+    conn.execute("UPDATE annual SET shares_outstanding=1e10 WHERE ticker='AAA'")
+    conn.commit()
+    conn.close()
+    pipeline.update_leagues(
+        {"AAA": pipeline.facts_for("AAA", env["as_of"], False)},
+        env["as_of"], sp500_removed={"AAA"})
     assert store.get_league("AAA")["league"] == "major"
 
 
 def test_demotion_immediate(env):
-    # Promote AAA to major, then break U4 (negative eps via bad snapshot?).
-    # Simpler: force league state then run one non-compliant day.
+    # Major with cap ≤ $50B → demoted the same day.
     store.upsert_league("AAA", "major", 95, 0, "2026-01-01", env["as_of"])
-    bad = {"AAA": {"ticker": "AAA", "in_sp500": True, "market_cap": 60e9,
+    bad = {"AAA": {"ticker": "AAA", "in_sp500": False, "market_cap": 30e9,
                    "eps_ttm": -1.0, "cfo_ttm": 5.0,
                    "avg_daily_volume": 200_000.0, "snapshot_age_days": 10}}
     pipeline.update_leagues(bad, env["as_of"])
@@ -222,7 +294,7 @@ def test_demotion_immediate(env):
 
 def test_expiry_after_90_days_noncompliance(env):
     store.upsert_league("AAA", "minor", 0, 88, "2026-01-01", env["as_of"])
-    bad = {"AAA": {"ticker": "AAA", "in_sp500": True, "market_cap": None,
+    bad = {"AAA": {"ticker": "AAA", "in_sp500": False, "market_cap": None,
                    "eps_ttm": None, "cfo_ttm": None, "avg_daily_volume": None,
                    "snapshot_age_days": 999}}
     pipeline.update_leagues(bad, env["as_of"])
@@ -231,13 +303,19 @@ def test_expiry_after_90_days_noncompliance(env):
     assert store.get_league("AAA")["league"] == "removed"  # nc=90
 
 
-def test_readmission_as_fresh_minor(env):
+def test_readmission_as_fresh(env):
+    # Removed + now SP500 → re-admitted as MAJOR (index membership is the ticket).
     store.upsert_league("AAA", "removed", 0, 90, "2026-01-01", env["as_of"])
-    pipeline.update_leagues(_facts_map(env), env["as_of"])
-    row = store.get_league("AAA")
+    pipeline.update_leagues({"AAA": pipeline.facts_for("AAA", env["as_of"], True)},
+                            env["as_of"])
+    assert store.get_league("AAA")["league"] == "major"
+    # Removed + non-SP500 $60B → re-admitted as fresh MINOR.
+    store.upsert_league("DDD", "removed", 0, 90, "2026-01-01", env["as_of"])
+    pipeline.update_leagues({"DDD": pipeline.facts_for("DDD", env["as_of"], False)},
+                            env["as_of"])
+    row = store.get_league("DDD")
     assert row["league"] == "minor"
     assert row["first_seen"] == env["as_of"]         # fresh probation restarts
-    assert row["consecutive_compliant"] == 1
 
 
 # ── Volume + U3 ─────────────────────────────────────────────────────────

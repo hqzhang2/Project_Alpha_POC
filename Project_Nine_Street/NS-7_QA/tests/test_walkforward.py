@@ -63,7 +63,7 @@ def fx(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "ns7" / "ns7.db")
 
     membership = {"current": ["AAA", "BBB", "DDD"], "changes": []}
-    return {"as_of": "2016-10-31", "membership": membership}
+    return {"as_of": "2016-10-31", "membership": membership, "at_db": at_db}
 
 
 def _run(fx, monkeypatch, start="2016-06-30", end="2016-10-31"):
@@ -94,8 +94,9 @@ def test_simulate_small_window(fx, monkeypatch):
     results = _run(fx, monkeypatch)
     assert results["window"]["rebalances"] == 5
     assert len(results["monthly"]) == 4
-    # First rebalance (2016-06-30) picks the two eligible names (AAA, DDD);
-    # BBB vetoed, CCC never eligible.
+    # First rebalance (2016-06-30) picks the two eligible SP500 names (AAA,
+    # DDD); BBB is SP500 → Major at the league level but vetoed at pick time
+    # (negative EPS); CCC never tracked.
     first = results["monthly"][0]
     assert set(first["picks"]) == {"AAA", "DDD"}
     # Strategy return over the month = equal-weight mean of the two names.
@@ -107,18 +108,42 @@ def test_simulate_small_window(fx, monkeypatch):
         assert k in y
     assert results["gate"]["G4_concentration_ok"] is True
     assert results["drawdown"]["strategy_mdd"] <= 0.0
-    # League dynamics: AAA/DDD start Minor (probation), promote after 90d.
-    assert results["monthly"][0]["major_count"] == 2
+    # League dynamics: SP500 members are Major from day one (no probation).
+    assert results["monthly"][0]["major_count"] == 3
 
 
-def test_simulate_no_major_early(fx, monkeypatch):
-    # Window entirely inside the 90-day probation → no picks, cash return.
-    results = wf.simulate("2016-04-30", "2016-05-31",
-                          wf.Facts(wf.load_prices(config.AT_FUNDAMENTALS_DB),
-                                   wf.load_annual(config.AT_FUNDAMENTALS_DB),
-                                   fx["membership"]),
-                          warmup_start="2016-03-01",
-                          spy=([], []),
+def test_simulate_no_major_early(tmp_path, monkeypatch):
+    # Non-SP500 $50-75B name: fresh Minor → 90-day probation → NO picks in a
+    # window entirely inside the probation. Isolated DB (only XXX exists).
+    at_db = tmp_path / "at" / "fundamentals_hist.db"
+    at_db.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "AT_FUNDAMENTALS_DB", at_db)
+    conn = sqlite3.connect(str(at_db))
+    conn.execute("""CREATE TABLE annual (
+        ticker TEXT, cik TEXT, period_end TEXT, filed TEXT,
+        revenue REAL, gross_profit REAL, operating_income REAL,
+        net_income REAL, eps_diluted REAL, current_assets REAL,
+        current_liabilities REAL, total_liabilities REAL,
+        short_term_debt REAL, long_term_debt REAL, total_equity REAL,
+        shares_outstanding REAL, cash REAL, marketable_securities REAL,
+        ppe REAL, operating_cf REAL, capex REAL,
+        PRIMARY KEY (ticker, period_end))""")
+    conn.execute("""CREATE TABLE prices (
+        ticker TEXT, date TEXT, close REAL, PRIMARY KEY (ticker, date))""")
+    conn.execute(
+        "INSERT INTO annual VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("XXX", "0", "2015-12-31", "2016-02-01", 1e11, 1e10, 1e10, 1e10, 2.0,
+         1e11, 1e10, 5e10, 0, 1e10, 1e11, 4.6e8, 1e10, 1e9, 5e9, 30e9, 2e9))
+    dates = pd.bdate_range("2015-01-01", "2016-12-31")
+    conn.executemany("INSERT INTO prices VALUES (?,?,?)",
+                     [("XXX", d.strftime("%Y-%m-%d"), 100.0 + j * 0.02)
+                      for j, d in enumerate(dates)])
+    conn.commit()
+    conn.close()
+    membership = {"current": [], "changes": []}      # XXX not in SP500
+    facts = wf.Facts(wf.load_prices(at_db), wf.load_annual(at_db), membership)
+    results = wf.simulate("2016-04-30", "2016-05-31", facts,
+                          warmup_start="2016-03-01", spy=([], []),
                           rebalance_months=1)
     assert results["monthly"][0]["picks"] == []
     assert results["monthly"][0]["strategy"] == 0.0

@@ -43,6 +43,25 @@
     text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
   .panel h3 .summary { float: right; font-size: 11px; color: #94a3b8; text-transform: none; letter-spacing: 0; font-weight: 600; }
 
+  /* Drill-down (Why) button — mirrors A_T financials.html framework detail */
+  .why-btn {
+    background: #1f2937; color: #94a3b8; border: 1px solid #30363d;
+    border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 700;
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .why-btn:hover { color: #4ade80; border-color: #4ade80; background: #0f1a14; }
+
+  .dsec { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;
+    letter-spacing: .6px; margin: 14px 0 4px; padding-bottom: 3px; border-bottom: 1px solid #1f2937; }
+  .dsec:first-of-type { margin-top: 4px; }
+  .dverdict { margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .dverdict.pick { background: #14532d; color: #4ade80; }
+  .dverdict.veto { background: #3f1d1d; color: #f87171; }
+  .dverdict.info { background: #0d1420; color: #94a3b8; border: 1px solid #1f2937; }
+  .dclose { float: right; background: none; border: none; color: #64748b;
+    font-size: 16px; cursor: pointer; line-height: 1; }
+  .dclose:hover { color: #f87171; }
+
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   th { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .5px;
     text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2937; }
@@ -104,7 +123,7 @@
     <div class="panel">
       <h3>Selection — top-N momentum picks <span class="summary" id="selSummary"></span></h3>
       <table id="selTable">
-        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th></tr></thead>
+        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="league-legend">
@@ -116,7 +135,7 @@
     <div class="panel">
       <h3>Major league — active candidates <span class="summary" id="uniSummary"></span></h3>
       <table id="uniTable">
-        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th><th>First seen</th></tr></thead>
+        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th><th>First seen</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="league-legend">
@@ -193,8 +212,9 @@ function renderSel(sel) {
   tbody.innerHTML = picks.length ? picks.map(p =>
     '<tr class="clickable" onclick="showDetail(\'' + esc(p.ticker) + '\')">' +
     '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b></td>' +
-    '<td class="num">' + fmtMom(p.momentum) + '</td></tr>'
-  ).join('') : '<tr><td colspan="3" class="muted">No Major names yet — league probation (90d) running.</td></tr>';
+    '<td class="num">' + fmtMom(p.momentum) + '</td>' +
+    '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(p.ticker) + '\')">Why</button></td></tr>'
+  ).join('') : '<tr><td colspan="4" class="muted">No Major names yet — league probation (90d) running.</td></tr>';
 }
 
 function renderUni(maj) {
@@ -215,8 +235,9 @@ function renderUni(maj) {
     '<tr class="clickable" onclick="showDetail(\'' + esc(r.ticker) + '\')">' +
     '<td>' + r.rank + '</td><td><b>' + esc(r.ticker) + '</b></td>' +
     '<td class="num">' + fmtMom(r.momentum) + '</td>' +
-    '<td>' + esc(r.first_seen) + '</td></tr>'
-  ).join('') : '<tr><td colspan="4" class="muted">No Major names yet — league probation (90d) running; first promotions expected ~Nov 2026.</td></tr>';
+    '<td>' + esc(r.first_seen) + '</td>' +
+    '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(r.ticker) + '\')">Why</button></td></tr>'
+  ).join('') : '<tr><td colspan="5" class="muted">No Major names yet — league probation (90d) running; first promotions expected ~Nov 2026.</td></tr>';
 }
 
 async function showDetail(ticker) {
@@ -225,27 +246,77 @@ async function showDetail(ticker) {
   try {
     const d = await api('/api/leagues/' + encodeURIComponent(ticker));
     const f = d.facts || {};
+    const sel = d.selection || {};
+    const mom = d.momentum_window;
     const compliant = d.compliant_today == null ? '<span class="pill na">n/a</span>'
       : d.compliant_today ? '<span class="pill yes">COMPLIANT</span>'
                           : '<span class="pill no">NOT COMPLIANT</span>';
     const mcap = f.market_cap != null ? '$' + (f.market_cap / 1e9).toFixed(1) + 'B' : '—';
+    const r = (x) => '<div class="drow"><span class="k">' + x[0] + '</span><span class="v">' + x[1] + '</span></div>';
+    const fmt = (v) => (v != null && v >= 1e9) ? '$' + (v / 1e9).toFixed(1) + 'B'
+                                               : (v != null ? '$' + (+v).toFixed(2) : '—');
+    const q = (v) => (v != null && v > 0) ? '<span class="pos">' + fmt(v) + ' ✓</span>'
+                                          : '<span class="neg">' + fmt(v) + ' ✗</span>';
+
+    // ── SELECTION (why it was / wasn't picked) ───────────────────────────
+    let sels = '<div class="dsec">Selection</div>';
+    if (sel.in_top_n) {
+      sels += '<div class="dverdict pick">PICKED — rank #' + sel.rank + ' of ' +
+        (sel.scored_count || '—') + ' scored Major names' +
+        (sel.band_kept ? ' · held via turnover band' : '') + '</div>';
+    } else if (sel.rank != null) {
+      sels += '<div class="dverdict veto">Not in top-N — rank #' + sel.rank + ' of ' +
+        (sel.scored_count || '—') + (mom ? ' · momentum ' + fmtMom(mom.momentum) : '') + '</div>';
+    } else {
+      sels += '<div class="dverdict info">No momentum score (insufficient history or not Major)</div>';
+    }
+    if (mom) {
+      sels += r(['Momentum (126/21 skip)', fmtMom(mom.momentum)]) +
+        r(['P[t−126] @ ' + mom.p_old_date, '$' + mom.p_old]) +
+        r(['P[t−21] @ ' + mom.p_skip_date, '$' + mom.p_skip]);
+    }
+    sels += r(['Selection as of', sel.as_of || '—']);
+
+    // ── LEAGUE (how it qualifies) ────────────────────────────────────────
+    let lg = '<div class="dsec">League — ' + badge(d.league) + ' ' + compliant + '</div>' +
+      r(['Qualification', d.league_reason || '—']) +
+      r(['Compliant days', (d.consecutive_compliant || 0) + ' / ' +
+        (d.league === 'minor' ? '90 to promote' : '—')]) +
+      r(['Non-compliant days', (d.consecutive_noncompliant || 0) +
+        (d.league === 'minor' ? ' / 90 to remove' : '')]) +
+      r(['First seen', esc(d.first_seen)]) +
+      r(['Grace left → promote', d.grace_days_left_to_promotion != null ? d.grace_days_left_to_promotion + 'd' : '—']);
+
+    // ── QUALITY VETO (the pick-time gate) ────────────────────────────────
+    const epsOk = f.eps_ttm != null && f.eps_ttm > 0;
+    const cfoOk = f.cfo_ttm != null && f.cfo_ttm > 0;
+    const vetoOk = epsOk && cfoOk;
+    let qv = '<div class="dsec">Quality veto (pick gate)</div>' +
+      r(['EPS TTM', q(f.eps_ttm)]) +
+      r(['Op. CF TTM', q(f.cfo_ttm)]) +
+      '<div class="dverdict ' + (vetoOk ? 'pick' : 'veto') + '">' +
+      (vetoOk ? 'PASSES — eligible to be picked' : 'VETOED — excluded from picks (negative/missing)') + '</div>';
+
+    // ── FACTS (league context) ───────────────────────────────────────────
+    let fx = '<div class="dsec">Facts</div>' +
+      r(['In SP500', f.in_sp500 ? 'yes' : 'no']) +
+      r(['Market cap', mcap]) +
+      r(['Avg volume (20d)', f.avg_daily_volume != null ? (+f.avg_daily_volume / 1e3).toFixed(0) + 'K' : '—']) +
+      r(['Snapshot age', f.snapshot_age_days != null ? f.snapshot_age_days + 'd' : '—']);
+
     box.innerHTML =
-      '<div class="dtitle">' + esc(ticker) + ' ' + badge(d.league) + ' ' + compliant + '</div>' +
-      '<div class="drow"><span class="k">League</span><span class="v">' + esc(d.league) + '</span></div>' +
-      '<div class="drow"><span class="k">Compliant days</span><span class="v">' + (d.consecutive_compliant || 0) + '</span></div>' +
-      '<div class="drow"><span class="k">Non-compliant</span><span class="v">' + (d.consecutive_noncompliant || 0) + '</span></div>' +
-      '<div class="drow"><span class="k">First seen</span><span class="v">' + esc(d.first_seen) + '</span></div>' +
-      '<div class="drow"><span class="k">Grace left → promote</span><span class="v">' +
-        (d.grace_days_left_to_promotion != null ? d.grace_days_left_to_promotion + 'd' : '—') + '</span></div>' +
-      '<div class="drow"><span class="k">In SP500</span><span class="v">' + (f.in_sp500 ? 'yes' : 'no') + '</span></div>' +
-      '<div class="drow"><span class="k">Market cap</span><span class="v">' + mcap + '</span></div>' +
-      '<div class="drow"><span class="k">EPS TTM</span><span class="v">' + (f.eps_ttm != null ? '$' + (+f.eps_ttm).toFixed(2) : '—') + '</span></div>' +
-      '<div class="drow"><span class="k">Op. CF TTM</span><span class="v">' + (f.cfo_ttm != null ? '$' + (+f.cfo_ttm / 1e9).toFixed(1) + 'B' : '—') + '</span></div>' +
-      '<div class="drow"><span class="k">Avg vol (20d)</span><span class="v">' + (f.avg_daily_volume != null ? (+f.avg_daily_volume / 1e3).toFixed(0) + 'K' : '—') + '</span></div>' +
-      '<div class="drow"><span class="k">Snapshot age</span><span class="v">' + (f.snapshot_age_days != null ? f.snapshot_age_days + 'd' : '—') + '</span></div>';
+      '<div class="dtitle">' + esc(ticker) +
+      '<button class="dclose" title="Close" onclick="closeDetail()">✕</button>' +
+      ' ' + badge(d.league) + ' ' + compliant + '</div>' +
+      sels + lg + qv + fx;
   } catch (e) {
     box.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
   }
+}
+
+function closeDetail() {
+  document.getElementById('detail').innerHTML =
+    '<div class="muted">Click any ticker for league tenure + live facts.</div>';
 }
 
 loadAll();

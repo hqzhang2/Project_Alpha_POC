@@ -263,13 +263,18 @@ def simulate(start: str, end: str, facts: Facts,
     for day in daterange(sim_start, end):
         # Facts for all candidates (point-in-time as of today).
         sp500 = members_on(day, facts.membership)
+        # Index-exit edge: names that were SP500 members yesterday but not
+        # today → the non-SP500 cap rule kicks in (fresh recompute).
+        prev_day = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        sp500_removed = members_on(prev_day, facts.membership) - sp500
         facts_map = {}
         for t in candidates:
             in_sp = t in sp500
             # Fast path: skip facts entirely when nothing can change? Keep
             # simple — full daily recompute is ~1.3M bisects, a few seconds.
             facts_map[t] = facts.facts_for(t, day, in_sp)
-        league_state, _counts = universe.apply_daily(league_state, facts_map, day)
+        league_state, _counts = universe.apply_daily(
+            league_state, facts_map, day, sp500_removed=sp500_removed)
 
         if day in rebalances:
             major = {t for t, r in league_state.items()
@@ -395,7 +400,9 @@ def simulate(start: str, end: str, facts: Facts,
         "yearly": yearly,
         "monthly": [{k: (round(v, 6) if isinstance(v, float) else v)
                      for k, v in r.items()} for r in rows],
-        "assumptions": ["U3 approximated liquid (no historical volume in store)",
+        "assumptions": ["league gates = SP500 membership ∪ market cap "
+                        "(PM-corrected 2026-08-13: SP500 → Major immediately; "
+                        "non-SP500 $50B+ → Minor, Major after 90d or $75B)",
                         "equal-weight naive book (NS-5 frontier in production)",
                         "last-known-good fills extraction-gap metrics",
                         f"rebalance every {rebalance_months} month(s), daily league clock, 90d grace"],

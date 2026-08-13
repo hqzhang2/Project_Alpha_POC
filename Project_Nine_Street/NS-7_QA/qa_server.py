@@ -26,6 +26,7 @@ from pathlib import Path
 import config
 import pipeline
 import store
+import universe
 
 PORT = int(os.environ.get("PORT", 9271))
 ENV = os.environ.get("ENV", "QA")
@@ -139,6 +140,43 @@ class NS7Handler(BaseHTTPRequestHandler):
                                "as_of": None, "selections": []}, 404)
         self._json(latest["payload"])
 
+    def _league_reason(self, row: dict, facts: dict, major_qual: bool) -> str:
+        """Why this ticker is in its league — the drill-down headline."""
+        league = row["league"]
+        if league == config.LEAGUE_MAJOR:
+            if facts.get("in_sp500"):
+                return "SP500 index member — automatic Major (no probation)"
+            cap = facts.get("market_cap") or 0
+            if cap > config.MARKET_CAP_MAJOR_FASTTRACK:
+                return "Non-SP500, market cap > $75B — fast-track Major"
+            return "Non-SP500 $50-75B — 90-day compliance clock earned Major"
+        if league == config.LEAGUE_MINOR:
+            nc = int(row.get("consecutive_noncompliant") or 0)
+            cc = int(row.get("consecutive_compliant") or 0)
+            if nc > 0:
+                return f"Below league floor — noncompliance day {nc}/{config.GRACE_PERIOD_DAYS}"
+            return (f"Non-SP500 $50-75B — 90-day probation, "
+                    f"day {cc}/{config.GRACE_PERIOD_DAYS} compliant")
+        return ("Removed — 90 consecutive days out of compliance "
+                "(data preserved, re-admits as fresh)")
+
+    def _selection_status(self, ticker: str) -> dict:
+        """Where this ticker stands in the latest selection feed."""
+        latest = store.latest_selection()
+        payload = (latest or {}).get("payload", {})
+        scores = payload.get("scores", [])
+        selections = payload.get("selections", [])
+        rank = next((i + 1 for i, s in enumerate(scores)
+                     if s.get("ticker") == ticker), None)
+        in_top_n = any(s.get("ticker") == ticker for s in selections)
+        return {
+            "rank": rank,
+            "scored_count": len(scores),
+            "in_top_n": in_top_n,
+            "band_kept": bool(in_top_n and rank and rank > (payload.get("top_n") or 0)),
+            "as_of": (latest or {}).get("as_of"),
+        }
+
     def _league_detail(self, ticker):
         """One ticker's stored league state + live point-in-time facts."""
         row = store.get_league(ticker)
@@ -150,21 +188,31 @@ class NS7Handler(BaseHTTPRequestHandler):
         try:
             facts = pipeline.facts_for(ticker, as_of, ticker in set(pipeline.sp500_current()))
             compliant = pipeline.eligible(facts)
+            major_qual = universe.major_qualifying(facts)
         except Exception as exc:  # noqa: BLE001 — A_T store may be down
             log.warning("facts_for(%s) failed: %s", ticker, exc)
-            facts, compliant = {}, None
+            facts, compliant, major_qual = {}, None, None
+        try:
+            mom = pipeline.momentum_detail(ticker, as_of)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("momentum_detail(%s) failed: %s", ticker, exc)
+            mom = None
         grace_left = max(
             0, config.GRACE_PERIOD_DAYS - int(row.get("consecutive_compliant", 0)))
         self._json({
             "ticker": ticker,
             "tracked": True,
             "league": row["league"],
+            "league_reason": self._league_reason(row, facts, bool(major_qual)),
             "consecutive_compliant": row["consecutive_compliant"],
             "consecutive_noncompliant": row["consecutive_noncompliant"],
             "first_seen": row["first_seen"],
             "last_seen": row["last_seen"],
             "compliant_today": compliant,
+            "major_qualifying": major_qual,
             "grace_days_left_to_promotion": grace_left if row["league"] == config.LEAGUE_MINOR else None,
+            "selection": self._selection_status(ticker),
+            "momentum_window": mom,
             "facts": {k: facts.get(k) for k in
                       ("in_sp500", "market_cap", "eps_ttm", "cfo_ttm",
                        "avg_daily_volume", "snapshot_age_days")},

@@ -51,12 +51,11 @@ def rank_major(prices: Dict[str, List[float]],
         facts: {ticker: {eps_ttm, cfo_ttm, market_cap, in_sp500, ...}}.
         top_n: cap on the returned ranked list. None → rank ALL scored names
             (used by the pipeline to persist every Major score for /api/major);
-            the default is config.TOP_N (the NS-5 feed).
+            pass an int for the NS-5 feed (config.TOP_N).
 
     Returns a list of dicts, ranked descending, each:
         {ticker, momentum, rank}  (rank is 1-based; None momentum = excluded)
     """
-    top_n = config.TOP_N if top_n is None else top_n
     scored = []
     for ticker, closes in prices.items():
         mom = skip_month_momentum(closes)
@@ -73,7 +72,7 @@ def rank_major(prices: Dict[str, List[float]],
             continue  # quality veto removes junk, keeps growth leaders (G3)
         ranked.append({"ticker": ticker, "momentum": round(mom, 6),
                        "rank": len(ranked) + 1})
-        if len(ranked) >= top_n:
+        if top_n is not None and len(ranked) >= top_n:
             break
     return ranked
 
