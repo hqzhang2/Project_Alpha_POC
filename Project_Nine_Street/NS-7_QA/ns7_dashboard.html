@@ -51,6 +51,14 @@
   }
   .why-btn:hover { color: #4ade80; border-color: #4ade80; background: #0f1a14; }
 
+  /* Benchmark filter bar */
+  .filter-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .filter-label { font-size: 12px; color: #dbe4f0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .filter-label input { accent-color: #4ade80; cursor: pointer; }
+  .filter-count { font-size: 11px; color: #64748b; font-variant-numeric: tabular-nums; }
+  .beats { color: #4ade80; font-weight: 800; }
+  .lags { color: #64748b; }
+
   .dsec { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;
     letter-spacing: .6px; margin: 14px 0 4px; padding-bottom: 3px; border-bottom: 1px solid #1f2937; }
   .dsec:first-of-type { margin-top: 4px; }
@@ -122,26 +130,20 @@
 
     <div class="panel">
       <h3>Selection — top-N momentum picks <span class="summary" id="selSummary"></span></h3>
-      <table id="selTable">
-        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div class="league-legend">
-        Output feeds the <b>growth sleeve</b> → NS-5 frontier → NS-6. Signal only — NS-7 never
-        weights; NS-6 owns drawdown.
+      <div class="filter-bar">
+        <label class="filter-label"><input type="checkbox" id="benchFilter" onchange="renderSel()">
+          Beat <b>SPY &amp; QQQ</b> (same 126/21 window)</label>
+        <span class="filter-count" id="benchCount"></span>
       </div>
-    </div>
-
-    <div class="panel">
-      <h3>Major league — active candidates <span class="summary" id="uniSummary"></span></h3>
-      <table id="uniTable">
-        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th><th>First seen</th><th></th></tr></thead>
+      <table id="selTable">
+        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
+          <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="league-legend">
-        The Major league is the momentum-eligible universe — what NS-7 can pick.
-        Minor/Removed names are engine-internal (90-day anti-churn grace) and
-        are not surfaced here.
+        Top-N growth-sleeve feed → NS-5 frontier → NS-6. Signal only — NS-7
+        never weights; NS-6 owns drawdown. Check the filter to show only picks
+        that outperformed BOTH SPY and QQQ over the same period.
       </div>
     </div>
   </div>
@@ -176,17 +178,15 @@ function badge(league) {
   return '<span class="badge b-' + esc(league) + '">' + esc(league.toUpperCase()) + '</span>';
 }
 
-let UNIVERSE = [];
+let SEL = null;   // latest selection doc (for the benchmark filter)
 
 async function loadAll() {
   try {
-    const [uni, sel, maj] = await Promise.all([
-      api('/api/universe'), api('/api/select').catch(() => null),
-      api('/api/major')]);
-    UNIVERSE = uni.members || [];
+    const [uni, sel] = await Promise.all([
+      api('/api/universe'), api('/api/select').catch(() => null)]);
+    SEL = sel;
     renderKpis(uni, sel);
-    renderSel(sel);
-    renderUni(maj);
+    renderSel();
     document.getElementById('asOf').textContent =
       'as of ' + (uni.as_of || '—') + (sel ? ' · generated ' + (sel.generated_at || '').slice(0, 16).replace('T', ' ') : '');
   } catch (e) {
@@ -203,41 +203,30 @@ function renderKpis(uni, sel) {
   document.getElementById('kAsOf').textContent = uni.as_of || '–';
 }
 
-function renderSel(sel) {
-  const picks = (sel && sel.selections) || [];
+function renderSel() {
+  const picks = (SEL && SEL.selections) || [];
+  const bench = (SEL && SEL.benchmarks) || null;
+  const filterOn = document.getElementById('benchFilter').checked;
+  const beatCount = picks.filter(p => p.beats_benchmarks).length;
+  document.getElementById('benchCount').textContent = bench
+    ? 'SPY ' + fmtMom(bench.spy) + ' · QQQ ' + fmtMom(bench.qqq) + ' — ' +
+      beatCount + ' of ' + picks.length + ' beat both'
+    : 'benchmarks unavailable (filter off)';
+  const shown = filterOn ? picks.filter(p => p.beats_benchmarks) : picks;
   const tbody = document.querySelector('#selTable tbody');
   document.getElementById('selSummary').textContent =
-    sel ? (picks.length + ' / ' + (sel.top_n || '—') + ' · ' +
-           (sel.major_count || 0) + ' Major, ' + (sel.scored_count || 0) + ' scored') : 'no refresh yet';
-  tbody.innerHTML = picks.length ? picks.map(p =>
+    SEL ? (shown.length + ' / ' + (SEL.top_n || '—') + ' · ' +
+           (SEL.major_count || 0) + ' Major, ' + (SEL.scored_count || 0) + ' scored') : 'no refresh yet';
+  tbody.innerHTML = shown.length ? shown.map(p =>
     '<tr class="clickable" onclick="showDetail(\'' + esc(p.ticker) + '\')">' +
     '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b></td>' +
     '<td class="num">' + fmtMom(p.momentum) + '</td>' +
+    '<td class="num">' + (p.beats_benchmarks
+      ? '<span class="beats">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
     '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(p.ticker) + '\')">Why</button></td></tr>'
-  ).join('') : '<tr><td colspan="4" class="muted">No Major names yet — league probation (90d) running.</td></tr>';
-}
-
-function renderUni(maj) {
-  // Major-league candidates only (Minor/Removed are engine-internal).
-  const majorRows = UNIVERSE.filter(r => r.league === 'major');
-  const firstSeen = {};
-  majorRows.forEach(r => { firstSeen[r.ticker] = r.first_seen; });
-  const scores = (maj && maj.scores) || [];
-  const rows = scores.map((s, i) => ({
-    ticker: s.ticker, momentum: s.momentum, rank: i + 1,
-    first_seen: firstSeen[s.ticker] || '—'
-  }));
-  const tbody = document.querySelector('#uniTable tbody');
-  document.getElementById('uniSummary').textContent =
-    rows.length + ' active' + (maj && maj.major_count != null && maj.major_count !== rows.length
-      ? ' / ' + maj.major_count + ' Major' : '');
-  tbody.innerHTML = rows.length ? rows.map(r =>
-    '<tr class="clickable" onclick="showDetail(\'' + esc(r.ticker) + '\')">' +
-    '<td>' + r.rank + '</td><td><b>' + esc(r.ticker) + '</b></td>' +
-    '<td class="num">' + fmtMom(r.momentum) + '</td>' +
-    '<td>' + esc(r.first_seen) + '</td>' +
-    '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(r.ticker) + '\')">Why</button></td></tr>'
-  ).join('') : '<tr><td colspan="5" class="muted">No Major names yet — league probation (90d) running; first promotions expected ~Nov 2026.</td></tr>';
+  ).join('') : '<tr><td colspan="5" class="muted">' +
+    (picks.length ? 'No picks beat both SPY and QQQ in this window.' :
+     'No Major names yet — league probation (90d) running.') + '</td></tr>';
 }
 
 async function showDetail(ticker) {

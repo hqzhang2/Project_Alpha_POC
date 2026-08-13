@@ -70,6 +70,12 @@ VOLUME_REFETCH_BATCH = 50            # yfinance calls per batch (politeness)
 # ── Selection output (the NS-5 feed) ────────────────────────────────────
 SELECTION_PATH = DATA_DIR / "selection.json"
 
+# ── Benchmark filter (PM 2026-08-13): show picks beating BOTH SPY and QQQ ─
+# over the same 126/21 skip-month window. SPY/QQQ closes fetched via
+# yfinance and cached (the A_T store carries no index series).
+BENCH_SYMBOLS = ["SPY", "QQQ"]
+BENCH_CACHE = DATA_DIR / "bench_closes.json"
+
 # ── Walk-forward harness (G1 acceptance gate) ───────────────────────────
 WF_START = "2016-01-01"              # first rebalance month
 WF_END = "2026-07-31"                # last rebalance month

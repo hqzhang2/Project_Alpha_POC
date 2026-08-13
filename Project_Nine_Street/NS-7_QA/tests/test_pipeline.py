@@ -344,6 +344,63 @@ def test_volume_per_ticker_failure_not_systemic(env, monkeypatch):
     assert store.avg_daily_volume("BBB", "2026-08-20", 1) == 150_000.0
 
 
+# ── Benchmark filter (SPY & QQQ, same 126/21 window) ────────────────────
+def _fake_bench(spy_mom, qqq_mom, n=300):
+    """Synthetic bench series with the requested skip-month momentum."""
+    dates = pd.bdate_range("2020-01-01", periods=n)
+    out = {}
+    for sym, mom in (("SPY", spy_mom), ("QQQ", qqq_mom)):
+        closes = [100.0] * n
+        # P[t-21] = closes[-21], P[t-126] = closes[-126]; set them to hit `mom`.
+        closes[-config.MOMENTUM_SKIP_DAYS] = 100.0 * (1 + mom)
+        closes[-config.MOMENTUM_LOOKBACK_DAYS] = 100.0
+        out[sym] = [(d.strftime("%Y-%m-%d"), float(c))
+                    for d, c in zip(dates, closes)]
+    return out
+
+
+def test_bench_momentum_computes_same_window(env, monkeypatch):
+    bench = _fake_bench(0.10, 0.05)
+    bm = pipeline.bench_momentum(env["as_of"], bench=bench)
+    assert bm is not None
+    assert bm["spy"] == pytest.approx(0.10, abs=1e-6)
+    assert bm["qqq"] == pytest.approx(0.05, abs=1e-6)
+
+
+def test_bench_momentum_short_series_none(env, monkeypatch):
+    bench = {"SPY": _fake_bench(0.10, 0.05)["SPY"][:50],
+             "QQQ": _fake_bench(0.10, 0.05)["QQQ"]}
+    assert pipeline.bench_momentum(env["as_of"], bench=bench) is None
+
+
+def test_selection_doc_carries_benchmark_flags(env, monkeypatch):
+    # Force AAA/DDD to Major; fixture rising series has ~1% skip-month mom.
+    store.upsert_league("AAA", "major", 95, 0, "2026-01-01", env["as_of"])
+    store.upsert_league("DDD", "major", 95, 0, "2026-01-01", env["as_of"])
+    fm = {"AAA": pipeline.facts_for("AAA", env["as_of"], True),
+          "DDD": pipeline.facts_for("DDD", env["as_of"], False)}
+
+    # Low bench (0.5%/0.2%) → the ~1% picks beat BOTH.
+    monkeypatch.setattr(pipeline, "bench_momentum",
+                        lambda as_of: {"spy": 0.005, "qqq": 0.002})
+    doc = pipeline.run_selection(env["as_of"], fm)
+    assert doc["benchmarks"] == {"spy": 0.005, "qqq": 0.002}
+    assert all(s["beats_benchmarks"] is True for s in doc["selections"])
+
+    # High bench (10%/5%) → picks lag BOTH → flags False.
+    monkeypatch.setattr(pipeline, "bench_momentum",
+                        lambda as_of: {"spy": 0.10, "qqq": 0.05})
+    doc2 = pipeline.run_selection(env["as_of"], fm)
+    assert all(s["beats_benchmarks"] is False for s in doc2["selections"])
+
+    # Benchmark availability is fail-open: None → flags False, feed intact.
+    monkeypatch.setattr(pipeline, "bench_momentum", lambda as_of: None)
+    doc3 = pipeline.run_selection(env["as_of"], fm)
+    assert doc3["benchmarks"] is None
+    assert all(s["beats_benchmarks"] is False for s in doc3["selections"])
+    assert len(doc3["selections"]) == 2
+
+
 # ── Full refresh + selection feed ───────────────────────────────────────
 def test_run_refresh_full_pipeline(env, monkeypatch):
     def fake_fetch(t, window):

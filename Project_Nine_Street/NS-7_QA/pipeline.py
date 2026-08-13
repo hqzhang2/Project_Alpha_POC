@@ -14,15 +14,19 @@ Refresh steps (run daily; CLI:  python3 pipeline.py):
   3. Facts             — point-in-time per ticker (market cap, EPS, CFO,
                          in_sp500, 20d avg volume); 730-day staleness guard
                          (A_T convention: stale books are not point-in-time)
-  4. League update     — fresh entry / transition / re-admission + tenure clocks
+  4. League update     — PM-corrected gates (SP500 → Major immediately;
+                         non-SP500 >$75B fast-track / $50-75B 90-day clock;
+                         SP500 removal → cap rule) + tenure clocks
   5. Momentum          — skip-month 126/21 on Major names with a full series
-  6. Selection         — rank + quality veto + top-N → selection.json + store
+  6. Selection         — rank + quality veto + turnover band → top-N feed,
+                         flagged vs SPY & QQQ benchmarks (same window)
 
 No drawdown logic here (guardrail G6). NS-7 emits signals; NS-6 owns the tail.
 """
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import logging
 import sqlite3
@@ -317,6 +321,60 @@ def update_leagues(facts_by_ticker: Dict[str, Dict], as_of: str,
 
 
 # ── Momentum + selection (§4) ───────────────────────────────────────────
+def fetch_benchmarks() -> Dict[str, List[tuple]]:
+    """SPY + QQQ daily closes [(date, close)] — yfinance, cached (bench filter).
+
+    The A_T store carries no index series, so NS-7 keeps its own benchmark
+    cache. Fail-open: any error → {} (the filter degrades to 'off', picks
+    still flow).
+    """
+    cache = config.BENCH_CACHE
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text())
+        except (ValueError, TypeError):
+            pass
+    import yfinance as yf
+    out: Dict[str, List[tuple]] = {}
+    try:
+        for sym in config.BENCH_SYMBOLS:
+            df = yf.Ticker(sym).history(start="2014-01-01", auto_adjust=True)
+            out[sym] = [(str(d)[:10], float(c))
+                        for d, c in zip(df.index, df["Close"].dropna())]
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(out, default=str))
+    except Exception as exc:  # noqa: BLE001 — network/yfinance outage
+        log.warning("benchmark fetch failed: %s", exc)
+        return {}
+    return out
+
+
+def bench_momentum(as_of: str,
+                   bench: Optional[Dict[str, List[tuple]]] = None) -> Optional[dict]:
+    """SPY & QQQ skip-month momentum (126/21) as of `as_of`, same window as picks.
+
+    Returns {spy: mom, qqq: mom} or None when either series is too short /
+    unavailable (fail-open — never blocks selection).
+    """
+    bench = bench if bench is not None else fetch_benchmarks()
+    out = {}
+    for sym in config.BENCH_SYMBOLS:
+        rows = bench.get(sym) or []
+        if len(rows) < config.MOMENTUM_MIN_HISTORY:
+            return None
+        dates = [r[0] for r in rows]
+        i = bisect.bisect_right(dates, as_of)
+        if i < config.MOMENTUM_MIN_HISTORY:
+            return None
+        closes = [r[1] for r in rows[:i]]
+        p_old = closes[-config.MOMENTUM_LOOKBACK_DAYS]
+        p_skip = closes[-config.MOMENTUM_SKIP_DAYS]
+        if not p_old or p_old <= 0:
+            return None
+        out[sym.lower()] = round((p_skip / p_old) - 1.0, 6)
+    return out
+
+
 def momentum_series(ticker: str, as_of: str) -> Optional[List[float]]:
     """Full close series ending at as_of (enough for 126/21)."""
     closes = closes_through(ticker, as_of, config.MOMENTUM_MIN_HISTORY + 30)
@@ -352,6 +410,18 @@ def run_selection(as_of: str, facts_by_ticker: Dict[str, Dict]) -> Dict:
             (prev or {}).get("payload", {}).get("selections", [])}
     ranked = selector.apply_turnover_band(ranked, held)
 
+    # Benchmark filter (PM 2026-08-13): flag picks beating BOTH SPY and QQQ
+    # over the same 126/21 window. Fail-open → benchmarks None (filter off).
+    try:
+        bench = bench_momentum(as_of)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bench_momentum failed: %s", exc)
+        bench = None
+    for s in ranked:
+        s["beats_benchmarks"] = bool(
+            bench and s["momentum"] > bench.get("spy", 1e9)
+            and s["momentum"] > bench.get("qqq", 1e9))
+
     doc = {
         "as_of": as_of,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -360,6 +430,8 @@ def run_selection(as_of: str, facts_by_ticker: Dict[str, Dict]) -> Dict:
         "major_count": len(major),
         "scored_count": len(prices),
         "top_n": config.TOP_N,
+        "benchmarks": bench,
+        "benchmark_window": "126/21 skip-month (same window as picks)",
         "scores": scored_all,
         "selections": ranked,
     }

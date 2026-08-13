@@ -307,6 +307,14 @@ turnover band fully functional.
    League (qualification path + tenure), Quality veto (EPS/CFO pass-fail),
    Facts (cap, volume, snapshot age). Backed by `/api/leagues/{ticker}` +
    `pipeline.momentum_detail()`.
+9. **Top-picks-only dashboard + benchmark filter (PM 2026-08-13).** The Major
+   league list is engine-internal — the PM sees the top-N picks only. A
+   **"Beat SPY & QQQ"** filter shows only picks whose 126/21 skip-month
+   momentum exceeds BOTH benchmarks over the same window. SPY/QQQ closes are
+   fetched via yfinance and cached (`data/bench_closes.json`); each selection
+   carries `beats_benchmarks` (fail-open: benchmark outage → filter off, feed
+   intact). Display filter — NOT a methodology change (G7 stays: benchmark =
+   held universe).
 
 ### Data flow (live)
 
