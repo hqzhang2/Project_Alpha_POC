@@ -617,11 +617,14 @@ async function refreshDrift() {
     });
     const box = document.getElementById('drift');
     const alerts = d.alerts || [];
+    const tgt = d.target_source || 'default';
     if (!alerts.length) {
-      box.innerHTML = '<div class="empty-note">' + (d.summary || 'Portfolio at target. No drift.') + '</div>';
+      box.innerHTML = '<div class="ok" style="font-size:11px">target: ' + tgt + '</div>' +
+        '<div class="empty-note">' + (d.summary || 'Portfolio at target. No drift.') + '</div>';
       return;
     }
-    let html = '<div class="ok" style="font-size:11px">' + (d.summary || '') + '</div><table><tr>' +
+    let html = '<div class="ok" style="font-size:11px">' + (d.summary || '') +
+      ' · <span class="muted" style="color:#64748b">target: ' + tgt + '</span></div><table><tr>' +
       '<th>Ticker</th><th>Cur</th><th>Tgt</th><th>Δ%</th><th>Dir</th><th>NS-2</th><th>Urgency</th><th>Recommendation</th></tr>';
     alerts.forEach(a => {
       html += '<tr><td><b>' + a.ticker + '</b></td><td>' + (a.current_wt*100).toFixed(1) + '%</td>' +

@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 # Repo-root sys.path bootstrap — shared common/ + env -u PYTHONPATH at runtime.
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -45,6 +45,9 @@ import store
 # keeps NS-6 fully decoupled; works even if NS-5 server is down).
 NS5_PORTFOLIOS_PATH = (
     Path(__file__).resolve().parent.parent / "NS-5_QA" / "data" / "portfolios.json"
+)
+NS5_POLICIES_PATH = (
+    Path(__file__).resolve().parent.parent / "NS-5_QA" / "data" / "policies.json"
 )
 
 PORT = int(os.environ.get("PORT", 9261))
@@ -337,13 +340,53 @@ class NS6Handler(BaseHTTPRequestHandler):
         saved = store.set_portfolio_source(source)
         self._json({"ok": True, "source": saved, "is_model": False})
 
+    def _ns5_policies(self) -> Dict[str, dict]:
+        """NS-5 policy store {name: weights} (values may be JSON strings)."""
+        try:
+            if NS5_POLICIES_PATH.exists():
+                with open(NS5_POLICIES_PATH) as fh:
+                    raw = json.load(fh)
+                out = {}
+                for name, v in raw.items():
+                    if isinstance(v, str):
+                        try:
+                            v = json.loads(v)
+                        except ValueError:
+                            continue
+                    if isinstance(v, dict):
+                        out[str(name)] = {str(k): float(w) for k, w in v.items()}
+                return out
+        except (OSError, ValueError, TypeError) as exc:
+            log.warning("NS-5 policies read failed: %s", exc)
+        return {}
+
+    def _drift_target(self) -> Tuple[Dict[str, float], str]:
+        """The drift TARGET: the selected portfolio's policy (option 2).
+
+        Resolution (PM decision 2026-08-13): portfolio_source → config
+        PORTFOLIO_POLICIES → NS-5 policy weights. Fallbacks: portfolio not
+        paired or policy missing → DEFAULT_WEIGHTS; model source → default.
+        Returns (target_weights, target_source_label).
+        """
+        source = store.get_portfolio_source()
+        if source != store.MODEL_SOURCE:
+            policy_name = config.PORTFOLIO_POLICIES.get(source)
+            if policy_name:
+                policies = self._ns5_policies()
+                weights = policies.get(policy_name)
+                if weights:
+                    return weights, f"policy:{policy_name}"
+                log.warning("policy '%s' for portfolio '%s' not in NS-5 store; "
+                            "using DEFAULT_WEIGHTS", policy_name, source)
+        return dict(DEFAULT_WEIGHTS), "default"
+
     def _drift(self, body=None):
         theta = self._active_theta()
         current = self._portfolio_weights(body or {})
-        # Phase 1: no frontier targets — use default as a stand-in.
-        target = {k: v for k, v in DEFAULT_WEIGHTS.items()}
+        target, target_source = self._drift_target()
         result = drift_mod.run_drift_check(current, target, theta=theta)
         result["profile_context"] = self._profile_context(theta)
+        result["target_source"] = target_source
         self._json(result)
 
     def _scenario_add(self, body):
