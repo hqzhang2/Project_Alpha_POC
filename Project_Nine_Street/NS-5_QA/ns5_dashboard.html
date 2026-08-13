@@ -82,6 +82,7 @@
     display: flex; align-items: center; gap: 10px; margin: 16px 0 0;
   }
   .panel-hdr h3 { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: .8px; font-weight: 800; }
+  .blend-h { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 4px; }
   .panel-hdr .gbar { flex: 1; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #60a5fa, #4ade80); }
 
   /* ---- Frontier chart ---- */
@@ -201,6 +202,31 @@
       <thead><tr><th style="width:140px">Axis</th><th style="width:60px">Grade</th><th style="width:70px">Score</th><th style="width:60px">Weight</th><th>Detail / Measurement</th></tr></thead>
       <tbody></tbody>
     </table>
+
+    <!-- Sleeve blend (2b — joint universe, DESIGN §4.3) -->
+    <div class="panel-hdr"><h3>Sleeve Blend</h3><div class="gbar"></div></div>
+    <div id="blendBox" style="font-size:12px;color:#dbe4f0">
+      <div style="display:flex;gap:24px;margin-bottom:8px;flex-wrap:wrap">
+        <span><span style="color:#64748b">Regime:</span> <b id="blendRegime">—</b></span>
+        <span><span style="color:#64748b">Tilt (mom/value):</span> <b id="blendTilt">—</b></span>
+        <span><span style="color:#64748b">Book:</span> <b id="blendBookStats">—</b></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:16px">
+        <div>
+          <div class="blend-h">Growth sleeve (NS-7)</div>
+          <div id="blendMom" style="font-size:11px;line-height:1.7"></div>
+        </div>
+        <div>
+          <div class="blend-h">Value sleeve (A_T ≥2)</div>
+          <div id="blendVal" style="font-size:11px;line-height:1.7"></div>
+        </div>
+        <div>
+          <div class="blend-h">Blended book (top weights)</div>
+          <table class="t" style="font-size:11px"><thead><tr><th>Ticker</th><th style="text-align:right">Weight</th></tr></thead>
+          <tbody id="blendBook"></tbody></table>
+        </div>
+      </div>
+    </div>
 
     <!-- Frontier -->
     <div class="panel-hdr"><h3>Efficient Frontier</h3><div class="gbar"></div></div>
@@ -1122,7 +1148,37 @@ async function loadFrontier() {
 }
 
 // Initial load
-refreshLists().then(function() { loadFrontier(); });
+refreshLists().then(function() { loadFrontier(); loadBlend(); });
+
+// ---------------------------------------------------------------------------
+// Sleeve blend (2b — joint universe, DESIGN §4.3)
+// ---------------------------------------------------------------------------
+async function loadBlend() {
+  const box = document.getElementById('blendBox');
+  try {
+    const d = await api('/api/blend');
+    if (d.error) { box.innerHTML = '<span class="empty">' + d.error + '</span>'; return; }
+    document.getElementById('blendRegime').textContent = d.regime || '—';
+    const sw = d.sleeve_weights || {};
+    document.getElementById('blendTilt').textContent =
+      (sw.momentum != null ? Math.round(sw.momentum * 100) + '/' : '?/') +
+      (sw.value != null ? Math.round(sw.value * 100) : '?');
+    const g = d.guardrails || {};
+    document.getElementById('blendBookStats').textContent =
+      (g.n || 0) + ' names · effN ' + (g.eff_n || '—') +
+      ' · maxW ' + (g.max_weight ? (g.max_weight * 100).toFixed(1) + '%' : '—');
+    const mom = (d.growth_sleeve || []).map(t => '<div>' + t + '</div>').join('');
+    const val = (d.value_sleeve || []).map(t => '<div>' + t + '</div>').join('');
+    document.getElementById('blendMom').innerHTML = mom || '<span class="empty">unavailable (fail-open)</span>';
+    document.getElementById('blendVal').innerHTML = val || '<span class="empty">unavailable (fail-open)</span>';
+    const blended = Object.entries(d.blended || {}).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    document.getElementById('blendBook').innerHTML = blended.length ? blended.map(([t, w]) =>
+      '<tr><td>' + t + '</td><td style="text-align:right">' + (w * 100).toFixed(1) + '%</td></tr>'
+    ).join('') : '<tr><td colspan="2" class="empty">no blended book</td></tr>';
+  } catch (e) {
+    box.innerHTML = '<span class="err">blend: ' + e.message + '</span>';
+  }
+}
 </script>
 </body>
 </html>

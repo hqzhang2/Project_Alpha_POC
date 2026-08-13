@@ -316,6 +316,21 @@ turnover band fully functional.
    selection and score carries `outperforms_benchmarks` (fail-open: benchmark
    outage → filter off, feed intact). Display filter — NOT a methodology
    change (G7 stays: benchmark = held universe).
+10. **2b — NS-5 sleeve blend (joint universe, 2026-08-13).** `NS-5_QA/
+    sleeve_blend.py` constructs the PM-facing target portfolio from BOTH
+    sleeves: growth (NS-7 `selection.json`, file read) ∪ value (A_T
+    `screen_universe` agreement ≥ 2, localhost HTTP), sized by the
+    regime-conditional tilt — `config.SLEEVE_TILT` = growth 80/20,
+    defensive 50/50 (momentum-dominant per the 2a evidence; PM-decidable).
+    Regime = `common.regime_store` latest (R1/R2 growth, R3/R4 defensive).
+    Equal-weight within sleeves; overlap sums; fail-open (surviving sleeve
+    carries 100%); concentration guardrails REPORTED (effN, maxW) —
+    enforcement is the grading engine's/NS-6's. Output
+    `data/sleeve_blend.json` + `/api/blend` + dashboard panel. Daily:
+    `com.ninestreet.ns5.blend` (17:45 ET weekdays, after NS-7's 17:30).
+    **2a evidence** (`research_ns5_blend.md`, gitignored): momentum-only
+    9/11 excess yrs, value-only 4/11, regime blend 6/11 — the momentum
+    sleeve is the engine; the tilt table is the PM's decision surface.
 
 ### Data flow (live)
 

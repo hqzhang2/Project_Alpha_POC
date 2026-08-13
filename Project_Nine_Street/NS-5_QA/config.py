@@ -71,3 +71,15 @@ YF_PROGRESS = False
 
 # Cache TTL: refresh if the latest cached bar is older than this (weekend-safe)
 CACHE_MAX_AGE_DAYS = 3
+
+# ── Sleeve blend (2b — joint universe, DESIGN §4.3) ─────────────────────
+# Growth sleeve = NS-7 momentum feed (file read, house decoupled pattern).
+NS7_SELECTION_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_QA/data/selection.json")
+# Value sleeve = A_T 4-framework ensemble (localhost HTTP, point-in-time).
+# A_T QA listens on 9099 (config default 9098 is the PROD port).
+AT_SCREENER_URL = "http://127.0.0.1:9099/api/fundamentals/screen"
+VALUE_SLEEVE_N = 20
+# PM-decidable tilt (2a evidence: momentum carries the engine → asymmetric).
+SLEEVE_TILT = {"growth": (0.80, 0.20), "defensive": (0.50, 0.50)}
+BLEND_PATH = DATA_DIR / "sleeve_blend.json"
