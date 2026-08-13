@@ -64,7 +64,7 @@ def test_build_html_strats_json_valid():
     m = re.search(r"const STRATS = (\{.*?\});", html, re.S)
     assert m, "STRATS token missing from output"
     data = json.loads(m.group(1))  # must not raise
-    assert set(data) == {"alpha", "ns1", "ns2", "ns3", "ns4"}
+    assert set(data) == {"alpha", "ns1", "ns2", "ns3", "ns4", "ns5", "ns6", "ns7"}
     assert data["alpha"]["qa"] == 9099
     assert data["ns1"]["qa"] == 9219
     assert data["ns2"]["qa"] == 9229
@@ -131,7 +131,7 @@ def test_strategies_qa_is_prod_plus_one():
 
 
 def test_strategies_all_keys_present():
-    assert set(portal.STRATEGIES) == {"alpha", "ns1", "ns2", "ns3", "ns4"}
+    assert set(portal.STRATEGIES) == {"alpha", "ns1", "ns2", "ns3", "ns4", "ns5", "ns6", "ns7"}
     for key, cfg in portal.STRATEGIES.items():
         assert "name" in cfg and "path" in cfg
         assert cfg["prod"] and cfg["qa"]
@@ -177,7 +177,7 @@ def test_api_health_returns_statuses(server):
         assert resp.status == 200
         assert "application/json" in resp.headers.get("Content-type", "")
         data = json.loads(resp.read())
-    assert set(data) == {"alpha", "ns1", "ns2", "ns3", "ns4"}
+    assert set(data) == {"alpha", "ns1", "ns2", "ns3", "ns4", "ns5", "ns6", "ns7"}
     assert all(v in ("up", "down") for v in data.values())
 
 
@@ -191,10 +191,14 @@ def test_unknown_path_returns_404(server):
 def test_health_loop_polls_all_tabs_including_ns2():
     """Regression: updateStatusIndicators must poll ns2 too, or its dot stays dark."""
     html = portal.build_html()
-    # the JS loop that drives the status dots must include ns2
-    m = re.search(r"const strategies = \[([^\]]*)\]", html)
-    assert m, "strategies loop not found in html"
-    assert "'ns2'" in m.group(1), "ns2 missing from health-poll loop -> dark dot"
+    # The JS loop derives from STRATS (every tab — including any future one);
+    # the old hardcoded array missed ns2, and later ns7. Assert the derived
+    # pattern is used AND no hardcoded array remains (so the bug can't return).
+    assert "const strategies = Object.keys(STRATS)" in html, \
+        "health-poll loop must derive from STRATS (hardcoded array missed ns2/ns7)"
+    assert "const strategies = ['alpha'" not in html, \
+        "hardcoded strategies array must be gone"
+    assert "'ns7': '/health'" in html, "ns7 missing from SERVICE_ENDPOINTS -> dark dot"
 
 
 if __name__ == "__main__":

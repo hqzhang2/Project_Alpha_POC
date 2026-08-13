@@ -43,6 +43,7 @@ STRATEGIES = {
     'ns4':   {'name': 'NS-4 (Ratio Trading)', 'path': 'ns4_dashboard.html', 'prod': 9240, 'qa': 9241},
     'ns5':   {'name': 'NS-5 (Portfolio Grading)', 'path': 'ns5_dashboard.html', 'prod': 9250, 'qa': 9251},
     'ns6':   {'name': 'NS-6 (Drawdown Engine)', 'path': 'ns6_dashboard.html', 'prod': 9260, 'qa': 9261},
+    'ns7':   {'name': 'NS-7 (Growth/Momentum)', 'path': 'ns7_dashboard.html', 'prod': 9270, 'qa': 9271},
 }
 
 # HTML Template with all braces escaped for Python .format()
@@ -88,7 +89,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .nav-tabs {{
     display: flex;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }}
+  .nav-tabs::-webkit-scrollbar {{ display: none; }}
   .nav-tab {{
     padding: 8px 16px;
     border-radius: 6px;
@@ -185,6 +190,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <button class="nav-tab" data-strategy="ns4" onclick="switchStrategy('ns4')"><span class="status-indicator" id="status-ns4"></span>NS-4</button>
               <button class="nav-tab" data-strategy="ns5" onclick="switchStrategy('ns5')"><span class="status-indicator" id="status-ns5"></span>NS-5</button>
               <button class="nav-tab" data-strategy="ns6" onclick="switchStrategy('ns6')"><span class="status-indicator" id="status-ns6"></span>NS-6</button>
+              <button class="nav-tab" data-strategy="ns7" onclick="switchStrategy('ns7')"><span class="status-indicator" id="status-ns7"></span>NS-7</button>
             </div>
     </div>
     <div class="env-toggle">
@@ -249,7 +255,8 @@ const SERVICE_ENDPOINTS = {
   'ns3': '/health',
   'ns4': '/health',
   'ns5': '/health',
-  'ns6': '/health'
+  'ns6': '/health',
+  'ns7': '/health'
 };
 
 async function checkServiceHealth(key, port, path) {
@@ -266,13 +273,15 @@ async function checkServiceHealth(key, port, path) {
 }
 
 async function updateStatusIndicators() {
-  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4', 'ns5', 'ns6'];
+  // Derived from STRATS — a new service tab gets its health light for free
+  // (the hardcoded array missed ns7 when it was added).
+  const strategies = Object.keys(STRATS);
   for (const key of strategies) {
     const s = STRATS[key];
     if (!s) continue;
     
     const port = s[currentEnv.toLowerCase()];
-    const path = SERVICE_ENDPOINTS[key];
+    const path = SERVICE_ENDPOINTS[key] || '/health';
     const isUp = await checkServiceHealth(key, port, path);
     
     const tab = document.querySelector(`[data-strategy="${{key}}"]`);
