@@ -380,24 +380,28 @@ def test_selection_doc_carries_benchmark_flags(env, monkeypatch):
     fm = {"AAA": pipeline.facts_for("AAA", env["as_of"], True),
           "DDD": pipeline.facts_for("DDD", env["as_of"], False)}
 
-    # Low bench (0.5%/0.2%) → the ~1% picks beat BOTH.
+    # Low bench (0.5%/0.2%) → the ~1% picks outperform BOTH.
     monkeypatch.setattr(pipeline, "bench_momentum",
                         lambda as_of: {"spy": 0.005, "qqq": 0.002})
     doc = pipeline.run_selection(env["as_of"], fm)
     assert doc["benchmarks"] == {"spy": 0.005, "qqq": 0.002}
-    assert all(s["beats_benchmarks"] is True for s in doc["selections"])
+    assert all(s["outperforms_benchmarks"] is True for s in doc["selections"])
+    # The FULL scored list carries the same flag + rank (outperformer panel).
+    assert all("outperforms_benchmarks" in s and "rank" in s
+               for s in doc["scores"])
+    assert any(s["outperforms_benchmarks"] for s in doc["scores"])
 
     # High bench (10%/5%) → picks lag BOTH → flags False.
     monkeypatch.setattr(pipeline, "bench_momentum",
                         lambda as_of: {"spy": 0.10, "qqq": 0.05})
     doc2 = pipeline.run_selection(env["as_of"], fm)
-    assert all(s["beats_benchmarks"] is False for s in doc2["selections"])
+    assert all(s["outperforms_benchmarks"] is False for s in doc2["selections"])
 
     # Benchmark availability is fail-open: None → flags False, feed intact.
     monkeypatch.setattr(pipeline, "bench_momentum", lambda as_of: None)
     doc3 = pipeline.run_selection(env["as_of"], fm)
     assert doc3["benchmarks"] is None
-    assert all(s["beats_benchmarks"] is False for s in doc3["selections"])
+    assert all(s["outperforms_benchmarks"] is False for s in doc3["selections"])
     assert len(doc3["selections"]) == 2
 
 

@@ -400,27 +400,30 @@ def run_selection(as_of: str, facts_by_ticker: Dict[str, Dict]) -> Dict:
         facts[ticker] = facts_by_ticker.get(ticker, {})
     ranked = selector.rank_major(prices, facts, top_n=None)
 
-    # All scored Major names (ranked desc) — /api/major returns these, not
-    # just the top-N; the selection list is the NS-5 feed.
-    scored_all = [{"ticker": r["ticker"], "momentum": r["momentum"]}
-                  for r in ranked]
-    # Anti-churn band (G5): keep prior picks that remain within the band.
-    prev = store.latest_selection()
-    held = {s["ticker"] for s in
-            (prev or {}).get("payload", {}).get("selections", [])}
-    ranked = selector.apply_turnover_band(ranked, held)
-
-    # Benchmark filter (PM 2026-08-13): flag picks beating BOTH SPY and QQQ
-    # over the same 126/21 window. Fail-open → benchmarks None (filter off).
+    # Benchmark filter (PM 2026-08-13): flag names outperforming BOTH SPY and
+    # QQQ over the same 126/21 window. Fail-open → benchmarks None (filter off).
     try:
         bench = bench_momentum(as_of)
     except Exception as exc:  # noqa: BLE001
         log.warning("bench_momentum failed: %s", exc)
         bench = None
-    for s in ranked:
-        s["beats_benchmarks"] = bool(
+
+    def _flag(s: dict) -> dict:
+        s["outperforms_benchmarks"] = bool(
             bench and s["momentum"] > bench.get("spy", 1e9)
             and s["momentum"] > bench.get("qqq", 1e9))
+        return s
+
+    # All scored Major names (ranked desc) — /api/major + the full
+    # outperformer list return these, not just the top-N.
+    scored_all = [_flag({"ticker": r["ticker"], "momentum": r["momentum"],
+                         "rank": r["rank"]})
+                  for r in ranked]
+    # Anti-churn band (G5): keep prior picks that remain within the band.
+    prev = store.latest_selection()
+    held = {s["ticker"] for s in
+            (prev or {}).get("payload", {}).get("selections", [])}
+    ranked = [_flag(s) for s in selector.apply_turnover_band(ranked, held)]
 
     doc = {
         "as_of": as_of,

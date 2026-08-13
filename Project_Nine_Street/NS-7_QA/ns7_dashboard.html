@@ -56,7 +56,7 @@
   .filter-label { font-size: 12px; color: #dbe4f0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
   .filter-label input { accent-color: #4ade80; cursor: pointer; }
   .filter-count { font-size: 11px; color: #64748b; font-variant-numeric: tabular-nums; }
-  .beats { color: #4ade80; font-weight: 800; }
+  .outp { color: #4ade80; font-weight: 800; }
   .lags { color: #64748b; }
 
   .dsec { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;
@@ -132,7 +132,7 @@
       <h3>Selection — top-N momentum picks <span class="summary" id="selSummary"></span></h3>
       <div class="filter-bar">
         <label class="filter-label"><input type="checkbox" id="benchFilter" onchange="renderSel()">
-          Beat <b>SPY &amp; QQQ</b> (same 126/21 window)</label>
+          Outperform <b>SPY &amp; QQQ</b> (same 126/21 window)</label>
         <span class="filter-count" id="benchCount"></span>
       </div>
       <table id="selTable">
@@ -144,6 +144,20 @@
         Top-N growth-sleeve feed → NS-5 frontier → NS-6. Signal only — NS-7
         never weights; NS-6 owns drawdown. Check the filter to show only picks
         that outperformed BOTH SPY and QQQ over the same period.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Full list — outperforming SPY &amp; QQQ <span class="summary" id="outSummary"></span></h3>
+      <table id="outTable">
+        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
+          <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="league-legend">
+        Every momentum-scored Major name whose 126/21 skip-month return
+        exceeded BOTH benchmarks over the same window — the full outperform
+        universe beyond the top-N book.
       </div>
     </div>
   </div>
@@ -207,12 +221,13 @@ function renderSel() {
   const picks = (SEL && SEL.selections) || [];
   const bench = (SEL && SEL.benchmarks) || null;
   const filterOn = document.getElementById('benchFilter').checked;
-  const beatCount = picks.filter(p => p.beats_benchmarks).length;
-  document.getElementById('benchCount').textContent = bench
+  const outCount = picks.filter(p => p.outperforms_benchmarks).length;
+  // innerHTML (not textContent): the bench values carry styled spans.
+  document.getElementById('benchCount').innerHTML = bench
     ? 'SPY ' + fmtMom(bench.spy) + ' · QQQ ' + fmtMom(bench.qqq) + ' — ' +
-      beatCount + ' of ' + picks.length + ' beat both'
+      outCount + ' of ' + picks.length + ' outperform both'
     : 'benchmarks unavailable (filter off)';
-  const shown = filterOn ? picks.filter(p => p.beats_benchmarks) : picks;
+  const shown = filterOn ? picks.filter(p => p.outperforms_benchmarks) : picks;
   const tbody = document.querySelector('#selTable tbody');
   document.getElementById('selSummary').textContent =
     SEL ? (shown.length + ' / ' + (SEL.top_n || '—') + ' · ' +
@@ -221,12 +236,31 @@ function renderSel() {
     '<tr class="clickable" onclick="showDetail(\'' + esc(p.ticker) + '\')">' +
     '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b></td>' +
     '<td class="num">' + fmtMom(p.momentum) + '</td>' +
-    '<td class="num">' + (p.beats_benchmarks
-      ? '<span class="beats">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
+    '<td class="num">' + (p.outperforms_benchmarks
+      ? '<span class="outp">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
     '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(p.ticker) + '\')">Why</button></td></tr>'
   ).join('') : '<tr><td colspan="5" class="muted">' +
-    (picks.length ? 'No picks beat both SPY and QQQ in this window.' :
+    (picks.length ? 'No picks outperformed both SPY and QQQ in this window.' :
      'No Major names yet — league probation (90d) running.') + '</td></tr>';
+  renderOutperformers(bench);
+}
+
+function renderOutperformers(bench) {
+  // Full list: every scored Major name outperforming BOTH benchmarks.
+  const all = (SEL && SEL.scores) || [];
+  const rows = all.filter(s => s.outperforms_benchmarks);
+  const tbody = document.querySelector('#outTable tbody');
+  document.getElementById('outSummary').textContent =
+    rows.length + ' of ' + all.length + ' scored outperform both';
+  tbody.innerHTML = rows.length ? rows.map(s =>
+    '<tr class="clickable" onclick="showDetail(\'' + esc(s.ticker) + '\')">' +
+    '<td>' + s.rank + '</td><td><b>' + esc(s.ticker) + '</b></td>' +
+    '<td class="num">' + fmtMom(s.momentum) + '</td>' +
+    '<td class="num"><span class="outp">✓ BOTH</span></td>' +
+    '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(s.ticker) + '\')">Why</button></td></tr>'
+  ).join('') : '<tr><td colspan="5" class="muted">' +
+    (bench ? 'No scored name outperformed both SPY and QQQ in this window.' :
+     'Benchmarks unavailable — list hidden.') + '</td></tr>';
 }
 
 async function showDetail(ticker) {

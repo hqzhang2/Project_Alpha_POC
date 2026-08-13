@@ -26,12 +26,20 @@ def test_top_picks_only_no_major_league_list():
 
 
 def test_benchmark_filter_present():
-    """Beat-SPY&QQQ filter bar + Vs column."""
+    """Outperform-SPY&QQQ filter bar + Vs column + full-list panel."""
     assert 'id="benchFilter"' in _html
-    assert "Beat" in _html
+    assert "Outperform" in _html
     assert "Vs SPY/QQQ" in _html
-    assert 'benchCount' in _html
-    assert "beats_benchmarks" in _html
+    assert 'id="benchCount"' in _html
+    assert "outperforms_benchmarks" in _html
+    # Full outperformer list panel (beyond the top-N book).
+    assert 'id="outTable"' in _html
+    assert 'id="outSummary"' in _html
+    assert "renderOutperformers" in _html
+    # The bench-count line must use innerHTML (styled spans render properly).
+    assert "benchCount').innerHTML" in _html
+    # No "beat" wording in the PM-facing copy.
+    assert "beat" not in _html.lower()
 
 
 def test_why_drilldown_buttons_present():
