@@ -351,7 +351,7 @@ qa_server.py :9271 ◄── ns7_dashboard.html ◄──┘   (portal tab ns7)
 - Why drill-down (A_T financials pattern); top-picks-only dashboard + full outperformer list (min/max toggle); Outperform-SPY&QQQ filter (fail-open)
 - **NS-2 HMM advisory overlay** (per-pick signal + PM flag; advisory only, NS-6 enforces)
 - 2b: NS-5 `sleeve_blend.py` joint universe (growth ∪ value, regime tilt, `/api/blend`, dashboard panel, daily 17:45)
-- CI (`ns7-ci.yml`), portal tab + health light, daily refresh 17:30 ET
+- Portal tab + health light, daily refresh 17:30 ET
 - Suites: NS-7 70 tests, NS-5 182, NS-6 182 (incl. drift-target policy resolution)
 
 **REQUIRED — remaining deliverable (awaiting PM go):**
