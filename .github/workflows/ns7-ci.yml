@@ -1,0 +1,28 @@
+# NS-7 CI — canonical verification for the Growth/Momentum Selection service.
+#
+# Runs the full NS-7 test suite on every push/PR. The suite is hermetic
+# (temp sqlite fixtures, A_T paths monkeypatched) — no secrets or live
+# stores required. Deps are intentionally minimal: pytest + pandas.
+#
+# NOTE: `python3 -m pytest` (not the bare `pytest` binary) — the tests
+# import `config` from the package root via cwd-on-sys.path, which only
+# works under `python -m`. Keep the working-directory as-is.
+name: NS-7 CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ns7-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install pytest pandas
+      - name: Run NS-7 test suite
+        working-directory: Project_Nine_Street/NS-7_QA
+        run: python3 -m pytest tests/ -q
