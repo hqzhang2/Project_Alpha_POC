@@ -1,0 +1,548 @@
+"""pipeline.py — NS-7 data pipeline: universe → facts → league → momentum → selection.
+
+The productionization of DESIGN.md §3-5. Reads A_T's point-in-time store
+(fundamentals_hist.db) READ-ONLY — NS-7 never writes to A_T stores (decoupled
+file/db-read pattern, same as NS-6 reading NS-5's portfolios.json). Maintains
+NS-7's own league/volume/selection state in data/ns7.db and emits
+data/selection.json — the growth-sleeve feed for NS-5's frontier.
+
+Refresh steps (run daily; CLI:  python3 pipeline.py):
+  1. Universe assembly — candidate set = SP500 current ∪ A_T annual-store tickers
+  2. Volume refresh    — yfinance fetch for tickers whose volume is stale;
+                         SYSTEMIC failure → U3 waived for this refresh (never
+                         mass-demote the book on a data outage)
+  3. Facts             — point-in-time per ticker (market cap, EPS, CFO,
+                         in_sp500, 20d avg volume); 730-day staleness guard
+                         (A_T convention: stale books are not point-in-time)
+  4. League update     — PM-corrected gates (SP500 → Major immediately;
+                         non-SP500 >$75B fast-track / $50-75B 90-day clock;
+                         SP500 removal → cap rule) + tenure clocks
+  5. Momentum          — skip-month 126/21 on Major names with a full series
+  6. Selection         — rank + quality veto + turnover band → top-N feed,
+                         flagged vs SPY & QQQ benchmarks (same window)
+
+No drawdown logic here (guardrail G6). NS-7 emits signals; NS-6 owns the tail.
+"""
+from __future__ import annotations
+
+import argparse
+import bisect
+import json
+import logging
+import sqlite3
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Callable, Dict, List, Optional
+
+import config
+import selector
+import store
+import universe
+
+log = logging.getLogger("ns7.pipeline")
+
+# ── A_T store access (read-only) ────────────────────────────────────────
+def at_conn() -> sqlite3.Connection:
+    """Read-only connection to A_T's point-in-time fundamentals store."""
+    return sqlite3.connect(f"file:{config.AT_FUNDAMENTALS_DB}?mode=ro", uri=True)
+
+
+def sp500_current() -> List[str]:
+    """Current SP500 constituents from A_T's weekly-refreshed cache."""
+    try:
+        if config.AT_SP500_CACHE.exists():
+            data = json.loads(config.AT_SP500_CACHE.read_text())
+            if isinstance(data, list):
+                return [str(s).upper().replace(".", "-") for s in data]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("sp500 cache read failed: %s", exc)
+    # Fallback: ask A_T's sp500_history module to fetch (cached weekly).
+    try:
+        sys.path.insert(0, str(config.AT_SP500_CACHE.parent.parent))
+        import sp500_history  # type: ignore
+        data = sp500_history.fetch_and_cache()
+        return [str(s).upper().replace(".", "-") for s in data.get("current", [])]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("sp500 fallback fetch failed: %s", exc)
+        return []
+
+
+def annual_tickers() -> List[str]:
+    """All tickers with any annual row in the A_T store."""
+    conn = at_conn()
+    try:
+        return [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM annual")]
+    finally:
+        conn.close()
+
+
+def snapshot_on(ticker: str, as_of: str) -> Optional[dict]:
+    """Latest annual row with filed <= as_of (point-in-time). None if none."""
+    conn = at_conn()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM annual WHERE ticker = ? AND filed <= ? "
+            "ORDER BY period_end DESC LIMIT 1", (ticker.upper(), as_of))
+        row = cur.fetchone()
+        if not row:
+            return None
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, row))
+    finally:
+        conn.close()
+
+
+def snapshot_metrics_on(ticker: str, as_of: str) -> Optional[dict]:
+    """Eligibility metrics with LAST-KNOWN-GOOD fill (data-quality layer).
+
+    The newest annual row wins for period_end/filed (the staleness clock),
+    but each metric (eps, cfo, shares) falls back to the most recent row
+    filed <= as_of that actually reports it. Rationale (walk-forward
+    finding, 2026-08): SEC extraction gaps leave some 10-K rows with None
+    operating_cf/eps — strict "None = not proven" demoted MCD/GOOG/JPM/MA
+    the day their partial filing landed, churning the book on DATA, not
+    fundamentals. A reported NEGATIVE eps/cfo still demotes — this only
+    bridges missing values, never reported ones. Point-in-time preserved:
+    every value used was filed <= as_of.
+    """
+    conn = at_conn()
+    try:
+        cur = conn.execute(
+            "SELECT period_end, filed, eps_diluted, operating_cf, "
+            "shares_outstanding FROM annual WHERE ticker = ? AND filed <= ? "
+            "ORDER BY filed DESC", (ticker.upper(), as_of))
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return None
+    out = {"period_end": rows[0][0], "filed": rows[0][1],
+           "eps_diluted": None, "operating_cf": None,
+           "shares_outstanding": None}
+    for period_end, filed, eps, cfo, shares in rows:
+        if out["eps_diluted"] is None and eps is not None:
+            out["eps_diluted"] = eps
+        if out["operating_cf"] is None and cfo is not None:
+            out["operating_cf"] = cfo
+        if out["shares_outstanding"] is None and shares is not None:
+            out["shares_outstanding"] = shares
+        if all(v is not None for v in (out["eps_diluted"],
+                                       out["operating_cf"],
+                                       out["shares_outstanding"])):
+            break
+    return out
+
+
+def price_on(ticker: str, as_of: str) -> Optional[float]:
+    """Last close on/before as_of. None when no data."""
+    conn = at_conn()
+    try:
+        cur = conn.execute(
+            "SELECT close FROM prices WHERE ticker = ? AND date <= ? "
+            "ORDER BY date DESC LIMIT 1", (ticker.upper(), as_of))
+        row = cur.fetchone()
+        return float(row[0]) if row else None
+    finally:
+        conn.close()
+
+
+def closes_through(ticker: str, as_of: str, limit: int = 260) -> List[float]:
+    """Daily closes ending on/before as_of, oldest-first (for the momentum window)."""
+    conn = at_conn()
+    try:
+        cur = conn.execute(
+            "SELECT close FROM prices WHERE ticker = ? AND date <= ? "
+            "ORDER BY date DESC LIMIT ?", (ticker.upper(), as_of, limit))
+        rows = [float(r[0]) for r in cur.fetchall()]
+        rows.reverse()
+        return rows
+    finally:
+        conn.close()
+
+
+def momentum_detail(ticker: str, as_of: str) -> Optional[dict]:
+    """The skip-month momentum WINDOW for one ticker (drill-down reasons).
+
+    Returns {p_old, p_old_date, p_skip, p_skip_date, momentum} — the two
+    price points behind P[t-21] / P[t-126] - 1, or None when the series is
+    too short. This is the "why" behind a selection's momentum score.
+    """
+    conn = at_conn()
+    try:
+        cur = conn.execute(
+            "SELECT date, close FROM prices WHERE ticker = ? AND date <= ? "
+            "ORDER BY date DESC LIMIT ?",
+            (ticker.upper(), as_of, config.MOMENTUM_MIN_HISTORY + 30))
+        rows = [(d, float(c)) for d, c in cur.fetchall()]
+        rows.reverse()
+    finally:
+        conn.close()
+    if len(rows) < config.MOMENTUM_MIN_HISTORY:
+        return None
+    old_date, p_old = rows[-config.MOMENTUM_LOOKBACK_DAYS]
+    skip_date, p_skip = rows[-config.MOMENTUM_SKIP_DAYS]
+    if not p_old or p_old <= 0:
+        return None
+    return {"p_old": round(p_old, 2), "p_old_date": old_date,
+            "p_skip": round(p_skip, 2), "p_skip_date": skip_date,
+            "momentum": round((p_skip / p_old) - 1.0, 6)}
+
+
+# ── Facts (per-ticker point-in-time snapshot for eligibility) ───────────
+def snapshot_age_days(snap: dict, as_of: str) -> Optional[int]:
+    try:
+        return (datetime.strptime(as_of, "%Y-%m-%d")
+                - datetime.strptime(snap["period_end"], "%Y-%m-%d")).days
+    except (ValueError, TypeError):
+        return None
+
+
+def facts_for(ticker: str, as_of: str, in_sp500: bool,
+              volume_waived: bool = False) -> Dict:
+    """Point-in-time eligibility facts for one ticker (§3.1).
+
+    Conservative rules (missing = not proven → Minor, never Major):
+      - No snapshot, or snapshot > 730 days old (A_T staleness guard) →
+        market cap AND quality floor are treated as unknown (not proven).
+      - No price → market cap unknown.
+      - No volume data and not waived → liquidity unknown.
+    """
+    snap = snapshot_metrics_on(ticker, as_of)
+    price = price_on(ticker, as_of)
+    facts = {
+        "ticker": ticker.upper(),
+        "in_sp500": in_sp500,
+        "market_cap": None,
+        "eps_ttm": None,
+        "cfo_ttm": None,
+        "avg_daily_volume": None,
+        "snapshot_age_days": None,
+    }
+    if snap is not None:
+        age = snapshot_age_days({"period_end": snap["period_end"]}, as_of)
+        facts["snapshot_age_days"] = age
+        if age is None or age <= 730:
+            if price and snap.get("shares_outstanding"):
+                facts["market_cap"] = price * snap["shares_outstanding"]
+            facts["eps_ttm"] = snap.get("eps_diluted")
+            facts["cfo_ttm"] = snap.get("operating_cf")
+    if not volume_waived:
+        facts["avg_daily_volume"] = store.avg_daily_volume(
+            ticker, as_of, config.VOLUME_WINDOW_DAYS)
+    return facts
+
+
+def eligible(facts: Dict) -> bool:
+    """League-floor eligibility (PM-corrected): SP500 OR cap > $50B."""
+    return universe.league_compliant(facts)
+
+
+# ── Volume refresh (U3) ─────────────────────────────────────────────────
+def fetch_volume_yfinance(ticker: str, days: int) -> List[tuple]:
+    """[(date, volume)] via yfinance for the last `days` calendar days."""
+    import yfinance as yf
+    df = yf.Ticker(ticker).history(
+        period=f"{days + 30}d", auto_adjust=False, actions=False)
+    out = []
+    for d, row in df.iterrows():
+        vol = row.get("Volume")
+        if vol is not None and float(vol) > 0:
+            out.append((str(d)[:10], float(vol)))
+    return out
+
+
+def refresh_volumes(tickers: List[str], as_of: str,
+                    fetch_fn: Callable[[str, int], List[tuple]] = fetch_volume_yfinance,
+                    window_days: int = 0) -> Dict:
+    """Fetch volume for tickers whose coverage is stale. Returns a summary.
+
+    Systemic failure policy: if every fetch in the run raises (network down,
+    yfinance outage), return systemic_failure=True and touch nothing — the
+    caller waives U3 for this refresh instead of mass-demoting the book.
+    Per-ticker failure is NOT systemic: that ticker simply has no volume
+    (missing = not proven → Minor).
+    """
+    window_days = window_days or config.VOLUME_FETCH_WINDOW_DAYS
+    stale = []
+    for t in tickers:
+        _min, _max, count = store.volume_coverage(t)
+        if count == 0 or _max is None or _max < as_of:
+            stale.append(t)
+        else:
+            try:
+                if (datetime.strptime(as_of, "%Y-%m-%d")
+                        - datetime.strptime(_max, "%Y-%m-%d")).days > config.VOLUME_STALE_DAYS:
+                    stale.append(t)
+            except ValueError:
+                stale.append(t)
+    if not stale:
+        return {"checked": len(tickers), "fetched": 0, "failed": 0,
+                "systemic_failure": False, "skipped": True}
+
+    fetched = failed = 0
+    ok_any = False
+    for i, t in enumerate(stale):
+        try:
+            rows = fetch_fn(t, window_days)
+            if rows:
+                store.upsert_volume_many([(t, d, v) for d, v in rows])
+                fetched += 1
+                ok_any = True
+            else:
+                failed += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("volume fetch %s failed: %s", t, exc)
+            failed += 1
+    systemic = (not ok_any and len(stale) >= 3) or (not ok_any and len(stale) == len(tickers) > 0)
+    return {"checked": len(tickers), "fetched": fetched, "failed": failed,
+            "systemic_failure": systemic, "skipped": False}
+
+
+# ── League orchestration (§3.2, PM-corrected 2026-08-13) ────────────────
+def update_leagues(facts_by_ticker: Dict[str, Dict], as_of: str,
+                   sp500_removed: Optional[set] = None) -> Dict:
+    """Advance every tracked/eligible ticker's league state for one day.
+
+    Orchestration lives in universe.apply_daily (shared with the walk-forward
+    harness — ONE source of truth). This wrapper persists the resulting state
+    to the store. sp500_removed = tickers that left the index since the last
+    refresh (their non-SP500 cap rule kicks in immediately).
+    """
+    state = {r["ticker"]: r for r in store.all_leagues()}
+    new_state, counts = universe.apply_daily(state, facts_by_ticker, as_of,
+                                             sp500_removed=sp500_removed)
+    for ticker, row in new_state.items():
+        store.upsert_league(ticker, row["league"],
+                            row["consecutive_compliant"],
+                            row["consecutive_noncompliant"],
+                            row["first_seen"], row["last_seen"])
+    return counts
+
+
+# ── Momentum + selection (§4) ───────────────────────────────────────────
+def load_ns2_signals(path: Optional[str] = None) -> Dict[str, str]:
+    """NS-2 HMM signals {ticker: signal} — fail-open ({} on any outage).
+
+    The NS-2 overlay is ADVISORY (DESIGN §4.3): a missing cache or ticker
+    is neutral, never a veto.
+    """
+    p = Path(path or str(config.NS2_SIGNAL_PATH))
+    try:
+        doc = json.loads(p.read_text())
+        return {str(t).upper(): str(v.get("signal", ""))
+                for t, v in doc.items() if isinstance(v, dict)}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def fetch_benchmarks() -> Dict[str, List[tuple]]:
+    """SPY + QQQ daily closes [(date, close)] — yfinance, cached (bench filter).
+
+    The A_T store carries no index series, so NS-7 keeps its own benchmark
+    cache. Fail-open: any error → {} (the filter degrades to 'off', picks
+    still flow).
+    """
+    cache = config.BENCH_CACHE
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text())
+        except (ValueError, TypeError):
+            pass
+    import yfinance as yf
+    out: Dict[str, List[tuple]] = {}
+    try:
+        for sym in config.BENCH_SYMBOLS:
+            df = yf.Ticker(sym).history(start="2014-01-01", auto_adjust=True)
+            out[sym] = [(str(d)[:10], float(c))
+                        for d, c in zip(df.index, df["Close"].dropna())]
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(out, default=str))
+    except Exception as exc:  # noqa: BLE001 — network/yfinance outage
+        log.warning("benchmark fetch failed: %s", exc)
+        return {}
+    return out
+
+
+def bench_momentum(as_of: str,
+                   bench: Optional[Dict[str, List[tuple]]] = None) -> Optional[dict]:
+    """SPY & QQQ skip-month momentum (126/21) as of `as_of`, same window as picks.
+
+    Returns {spy: mom, qqq: mom} or None when either series is too short /
+    unavailable (fail-open — never blocks selection).
+    """
+    bench = bench if bench is not None else fetch_benchmarks()
+    out = {}
+    for sym in config.BENCH_SYMBOLS:
+        rows = bench.get(sym) or []
+        if len(rows) < config.MOMENTUM_MIN_HISTORY:
+            return None
+        dates = [r[0] for r in rows]
+        i = bisect.bisect_right(dates, as_of)
+        if i < config.MOMENTUM_MIN_HISTORY:
+            return None
+        closes = [r[1] for r in rows[:i]]
+        p_old = closes[-config.MOMENTUM_LOOKBACK_DAYS]
+        p_skip = closes[-config.MOMENTUM_SKIP_DAYS]
+        if not p_old or p_old <= 0:
+            return None
+        out[sym.lower()] = round((p_skip / p_old) - 1.0, 6)
+    return out
+
+
+def momentum_series(ticker: str, as_of: str) -> Optional[List[float]]:
+    """Full close series ending at as_of (enough for 126/21)."""
+    closes = closes_through(ticker, as_of, config.MOMENTUM_MIN_HISTORY + 30)
+    if len(closes) < config.MOMENTUM_MIN_HISTORY:
+        return None
+    return closes
+
+
+def run_selection(as_of: str, facts_by_ticker: Dict[str, Dict]) -> Dict:
+    """Rank Major names, apply the quality veto, cap top-N, persist the feed.
+
+    Returns the selection document (also saved to store + selection.json).
+    """
+    major = {r["ticker"] for r in store.all_leagues()
+             if r["league"] == config.LEAGUE_MAJOR}
+    prices = {}
+    facts = {}
+    for ticker in sorted(major):
+        closes = momentum_series(ticker, as_of)
+        if closes is None:
+            continue  # insufficient history — can't rank (G2)
+        prices[ticker] = closes
+        facts[ticker] = facts_by_ticker.get(ticker, {})
+    ranked = selector.rank_major(prices, facts, top_n=None)
+
+    # Benchmark filter (PM 2026-08-13): flag names outperforming BOTH SPY and
+    # QQQ over the same 126/21 window. Fail-open → benchmarks None (filter off).
+    try:
+        bench = bench_momentum(as_of)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bench_momentum failed: %s", exc)
+        bench = None
+
+    # NS-2 advisory overlay (DESIGN §4.3): tag picks with NS-2's HMM signal.
+    # Advisory ONLY — never excludes; a missing cache/ticker is neutral.
+    ns2 = load_ns2_signals()
+
+    def _flag(s: dict) -> dict:
+        s["outperforms_benchmarks"] = bool(
+            bench and s["momentum"] > bench.get("spy", 1e9)
+            and s["momentum"] > bench.get("qqq", 1e9))
+        return s
+
+    def _ns2_flag(s: dict) -> dict:
+        sig = ns2.get(s["ticker"], "")
+        s["ns2_signal"] = sig or None
+        s["ns2_advisory"] = sig in config.NS2_NO_CONVICTION
+        return s
+
+    # All scored Major names (ranked desc) — /api/major + the full
+    # outperformer list return these, not just the top-N.
+    scored_all = [_flag({"ticker": r["ticker"], "momentum": r["momentum"],
+                         "rank": r["rank"]})
+                  for r in ranked]
+    # Anti-churn band (G5): keep prior picks that remain within the band.
+    prev = store.latest_selection()
+    held = {s["ticker"] for s in
+            (prev or {}).get("payload", {}).get("selections", [])}
+    ranked = [_ns2_flag(_flag(s))
+              for s in selector.apply_turnover_band(ranked, held)]
+
+    doc = {
+        "as_of": as_of,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "service": "NS-7",
+        "methodology": "skip-month momentum 126/21 + quality veto + top-N",
+        "major_count": len(major),
+        "scored_count": len(prices),
+        "top_n": config.TOP_N,
+        "benchmarks": bench,
+        "benchmark_window": "126/21 skip-month (same window as picks)",
+        "scores": scored_all,
+        "selections": ranked,
+    }
+    store.save_selection(as_of, doc)
+    config.SELECTION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config.SELECTION_PATH.write_text(json.dumps(doc, indent=2, default=str))
+    return doc
+
+
+# ── Full refresh ────────────────────────────────────────────────────────
+def run_refresh(as_of: Optional[str] = None, fetch_volumes: bool = True,
+                limit: int = 0) -> Dict:
+    """One full pipeline pass. Returns a summary dict (also logged)."""
+    as_of = as_of or datetime.now().strftime("%Y-%m-%d")
+    store.init_db()
+
+    sp500 = set(sp500_current())
+    # SP500-removal edge (index exit → non-SP500 cap rule kicks in).
+    prev_sp500 = store.get_meta("sp500_members")
+    sp500_removed = set()
+    if prev_sp500:
+        try:
+            sp500_removed = set(json.loads(prev_sp500)) - sp500
+        except (ValueError, TypeError):
+            sp500_removed = set()
+    store.set_meta("sp500_members", json.dumps(sorted(sp500)))
+
+    candidates = sorted(set(annual_tickers()) | sp500)
+    if limit:
+        candidates = candidates[:limit]
+
+    volume = {"checked": 0, "fetched": 0, "failed": 0,
+              "systemic_failure": False, "skipped": True}
+    if fetch_volumes:
+        volume = refresh_volumes(candidates, as_of)
+    volume_waived = bool(volume.get("systemic_failure"))
+    if volume_waived:
+        store.set_meta("u3_waived", as_of)
+        log.warning("volume outage for %s — data flagged, league unaffected "
+                    "(U3 is not a league gate under the corrected criteria)",
+                    as_of)
+
+    facts_by_ticker = {}
+    for t in candidates:
+        facts_by_ticker[t] = facts_for(t, as_of, t in sp500,
+                                       volume_waived=volume_waived)
+
+    league = update_leagues(facts_by_ticker, as_of, sp500_removed=sp500_removed)
+
+    selection = run_selection(as_of, facts_by_ticker)
+
+    store.set_meta("last_refresh", as_of)
+    summary = {
+        "as_of": as_of,
+        "candidates": len(candidates),
+        "volume": volume,
+        "volume_waived": volume_waived,
+        "league": league,
+        "selection": {k: selection[k] for k in ("as_of", "major_count",
+                                                "scored_count", "top_n")},
+        "top_picks": [s["ticker"] for s in selection["selections"][:10]],
+    }
+    log.info("refresh %s: %s", as_of, json.dumps(summary, default=str))
+    return summary
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="NS-7 daily pipeline refresh")
+    ap.add_argument("--as-of", default=None, help="YYYY-MM-DD (default: today)")
+    ap.add_argument("--no-volume", action="store_true",
+                    help="skip yfinance volume fetch (offline/test mode)")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="cap candidate universe (testing)")
+    args = ap.parse_args()
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    summary = run_refresh(as_of=args.as_of, fetch_volumes=not args.no_volume,
+                          limit=args.limit)
+    print(json.dumps(summary, indent=2, default=str))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

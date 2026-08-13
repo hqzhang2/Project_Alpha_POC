@@ -71,3 +71,14 @@ YF_PROGRESS = False
 
 # Cache TTL: refresh if the latest cached bar is older than this (weekend-safe)
 CACHE_MAX_AGE_DAYS = 3
+
+# ── Sleeve blend (2b — joint universe, DESIGN §4.3) ─────────────────────
+# PROD-side: growth sleeve = NS-7_PROD feed (its own daily refresh store);
+# value sleeve = A_T PROD screener (9098); regime = common.regime_store.
+NS7_SELECTION_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_PROD/data/selection.json")
+AT_SCREENER_URL = "http://127.0.0.1:9098/api/fundamentals/screen"
+VALUE_SLEEVE_N = 20
+# PM-decidable tilt (2a evidence: momentum carries the engine — asymmetric).
+SLEEVE_TILT = {"growth": (0.80, 0.20), "defensive": (0.50, 0.50)}
+BLEND_PATH = DATA_DIR / "sleeve_blend.json"

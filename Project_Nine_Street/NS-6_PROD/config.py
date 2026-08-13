@@ -461,6 +461,17 @@ MODEL_PORTFOLIOS = {
 }
 
 
+# ── Portfolio → policy pairing (drift target, PM decision 2026-08-13) ───
+# The drift check's TARGET = the selected portfolio's policy (option 2).
+# NS-5 keeps portfolios and policies as separate stores with no linkage,
+# so the pairing is an explicit PM-controlled map here. A portfolio not
+# listed (or a policy name missing from NS-5's store) falls back to
+# DEFAULT_WEIGHTS in qa_server._drift_target().
+PORTFOLIO_POLICIES = {
+    "Hyperscaler": "60/40 SPY/TLT",
+}
+
+
 def model_portfolio(profile):
     """Return the model portfolio weights dict for a profile, or {} if unknown."""
     return dict(MODEL_PORTFOLIOS.get(profile, {}))

@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-7 Growth/Momentum Selection</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0b0f17; color: #dbe4f0; font-size: 13px; line-height: 1.5;
+  }
+  .hdr {
+    display: flex; align-items: center; gap: 12px; padding: 12px 24px;
+    background: #111827; border-bottom: 1px solid #1f2937;
+  }
+  .hdr h1 { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .hdr .sub { font-size: 11px; color: #64748b; }
+  .hdr .spacer { flex: 1; }
+  .hdr .asof { font-size: 11.5px; color: #64748b; font-variant-numeric: tabular-nums; }
+
+  .shell { display: grid; grid-template-columns: 1fr 380px; max-width: 1500px; margin: 0 auto; }
+  .main { padding: 18px 22px; min-width: 0; }
+  .rail {
+    background: #0d1420; border-left: 1px solid #1f2937; padding: 14px;
+    overflow-y: auto; max-height: calc(100vh - 50px); position: sticky; top: 50px;
+  }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .kpi {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px 14px;
+  }
+  .kpi .lab { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  .kpi .val { font-size: 20px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .val .u { font-size: 12px; color: #64748b; font-weight: 600; margin-left: 2px; }
+  .kpi .note { font-size: 10px; color: #94a3b8; margin-top: 3px; }
+
+  .panel {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .panel h3 { font-size: 12px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .panel h3 .summary { float: right; font-size: 11px; color: #94a3b8; text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+  /* Drill-down (Why) button — mirrors A_T financials.html framework detail */
+  .why-btn {
+    background: #1f2937; color: #94a3b8; border: 1px solid #30363d;
+    border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 700;
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .why-btn:hover { color: #4ade80; border-color: #4ade80; background: #0f1a14; }
+
+  /* Benchmark filter bar */
+  .filter-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .filter-label { font-size: 12px; color: #dbe4f0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .filter-label input { accent-color: #4ade80; cursor: pointer; }
+  .filter-count { font-size: 11px; color: #64748b; font-variant-numeric: tabular-nums; }
+  .outp { color: #4ade80; font-weight: 800; }
+  .lags { color: #64748b; }
+  .ns2-flag { font-size: 9px; font-weight: 700; color: #fbbf24; border: 1px solid #fbbf24;
+    border-radius: 3px; padding: 0 3px; margin-left: 5px; vertical-align: 1px; }
+
+  .dsec { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;
+    letter-spacing: .6px; margin: 14px 0 4px; padding-bottom: 3px; border-bottom: 1px solid #1f2937; }
+  .dsec:first-of-type { margin-top: 4px; }
+  .dverdict { margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .dverdict.pick { background: #14532d; color: #4ade80; }
+  .dverdict.veto { background: #3f1d1d; color: #f87171; }
+  .dverdict.info { background: #0d1420; color: #94a3b8; border: 1px solid #1f2937; }
+  .dclose { float: right; background: none; border: none; color: #64748b;
+    font-size: 16px; cursor: pointer; line-height: 1; }
+  .dclose:hover { color: #f87171; }
+
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .5px;
+    text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2937; }
+  td { padding: 6px 8px; border-bottom: 1px solid #141c2c; font-size: 12.5px; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: #0d1420; }
+  .num { text-align: right; }
+  .pos { color: #4ade80; }
+  .neg { color: #f87171; }
+
+  .badge { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px; }
+  .b-major { background: #14532d; color: #4ade80; }
+  .b-minor { background: #4d3d00; color: #f0b429; }
+  .b-removed { background: #3f1d1d; color: #f87171; }
+
+  .league-legend { font-size: 11px; color: #64748b; margin-top: 8px; line-height: 1.6; }
+  .league-legend .b-major, .league-legend .b-minor, .league-legend .b-removed { margin-right: 4px; }
+
+  .detail { font-size: 12px; }
+  .detail .drow { display: flex; justify-content: space-between; padding: 5px 0;
+    border-bottom: 1px solid #141c2c; }
+  .detail .drow .k { color: #94a3b8; }
+  .detail .drow .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .detail .dtitle { font-size: 14px; font-weight: 800; margin-bottom: 8px; }
+  .detail .dtitle .tk { color: #4ade80; }
+
+  .pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px;
+    border-radius: 10px; margin-left: 6px; }
+  .pill.yes { background: #14532d; color: #4ade80; }
+  .pill.no { background: #3f1d1d; color: #f87171; }
+  .pill.na { background: #1f2937; color: #94a3b8; }
+
+  .err { color: #f87171; font-size: 12px; padding: 10px; }
+  .muted { color: #64748b; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>NS-7 <span style="color:#4ade80">GROWTH/MOMENTUM SELECTION</span></h1>
+  <span class="sub">skip-month 126/21 · two-league 90d grace · quality veto</span>
+  <span class="spacer"></span>
+  <span class="asof" id="asOf">loading…</span>
+</div>
+
+<div class="shell">
+  <div class="main">
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Major (active)</div><div class="val" id="kMajor">–</div>
+        <div class="note">eligible for momentum ranking</div></div>
+      <div class="kpi"><div class="lab">Top-N pick</div><div class="val" id="kTop">–</div>
+        <div class="note">#1 momentum name</div></div>
+      <div class="kpi"><div class="lab">Book size</div><div class="val" id="kBook">–</div>
+        <div class="note">top-N growth-sleeve feed → NS-5</div></div>
+      <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
+        <div class="note">last pipeline refresh</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Selection — top-N momentum picks <span class="summary" id="selSummary"></span></h3>
+      <div class="filter-bar">
+        <label class="filter-label"><input type="checkbox" id="benchFilter" onchange="renderSel()">
+          Outperform <b>SPY &amp; QQQ</b> (same 126/21 window)</label>
+        <span class="filter-count" id="benchCount"></span>
+      </div>
+      <table id="selTable">
+        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
+          <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="league-legend">
+        Top-N growth-sleeve feed → NS-5 frontier → NS-6. Signal only — NS-7
+        never weights; NS-6 owns drawdown. Check the filter to show only picks
+        that outperformed BOTH SPY and QQQ over the same period.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Full list — outperforming SPY &amp; QQQ
+        <span class="summary" id="outSummary"></span>
+        <button class="why-btn" id="outToggle" onclick="toggleOut()"
+                title="Expand / collapse">▸ Expand</button></h3>
+      <div id="outBody" style="display:none">
+        <table id="outTable">
+          <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
+            <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="league-legend">
+          Every momentum-scored Major name whose 126/21 skip-month return
+          exceeded BOTH benchmarks over the same window — the full outperform
+          universe beyond the top-N book.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="panel">
+      <h3>Ticker detail</h3>
+      <div id="detail" class="detail muted">Click any ticker for league tenure + live facts.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+function fmtMom(m) {
+  if (m == null) return '–';
+  const v = (m * 100);
+  return v >= 0 ? '<span class="pos">+' + v.toFixed(1) + '%</span>'
+                : '<span class="neg">' + v.toFixed(1) + '%</span>';
+}
+function badge(league) {
+  return '<span class="badge b-' + esc(league) + '">' + esc(league.toUpperCase()) + '</span>';
+}
+
+let SEL = null;   // latest selection doc (for the benchmark filter)
+
+async function loadAll() {
+  try {
+    const [uni, sel] = await Promise.all([
+      api('/api/universe'), api('/api/select').catch(() => null)]);
+    SEL = sel;
+    renderKpis(uni, sel);
+    renderSel();
+    document.getElementById('asOf').textContent =
+      'as of ' + (uni.as_of || '—') + (sel ? ' · generated ' + (sel.generated_at || '').slice(0, 16).replace('T', ' ') : '');
+  } catch (e) {
+    document.getElementById('asOf').textContent = 'error: ' + esc(e.message);
+  }
+}
+
+function renderKpis(uni, sel) {
+  const c = uni.counts || {};
+  document.getElementById('kMajor').textContent = c.major || 0;
+  const picks = (sel && sel.selections) || [];
+  document.getElementById('kTop').textContent = picks.length ? picks[0].ticker : '–';
+  document.getElementById('kBook').textContent = (sel && sel.top_n) || '–';
+  document.getElementById('kAsOf').textContent = uni.as_of || '–';
+}
+
+function renderSel() {
+  const picks = (SEL && SEL.selections) || [];
+  const bench = (SEL && SEL.benchmarks) || null;
+  const filterOn = document.getElementById('benchFilter').checked;
+  const outCount = picks.filter(p => p.outperforms_benchmarks).length;
+  // innerHTML (not textContent): the bench values carry styled spans.
+  document.getElementById('benchCount').innerHTML = bench
+    ? 'SPY ' + fmtMom(bench.spy) + ' · QQQ ' + fmtMom(bench.qqq) + ' — ' +
+      outCount + ' of ' + picks.length + ' outperform both'
+    : 'benchmarks unavailable (filter off)';
+  const shown = filterOn ? picks.filter(p => p.outperforms_benchmarks) : picks;
+  const tbody = document.querySelector('#selTable tbody');
+  document.getElementById('selSummary').textContent =
+    SEL ? (shown.length + ' / ' + (SEL.top_n || '—') + ' · ' +
+           (SEL.major_count || 0) + ' Major, ' + (SEL.scored_count || 0) + ' scored') : 'no refresh yet';
+  tbody.innerHTML = shown.length ? shown.map(p =>
+    '<tr class="clickable" onclick="showDetail(\'' + esc(p.ticker) + '\')">' +
+    '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b>' +
+    (p.ns2_advisory
+      ? '<span class="ns2-flag" title="NS-2 HMM signal: ' + esc(p.ns2_signal || '') + ' (advisory)">' + esc(p.ns2_signal) + '</span>'
+      : '') + '</td>' +
+    '<td class="num">' + fmtMom(p.momentum) + '</td>' +
+    '<td class="num">' + (p.outperforms_benchmarks
+      ? '<span class="outp">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
+    '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(p.ticker) + '\')">Why</button></td></tr>'
+  ).join('') : '<tr><td colspan="5" class="muted">' +
+    (picks.length ? 'No picks outperformed both SPY and QQQ in this window.' :
+     'No Major names yet — league probation (90d) running.') + '</td></tr>';
+  renderOutperformers(bench);
+}
+
+function renderOutperformers(bench) {
+  // Full list: every scored Major name outperforming BOTH benchmarks.
+  const all = (SEL && SEL.scores) || [];
+  const rows = all.filter(s => s.outperforms_benchmarks);
+  const tbody = document.querySelector('#outTable tbody');
+  document.getElementById('outSummary').textContent =
+    rows.length + ' of ' + all.length + ' scored outperform both';
+  tbody.innerHTML = rows.length ? rows.map(s =>
+    '<tr class="clickable" onclick="showDetail(\'' + esc(s.ticker) + '\')">' +
+    '<td>' + s.rank + '</td><td><b>' + esc(s.ticker) + '</b></td>' +
+    '<td class="num">' + fmtMom(s.momentum) + '</td>' +
+    '<td class="num"><span class="outp">✓ BOTH</span></td>' +
+    '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(s.ticker) + '\')">Why</button></td></tr>'
+  ).join('') : '<tr><td colspan="5" class="muted">' +
+    (bench ? 'No scored name outperformed both SPY and QQQ in this window.' :
+     'Benchmarks unavailable — list hidden.') + '</td></tr>';
+}
+
+function toggleOut() {
+  const body = document.getElementById('outBody');
+  const btn = document.getElementById('outToggle');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '▸ Expand' : '▾ Collapse';
+}
+
+async function showDetail(ticker) {
+  const box = document.getElementById('detail');
+  box.innerHTML = '<div class="dtitle">' + esc(ticker) + ' <span class="muted">loading…</span></div>';
+  try {
+    const d = await api('/api/leagues/' + encodeURIComponent(ticker));
+    const f = d.facts || {};
+    const sel = d.selection || {};
+    const mom = d.momentum_window;
+    const compliant = d.compliant_today == null ? '<span class="pill na">n/a</span>'
+      : d.compliant_today ? '<span class="pill yes">COMPLIANT</span>'
+                          : '<span class="pill no">NOT COMPLIANT</span>';
+    const mcap = f.market_cap != null ? '$' + (f.market_cap / 1e9).toFixed(1) + 'B' : '—';
+    const r = (x) => '<div class="drow"><span class="k">' + x[0] + '</span><span class="v">' + x[1] + '</span></div>';
+    const fmt = (v) => (v != null && v >= 1e9) ? '$' + (v / 1e9).toFixed(1) + 'B'
+                                               : (v != null ? '$' + (+v).toFixed(2) : '—');
+    const q = (v) => (v != null && v > 0) ? '<span class="pos">' + fmt(v) + ' ✓</span>'
+                                          : '<span class="neg">' + fmt(v) + ' ✗</span>';
+
+    // ── SELECTION (why it was / wasn't picked) ───────────────────────────
+    let sels = '<div class="dsec">Selection</div>';
+    if (sel.in_top_n) {
+      sels += '<div class="dverdict pick">PICKED — rank #' + sel.rank + ' of ' +
+        (sel.scored_count || '—') + ' scored Major names' +
+        (sel.band_kept ? ' · held via turnover band' : '') + '</div>';
+    } else if (sel.rank != null) {
+      sels += '<div class="dverdict veto">Not in top-N — rank #' + sel.rank + ' of ' +
+        (sel.scored_count || '—') + (mom ? ' · momentum ' + fmtMom(mom.momentum) : '') + '</div>';
+    } else {
+      sels += '<div class="dverdict info">No momentum score (insufficient history or not Major)</div>';
+    }
+    if (mom) {
+      sels += r(['Momentum (126/21 skip)', fmtMom(mom.momentum)]) +
+        r(['P[t−126] @ ' + mom.p_old_date, '$' + mom.p_old]) +
+        r(['P[t−21] @ ' + mom.p_skip_date, '$' + mom.p_skip]);
+    }
+    sels += r(['Selection as of', sel.as_of || '—']);
+
+    // ── LEAGUE (how it qualifies) ────────────────────────────────────────
+    let lg = '<div class="dsec">League — ' + badge(d.league) + ' ' + compliant + '</div>' +
+      r(['Qualification', d.league_reason || '—']) +
+      r(['Compliant days', (d.consecutive_compliant || 0) + ' / ' +
+        (d.league === 'minor' ? '90 to promote' : '—')]) +
+      r(['Non-compliant days', (d.consecutive_noncompliant || 0) +
+        (d.league === 'minor' ? ' / 90 to remove' : '')]) +
+      r(['First seen', esc(d.first_seen)]) +
+      r(['Grace left → promote', d.grace_days_left_to_promotion != null ? d.grace_days_left_to_promotion + 'd' : '—']);
+
+    // ── QUALITY VETO (the pick-time gate) ────────────────────────────────
+    const epsOk = f.eps_ttm != null && f.eps_ttm > 0;
+    const cfoOk = f.cfo_ttm != null && f.cfo_ttm > 0;
+    const vetoOk = epsOk && cfoOk;
+    let qv = '<div class="dsec">Quality veto (pick gate)</div>' +
+      r(['EPS TTM', q(f.eps_ttm)]) +
+      r(['Op. CF TTM', q(f.cfo_ttm)]) +
+      '<div class="dverdict ' + (vetoOk ? 'pick' : 'veto') + '">' +
+      (vetoOk ? 'PASSES — eligible to be picked' : 'VETOED — excluded from picks (negative/missing)') + '</div>';
+
+    // ── FACTS (league context) ───────────────────────────────────────────
+    let fx = '<div class="dsec">Facts</div>' +
+      r(['In SP500', f.in_sp500 ? 'yes' : 'no']) +
+      r(['Market cap', mcap]) +
+      r(['Avg volume (20d)', f.avg_daily_volume != null ? (+f.avg_daily_volume / 1e3).toFixed(0) + 'K' : '—']) +
+      r(['Snapshot age', f.snapshot_age_days != null ? f.snapshot_age_days + 'd' : '—']);
+
+    // ── NS-2 HMM (advisory) ────────────────────────────────────────────
+    let ns2 = '<div class="dsec">NS-2 HMM (advisory)</div>';
+    if (d.ns2_signal) {
+      ns2 += (d.ns2_advisory
+        ? '<span class="ns2-flag" title="No conviction — PM review">' + esc(d.ns2_signal) + '</span>'
+        : '<span class="outp">' + esc(d.ns2_signal) + '</span>') +
+        '<div class="muted" style="font-size:11px;margin-top:4px">' +
+        (d.ns2_advisory
+          ? 'NS-2 has no conviction on this name — flagged for PM review. ' +
+            'Advisory only: NS-7 never excludes on NS-2; NS-6 enforces.'
+          : 'NS-2 signal confirms the pick (advisory).') + '</div>';
+    } else {
+      ns2 += '<div class="muted" style="font-size:11px">Not on the NS-2 watchlist — neutral.</div>';
+    }
+
+    box.innerHTML =
+      '<div class="dtitle">' + esc(ticker) +
+      '<button class="dclose" title="Close" onclick="closeDetail()">✕</button>' +
+      ' ' + badge(d.league) + ' ' + compliant + '</div>' +
+      sels + lg + ns2 + qv + fx;
+  } catch (e) {
+    box.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+  }
+}
+
+function closeDetail() {
+  document.getElementById('detail').innerHTML =
+    '<div class="muted">Click any ticker for league tenure + live facts.</div>';
+}
+
+loadAll();
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>
