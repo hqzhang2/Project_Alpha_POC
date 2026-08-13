@@ -148,16 +148,21 @@
     </div>
 
     <div class="panel">
-      <h3>Full list — outperforming SPY &amp; QQQ <span class="summary" id="outSummary"></span></h3>
-      <table id="outTable">
-        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
-          <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div class="league-legend">
-        Every momentum-scored Major name whose 126/21 skip-month return
-        exceeded BOTH benchmarks over the same window — the full outperform
-        universe beyond the top-N book.
+      <h3>Full list — outperforming SPY &amp; QQQ
+        <span class="summary" id="outSummary"></span>
+        <button class="why-btn" id="outToggle" onclick="toggleOut()"
+                title="Expand / collapse">▸ Expand</button></h3>
+      <div id="outBody" style="display:none">
+        <table id="outTable">
+          <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
+            <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="league-legend">
+          Every momentum-scored Major name whose 126/21 skip-month return
+          exceeded BOTH benchmarks over the same window — the full outperform
+          universe beyond the top-N book.
+        </div>
       </div>
     </div>
   </div>
@@ -261,6 +266,14 @@ function renderOutperformers(bench) {
   ).join('') : '<tr><td colspan="5" class="muted">' +
     (bench ? 'No scored name outperformed both SPY and QQQ in this window.' :
      'Benchmarks unavailable — list hidden.') + '</td></tr>';
+}
+
+function toggleOut() {
+  const body = document.getElementById('outBody');
+  const btn = document.getElementById('outToggle');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '▸ Expand' : '▾ Collapse';
 }
 
 async function showDetail(ticker) {

@@ -42,6 +42,16 @@ def test_benchmark_filter_present():
     assert "beat" not in _html.lower()
 
 
+def test_full_list_minimized_by_default_with_toggle():
+    """Full-list panel defaults MINIMIZED; toggle expands/collapses."""
+    assert 'id="outToggle"' in _html
+    assert "toggleOut" in _html
+    # Default state: body hidden, button says Expand.
+    assert 'id="outBody" style="display:none"' in _html
+    assert "▸ Expand" in _html
+    assert "▾ Collapse" in _html
+
+
 def test_why_drilldown_buttons_present():
     """Why buttons on every row + sectioned reason panel."""
     assert 'class="why-btn"' in _html
