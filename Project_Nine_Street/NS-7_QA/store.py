@@ -10,6 +10,7 @@ Tests MUST redirect DB_PATH to a temp dir (monkeypatch) before init_db().
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -26,6 +27,25 @@ CREATE TABLE IF NOT EXISTS league (
     consecutive_noncompliant  INTEGER NOT NULL DEFAULT 0,
     first_seen      TEXT NOT NULL,      -- ISO date the ticker entered tracking
     last_seen       TEXT NOT NULL       -- ISO date of the last transition
+);
+
+CREATE TABLE IF NOT EXISTS volume (
+    ticker          TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    volume          REAL NOT NULL,
+    PRIMARY KEY (ticker, date)
+);
+
+CREATE TABLE IF NOT EXISTS selection (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at    TEXT NOT NULL,
+    as_of           TEXT NOT NULL,
+    payload         TEXT NOT NULL       -- JSON: the /api/select document
+);
+
+CREATE TABLE IF NOT EXISTS refresh_meta (
+    key             TEXT PRIMARY KEY,
+    value           TEXT NOT NULL
 );
 """
 
@@ -102,3 +122,123 @@ def all_leagues() -> List[dict]:
     cols = ["ticker", "league", "consecutive_compliant",
             "consecutive_noncompliant", "first_seen", "last_seen"]
     return [dict(zip(cols, r)) for r in rows]
+
+
+# ── Volume store (U3 liquidity gate) ────────────────────────────────────
+# The A_T price store carries closes only; NS-7 keeps its own daily volume
+# (fetched by pipeline.py via yfinance). Fail-open discipline lives in the
+# pipeline: a systemic volume outage waives U3 for that refresh (don't churn
+# the book on a data outage); per-ticker missing volume = not compliant.
+
+def upsert_volume_many(rows: List[tuple]) -> int:
+    """rows: [(ticker, date, volume)] — idempotent upsert. Returns count."""
+    if not rows:
+        return 0
+    conn = _connect()
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO volume (ticker, date, volume) VALUES (?,?,?)",
+            [(t.upper(), d, float(v)) for t, d, v in rows],
+        )
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def volume_series(ticker: str, start: str, end: str) -> List[tuple]:
+    """[(date, volume)] for one ticker in [start, end], ascending."""
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "SELECT date, volume FROM volume WHERE ticker = ? AND date BETWEEN ? AND ? "
+            "ORDER BY date", (ticker.upper(), start, end))
+        return [(d, v) for d, v in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def avg_daily_volume(ticker: str, as_of: str, window_days: int) -> Optional[float]:
+    """20-day average daily volume ending on/before as_of. None if empty."""
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "SELECT AVG(volume) FROM ("
+            "  SELECT volume FROM volume WHERE ticker = ? AND date <= ? "
+            "  ORDER BY date DESC LIMIT ?)",
+            (ticker.upper(), as_of, window_days))
+        row = cur.fetchone()
+        return float(row[0]) if row and row[0] is not None else None
+    finally:
+        conn.close()
+
+
+def volume_coverage(ticker: str) -> tuple:
+    """(min_date, max_date, count) for one ticker's volume rows."""
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "SELECT MIN(date), MAX(date), COUNT(*) FROM volume WHERE ticker = ?",
+            (ticker.upper(),))
+        row = cur.fetchone()
+        return (row[0], row[1], row[2])
+    finally:
+        conn.close()
+
+
+# ── Selection persistence (the NS-5 feed) ───────────────────────────────
+def save_selection(as_of: str, payload: dict) -> int:
+    """Persist the /api/select document. Returns the new row id."""
+    import json as _json
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "INSERT INTO selection (generated_at, as_of, payload) VALUES (?,?,?)",
+            (datetime.now(timezone.utc).isoformat(), as_of,
+             _json.dumps(payload, default=str)))
+        conn.commit()
+        return int(cur.lastrowid or 0)
+    finally:
+        conn.close()
+
+
+def latest_selection() -> Optional[dict]:
+    """Most recent selection document: {generated_at, as_of, payload(dict)}."""
+    import json as _json
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "SELECT generated_at, as_of, payload FROM selection "
+            "ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    generated_at, as_of, payload = row
+    try:
+        return {"generated_at": generated_at, "as_of": as_of,
+                "payload": _json.loads(payload)}
+    except (ValueError, TypeError):
+        return {"generated_at": generated_at, "as_of": as_of, "payload": {}}
+
+
+# ── Refresh meta (last-run stamps for /health + diagnostics) ────────────
+def set_meta(key: str, value: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute("INSERT OR REPLACE INTO refresh_meta (key, value) VALUES (?,?)",
+                     (key, value))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_meta(key: str) -> Optional[str]:
+    conn = _connect()
+    try:
+        cur = conn.execute("SELECT value FROM refresh_meta WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()

@@ -142,6 +142,41 @@ def test_concentration_guardrail():
                                  "D": 0.2, "E": 0.2}) < config.MIN_EFFECTIVE_N
 
 
+# ── Anti-churn turnover band (G5) ───────────────────────────────────────
+def _ranked(n):
+    return [{"ticker": f"T{i:02d}", "momentum": round(1.0 - i * 0.01, 6),
+             "rank": i + 1} for i in range(n)]
+
+
+def test_turnover_band_keeps_held_name_inside_band():
+    ranked = _ranked(40)                          # 40 scored names
+    # T25 (rank 26) is held and still within top-30 (TOP_N 20 + band 10).
+    held = {"T25"}
+    picks = selector.apply_turnover_band(ranked, held)
+    assert len(picks) == config.TOP_N
+    assert "T25" in {p["ticker"] for p in picks}  # kept despite rank 26
+
+
+def test_turnover_band_drops_name_outside_band():
+    ranked = _ranked(40)
+    # T35 (rank 36) is held but outside top-30 → dropped.
+    held = {"T35"}
+    picks = selector.apply_turnover_band(ranked, held)
+    assert "T35" not in {p["ticker"] for p in picks}
+
+
+def test_turnover_band_fills_with_newcomers():
+    ranked = _ranked(40)
+    # Hold 5 names ranked 16-20 (inside band) → they stay, rest fills up.
+    held = {f"T{i:02d}" for i in range(15, 20)}
+    picks = selector.apply_turnover_band(ranked, held)
+    assert len(picks) == config.TOP_N
+    kept = {p["ticker"] for p in picks}
+    assert held <= kept                     # all 5 held names preserved
+    # Top names all present; total capped at 20.
+    assert kept == {f"T{i:02d}" for i in range(20)}
+
+
 # ── Store persistence (temp dir) ────────────────────────────────────────
 def test_store_upsert_and_counts(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "ns7.db")

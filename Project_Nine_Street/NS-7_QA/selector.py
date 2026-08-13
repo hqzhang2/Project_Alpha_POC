@@ -42,16 +42,21 @@ def passes_quality_veto(eps_ttm: Optional[float],
 
 # ── Ranking & selection (§4.2) ───────────────────────────────────────────
 def rank_major(prices: Dict[str, List[float]],
-               facts: Dict[str, Dict]) -> List[Dict]:
+               facts: Dict[str, Dict],
+               top_n: Optional[int] = None) -> List[Dict]:
     """Rank Major tickers by skip-month momentum, apply quality veto, cap to top-N.
 
     Args:
         prices: {ticker: [closes oldest-first]} — only Major tickers expected.
         facts: {ticker: {eps_ttm, cfo_ttm, market_cap, in_sp500, ...}}.
+        top_n: cap on the returned ranked list. None → rank ALL scored names
+            (used by the pipeline to persist every Major score for /api/major);
+            the default is config.TOP_N (the NS-5 feed).
 
     Returns a list of dicts, ranked descending, each:
         {ticker, momentum, rank}  (rank is 1-based; None momentum = excluded)
     """
+    top_n = config.TOP_N if top_n is None else top_n
     scored = []
     for ticker, closes in prices.items():
         mom = skip_month_momentum(closes)
@@ -68,7 +73,7 @@ def rank_major(prices: Dict[str, List[float]],
             continue  # quality veto removes junk, keeps growth leaders (G3)
         ranked.append({"ticker": ticker, "momentum": round(mom, 6),
                        "rank": len(ranked) + 1})
-        if len(ranked) >= config.TOP_N:
+        if len(ranked) >= top_n:
             break
     return ranked
 
@@ -78,6 +83,37 @@ def effective_n(weights: Dict[str, float]) -> float:
     """Effective number of positions: 1 / sum(w^2)."""
     s = sum(w * w for w in weights.values() if w > 0)
     return 1.0 / s if s > 0 else 0.0
+
+
+def apply_turnover_band(ranked_all: List[Dict], held: set,
+                        top_n: Optional[int] = None,
+                        band: Optional[int] = None) -> List[Dict]:
+    """Anti-churn selection (G5 baseball guardrail).
+
+    Ranked list (all scored, quality-vetoed, descending) → final top-N picks:
+
+      1. Names ranked within top (top_n + band) are eligible.
+      2. A currently-HELD name inside the band is KEPT even if it slipped
+         below top_n (don't trim a position on a transient rank wobble).
+      3. Remaining slots fill with the highest-ranked newcomers.
+      4. Book capped at top_n names.
+
+    Args:
+        ranked_all: full ranked output of rank_major(..., top_n=None).
+        held: tickers currently in the book (previous selection).
+        top_n: book size (default config.TOP_N).
+        band: rank cushion (default config.TURNOVER_BAND).
+
+    Returns the final pick list (ranked desc, length <= top_n).
+    """
+    top_n = config.TOP_N if top_n is None else top_n
+    band = config.TURNOVER_BAND if band is None else band
+    cutoff = top_n + band
+    eligible = [r for r in ranked_all if r["rank"] <= cutoff]
+    kept = [r for r in eligible if r["ticker"] in held]
+    newcomers = [r for r in eligible if r["ticker"] not in held]
+    picks = kept + newcomers
+    return picks[:top_n]
 
 
 def concentration_ok(weights: Dict[str, float],

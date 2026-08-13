@@ -17,14 +17,20 @@ import config
 
 
 # ── Eligibility predicates (§3.1) ───────────────────────────────────────
-def is_large_and_indexed(market_cap: float, in_sp500: bool) -> bool:
-    """U1 OR U2: in SP500, or market cap > $50B."""
-    return bool(in_sp500) or market_cap > config.MARKET_CAP_MIN
+def is_large_and_indexed(market_cap: Optional[float], in_sp500: bool) -> bool:
+    """U1 OR U2: in SP500, or market cap > $50B.
+
+    None market cap is "not proven" → the numeric gate fails; SP500
+    membership still passes (conservative, missing ≠ proven).
+    """
+    if in_sp500:
+        return True
+    return market_cap is not None and market_cap > config.MARKET_CAP_MIN
 
 
-def is_liquid(avg_daily_volume: float) -> bool:
-    """U3: 20-day average daily volume > 100K shares."""
-    return avg_daily_volume > config.MIN_AVG_DAILY_VOLUME
+def is_liquid(avg_daily_volume: Optional[float]) -> bool:
+    """U3: 20-day average daily volume > 100K shares. None → not proven."""
+    return avg_daily_volume is not None and avg_daily_volume > config.MIN_AVG_DAILY_VOLUME
 
 
 def is_quality(eps_ttm: Optional[float], cfo_ttm: Optional[float]) -> bool:
@@ -108,3 +114,75 @@ def advance_tenure(current_league: str, compliant_now: bool,
 def is_assessable(league: str) -> bool:
     """Only Major-league tickers are eligible for momentum ranking."""
     return league == config.LEAGUE_MAJOR
+
+
+# ── Orchestration (fresh entry / re-admission) — shared by pipeline + ───
+# ── walk-forward harness (ONE source of truth for league logic) ─────────
+def apply_daily(state: Dict[str, Dict], facts_by_ticker: Dict[str, Dict],
+                as_of: str) -> tuple[Dict[str, Dict], Dict]:
+    """Advance every tracked/eligible ticker's league state for one day.
+
+    Args:
+        state: {ticker: {league, consecutive_compliant,
+                consecutive_noncompliant, first_seen, last_seen}} — the
+                in-memory mirror of the store's league table.
+        facts_by_ticker: {ticker: eligibility facts} for the candidate set.
+        as_of: ISO date being processed.
+
+    Returns (new_state, counts). Rules (DESIGN §3.2 — orchestration layer):
+      - Untracked + compliant today  → FRESH Minor (new 90-day probation).
+      - Removed + compliant today    → RE-ADMITTED as fresh Minor (new
+        first_seen; full history preserved — data is never deleted).
+      - Removed + not compliant      → stays removed (dormant, no transition).
+      - Tracked (major/minor)        → transition + tenure advance.
+      - Untracked + not compliant    → not added (state stays bounded).
+    """
+    new_state = dict(state)
+    counts = {"fresh": 0, "readmitted": 0, "promoted": 0, "demoted": 0,
+              "expired": 0, "unchanged": 0, "tracked": 0}
+
+    for ticker, facts in facts_by_ticker.items():
+        ticker = ticker.upper()
+        compliant = meets_all_criteria(facts)
+        row = state.get(ticker)
+
+        if row is None:
+            if not compliant:
+                continue  # not eligible, not tracked — nothing to do
+            new_state[ticker] = {
+                "ticker": ticker, "league": config.LEAGUE_MINOR,
+                "consecutive_compliant": 1, "consecutive_noncompliant": 0,
+                "first_seen": as_of, "last_seen": as_of}
+            counts["fresh"] += 1
+            counts["tracked"] += 1
+            continue
+
+        if row["league"] == config.LEAGUE_REMOVED:
+            if not compliant:
+                continue  # dormant; data preserved
+            # Re-admission as a fresh Minor (new probation, history intact).
+            new_state[ticker] = {
+                "ticker": ticker, "league": config.LEAGUE_MINOR,
+                "consecutive_compliant": 1, "consecutive_noncompliant": 0,
+                "first_seen": as_of, "last_seen": as_of}
+            counts["readmitted"] += 1
+            counts["tracked"] += 1
+            continue
+
+        cc = int(row["consecutive_compliant"])
+        nc = int(row["consecutive_noncompliant"])
+        new_cc, new_nc = advance_tenure(row["league"], compliant, cc, nc)
+        next_league = transition(
+            row["league"], compliant, new_cc, new_nc,
+            first_seen_elder_than_grace=(as_of > row.get("first_seen", as_of)))
+        if next_league != row["league"]:
+            counts[{"minor": "promoted", "major": "demoted",
+                    "removed": "expired"}.get(next_league, "unchanged")] += 1
+        else:
+            counts["unchanged"] += 1
+        counts["tracked"] += 1
+        new_state[ticker] = {
+            "ticker": ticker, "league": next_league,
+            "consecutive_compliant": new_cc, "consecutive_noncompliant": new_nc,
+            "first_seen": row["first_seen"], "last_seen": as_of}
+    return new_state, counts

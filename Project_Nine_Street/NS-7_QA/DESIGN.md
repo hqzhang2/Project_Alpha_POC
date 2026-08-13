@@ -226,3 +226,82 @@ NS-7_QA/
   defensive sleeve.
 - Not a *fundamental* growth screen (revenue-growth/ARR) — that is a **v2
   research phase**, not v1. It is unproven; NS-7 v1 is price momentum only.
+
+---
+
+## 10. Implementation Status (v1 — 2026-08-13)
+
+**All v1 components implemented by the frontier model (no junior handoff):
+pipeline, server, dashboard, walk-forward harness. 49 unit tests passing.**
+
+| Component | File | Status |
+|---|---|---|
+| Config (thresholds, data paths, cadence) | `config.py` | ✅ |
+| Eligibility + league state machine (+ orchestration) | `universe.py` | ✅ |
+| Momentum + veto + caps (+ turnover band) | `selector.py` | ✅ |
+| League/volume/selection persistence (sqlite) | `store.py` | ✅ |
+| Data pipeline (universe → facts → league → momentum → feed) | `pipeline.py` | ✅ |
+| HTTP server, port 9271 (QA) | `qa_server.py` | ✅ |
+| Dashboard (league + momentum + ticker detail) | `ns7_dashboard.html` | ✅ |
+| Walk-forward harness (G1 gate) | `ns7_walkforward.py` | ✅ |
+| Daily refresh runner (launchd) | `run_refresh.sh` | ✅ |
+| Tests | `tests/` | ✅ 49 passing |
+
+### G1 acceptance gate — PASS (walk-forward, 2016-01 → 2026-07, quarterly)
+
+| Metric | Result | Gate |
+|---|---|---|
+| Excess vs held universe | **8/11 years** (2016,17,20,22,23,24,25,26) | ≥ 7/10 ✅ |
+| Max drawdown | −13.2% vs SPY −9.2% (ratio 1.44) | G7 note ⚠️ |
+| Annual book turns | 3.1 (76.9% per quarterly rebalance) | G5 ✅ baseball |
+| G4 concentration (naive top-20 equal weight) | effective N 20, max 5% | ✅ |
+
+⚠️ The 1.44× drawdown ratio is the **bare selector** (equal-weight top-20, no
+NS-6). The mandate's ≤0.5× SPY gate applies to the FULL stack (NS-7 + NS-5
+frontier + NS-6 fast de-risk). This harness isolates NS-7's selection edge.
+
+### Design decisions made during implementation
+
+1. **Last-known-good metric fill (data-quality layer).** SEC extraction gaps
+   leave some 10-K rows with None `operating_cf`/`eps`. Strict
+   "None = not proven" demoted MCD/GOOG/JPM/MA the day a partial filing
+   landed — churning the book on DATA, not fundamentals. Each metric now
+   falls back to the most recent filing ≤ as-of that reports it. A *reported*
+   negative EPS/CFO still demotes; only missing values are bridged.
+   Point-in-time preserved.
+2. **Quarterly rebalance (default).** Matches the full-stack review's
+   quarterly selector rhythm. Tested vs monthly: both pass G1 (8/11);
+   quarterly halves annual turnover (3.1 vs 5.9 turns) and improves the
+   drawdown ratio (1.44 vs 1.56). Config `WF_REBALANCE_MONTHS`.
+3. **Turnover band (G5).** A held name ranked up to TOP_N + 10 stays in the
+   book (config `TURNOVER_BAND`) — don't trim on a transient rank wobble.
+4. **Re-admission semantics.** A REMOVED ticker that meets criteria again is
+   re-admitted as a FRESH Minor (new 90-day probation, history preserved) —
+   per §3.2 rule 3 ("newly $50B+ / newly in SP500 start in Minor").
+5. **U3 in the walk-forward** is approximated as satisfied (no historical
+   volume in the store; SP500/$50B+ names are structurally ≫100K shares/day).
+   The LIVE pipeline enforces U3 with real yfinance volume stored in NS-7's
+   own `volume` table; a systemic volume outage waives U3 for that refresh
+   (never mass-demote the book on a data outage).
+6. **A_T integration is read-only SQLite** (decoupled file-read pattern —
+   same as NS-6 reading NS-5's portfolios.json). NS-7 never imports or
+   writes A_T modules/stores. Market cap = price × shares_outstanding from
+   the point-in-time snapshot (730-day staleness guard, A_T convention).
+7. **`/api/major` returns ALL scored Major names** (not just top-N) — the
+   selection doc persists `scores` plus the band-filtered `selections`.
+
+### Data flow (live)
+
+```
+A_T fundamentals_hist.db ──read-only──► pipeline.py ──► data/ns7.db
+  annual (filed-stamped)      (daily,      league + volume + selection rows
+  prices (closes)              17:30 ET)         │
+A_T sp500.json ─────────────────────────────┐    ├─► data/selection.json (NS-5 feed)
+yfinance volume (U3) ───────────────────────┘    │
+qa_server.py :9271 ◄── ns7_dashboard.html ◄──┘   (portal tab ns7)
+```
+
+### Remaining
+- QA deployment (launchd load of `com.ninestreet.ns7.qa` + `com.ninestreet.ns7.refresh`) — pending PM approval.
+- PROD (port 9270) via the house release flow.
+- v2 research: fundamental growth screen (revenue growth/ARR) — explicitly out of v1.

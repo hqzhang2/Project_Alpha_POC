@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-7 Growth/Momentum Selection</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0b0f17; color: #dbe4f0; font-size: 13px; line-height: 1.5;
+  }
+  .hdr {
+    display: flex; align-items: center; gap: 12px; padding: 12px 24px;
+    background: #111827; border-bottom: 1px solid #1f2937;
+  }
+  .hdr h1 { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .hdr .sub { font-size: 11px; color: #64748b; }
+  .hdr .spacer { flex: 1; }
+  .hdr .asof { font-size: 11.5px; color: #64748b; font-variant-numeric: tabular-nums; }
+
+  .shell { display: grid; grid-template-columns: 1fr 380px; max-width: 1500px; margin: 0 auto; }
+  .main { padding: 18px 22px; min-width: 0; }
+  .rail {
+    background: #0d1420; border-left: 1px solid #1f2937; padding: 14px;
+    overflow-y: auto; max-height: calc(100vh - 50px); position: sticky; top: 50px;
+  }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .kpi {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px 14px;
+  }
+  .kpi .lab { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  .kpi .val { font-size: 20px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .val .u { font-size: 12px; color: #64748b; font-weight: 600; margin-left: 2px; }
+  .kpi .note { font-size: 10px; color: #94a3b8; margin-top: 3px; }
+
+  .panel {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .panel h3 { font-size: 12px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .panel h3 .summary { float: right; font-size: 11px; color: #94a3b8; text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .5px;
+    text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2937; }
+  td { padding: 6px 8px; border-bottom: 1px solid #141c2c; font-size: 12.5px; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: #0d1420; }
+  .num { text-align: right; }
+  .pos { color: #4ade80; }
+  .neg { color: #f87171; }
+
+  .badge { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px; }
+  .b-major { background: #14532d; color: #4ade80; }
+  .b-minor { background: #4d3d00; color: #f0b429; }
+  .b-removed { background: #3f1d1d; color: #f87171; }
+
+  .league-legend { font-size: 11px; color: #64748b; margin-top: 8px; line-height: 1.6; }
+  .league-legend .b-major, .league-legend .b-minor, .league-legend .b-removed { margin-right: 4px; }
+
+  .detail { font-size: 12px; }
+  .detail .drow { display: flex; justify-content: space-between; padding: 5px 0;
+    border-bottom: 1px solid #141c2c; }
+  .detail .drow .k { color: #94a3b8; }
+  .detail .drow .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .detail .dtitle { font-size: 14px; font-weight: 800; margin-bottom: 8px; }
+  .detail .dtitle .tk { color: #4ade80; }
+
+  .pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px;
+    border-radius: 10px; margin-left: 6px; }
+  .pill.yes { background: #14532d; color: #4ade80; }
+  .pill.no { background: #3f1d1d; color: #f87171; }
+  .pill.na { background: #1f2937; color: #94a3b8; }
+
+  .err { color: #f87171; font-size: 12px; padding: 10px; }
+  .muted { color: #64748b; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>NS-7 <span style="color:#4ade80">GROWTH/MOMENTUM SELECTION</span></h1>
+  <span class="sub">skip-month 126/21 · two-league 90d grace · quality veto</span>
+  <span class="spacer"></span>
+  <span class="asof" id="asOf">loading…</span>
+</div>
+
+<div class="shell">
+  <div class="main">
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Major (active)</div><div class="val" id="kMajor">–</div>
+        <div class="note">eligible for momentum ranking</div></div>
+      <div class="kpi"><div class="lab">Minor (paused)</div><div class="val" id="kMinor">–</div>
+        <div class="note">90-day grace clock running</div></div>
+      <div class="kpi"><div class="lab">Removed</div><div class="val" id="kRemoved">–</div>
+        <div class="note">out of compliance 90d · data kept</div></div>
+      <div class="kpi"><div class="lab">Top-N pick</div><div class="val" id="kTop">–</div>
+        <div class="note">#1 momentum name</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Selection — top-N momentum picks <span class="summary" id="selSummary"></span></h3>
+      <table id="selTable">
+        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="league-legend">
+        Output feeds the <b>growth sleeve</b> → NS-5 frontier → NS-6. Signal only — NS-7 never
+        weights; NS-6 owns drawdown.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>League universe <span class="summary" id="uniSummary"></span></h3>
+      <table id="uniTable">
+        <thead><tr><th>Ticker</th><th>League</th><th class="num">Compliant days</th>
+          <th class="num">Non-compliant</th><th>First seen</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="league-legend">
+        <span class="badge b-major">MAJOR</span> active · eligible for momentum
+        <span class="badge b-minor">MINOR</span> paused — 90 consecutive compliant days → promote
+        <span class="badge b-removed">REMOVED</span> 90 consecutive non-compliant days — data preserved
+      </div>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="panel">
+      <h3>Ticker detail</h3>
+      <div id="detail" class="detail muted">Click any ticker for league tenure + live facts.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+function fmtMom(m) {
+  if (m == null) return '–';
+  const v = (m * 100);
+  return v >= 0 ? '<span class="pos">+' + v.toFixed(1) + '%</span>'
+                : '<span class="neg">' + v.toFixed(1) + '%</span>';
+}
+function badge(league) {
+  return '<span class="badge b-' + esc(league) + '">' + esc(league.toUpperCase()) + '</span>';
+}
+
+let UNIVERSE = [];
+
+async function loadAll() {
+  try {
+    const [uni, sel] = await Promise.all([api('/api/universe'), api('/api/select').catch(() => null)]);
+    UNIVERSE = uni.members || [];
+    renderKpis(uni, sel);
+    renderSel(sel);
+    renderUni();
+    document.getElementById('asOf').textContent =
+      'as of ' + (uni.as_of || '—') + (sel ? ' · generated ' + (sel.generated_at || '').slice(0, 16).replace('T', ' ') : '');
+  } catch (e) {
+    document.getElementById('asOf').textContent = 'error: ' + esc(e.message);
+  }
+}
+
+function renderKpis(uni, sel) {
+  const c = uni.counts || {};
+  document.getElementById('kMajor').textContent = c.major || 0;
+  document.getElementById('kMinor').textContent = c.minor || 0;
+  document.getElementById('kRemoved').textContent = c.removed || 0;
+  const picks = (sel && sel.selections) || [];
+  document.getElementById('kTop').textContent = picks.length ? picks[0].ticker : '–';
+}
+
+function renderSel(sel) {
+  const picks = (sel && sel.selections) || [];
+  const tbody = document.querySelector('#selTable tbody');
+  document.getElementById('selSummary').textContent =
+    sel ? (picks.length + ' / ' + (sel.top_n || '—') + ' · ' +
+           (sel.major_count || 0) + ' Major, ' + (sel.scored_count || 0) + ' scored') : 'no refresh yet';
+  tbody.innerHTML = picks.length ? picks.map(p =>
+    '<tr class="clickable" onclick="showDetail(\'' + esc(p.ticker) + '\')">' +
+    '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b></td>' +
+    '<td class="num">' + fmtMom(p.momentum) + '</td></tr>'
+  ).join('') : '<tr><td colspan="3" class="muted">No Major names yet — league probation (90d) running.</td></tr>';
+}
+
+function renderUni() {
+  const tbody = document.querySelector('#uniTable tbody');
+  document.getElementById('uniSummary').textContent = UNIVERSE.length + ' tracked';
+  tbody.innerHTML = UNIVERSE.map(r =>
+    '<tr class="clickable" onclick="showDetail(\'' + esc(r.ticker) + '\')">' +
+    '<td><b>' + esc(r.ticker) + '</b></td>' +
+    '<td>' + badge(r.league) + '</td>' +
+    '<td class="num">' + (r.consecutive_compliant || 0) + '</td>' +
+    '<td class="num">' + (r.consecutive_noncompliant || 0) + '</td>' +
+    '<td>' + esc(r.first_seen) + '</td></tr>'
+  ).join('') || '<tr><td colspan="5" class="muted">Empty — run the pipeline (pipeline.py) to seed the league table.</td></tr>';
+}
+
+async function showDetail(ticker) {
+  const box = document.getElementById('detail');
+  box.innerHTML = '<div class="dtitle">' + esc(ticker) + ' <span class="muted">loading…</span></div>';
+  try {
+    const d = await api('/api/leagues/' + encodeURIComponent(ticker));
+    const f = d.facts || {};
+    const compliant = d.compliant_today == null ? '<span class="pill na">n/a</span>'
+      : d.compliant_today ? '<span class="pill yes">COMPLIANT</span>'
+                          : '<span class="pill no">NOT COMPLIANT</span>';
+    const mcap = f.market_cap != null ? '$' + (f.market_cap / 1e9).toFixed(1) + 'B' : '—';
+    box.innerHTML =
+      '<div class="dtitle">' + esc(ticker) + ' ' + badge(d.league) + ' ' + compliant + '</div>' +
+      '<div class="drow"><span class="k">League</span><span class="v">' + esc(d.league) + '</span></div>' +
+      '<div class="drow"><span class="k">Compliant days</span><span class="v">' + (d.consecutive_compliant || 0) + '</span></div>' +
+      '<div class="drow"><span class="k">Non-compliant</span><span class="v">' + (d.consecutive_noncompliant || 0) + '</span></div>' +
+      '<div class="drow"><span class="k">First seen</span><span class="v">' + esc(d.first_seen) + '</span></div>' +
+      '<div class="drow"><span class="k">Grace left → promote</span><span class="v">' +
+        (d.grace_days_left_to_promotion != null ? d.grace_days_left_to_promotion + 'd' : '—') + '</span></div>' +
+      '<div class="drow"><span class="k">In SP500</span><span class="v">' + (f.in_sp500 ? 'yes' : 'no') + '</span></div>' +
+      '<div class="drow"><span class="k">Market cap</span><span class="v">' + mcap + '</span></div>' +
+      '<div class="drow"><span class="k">EPS TTM</span><span class="v">' + (f.eps_ttm != null ? '$' + (+f.eps_ttm).toFixed(2) : '—') + '</span></div>' +
+      '<div class="drow"><span class="k">Op. CF TTM</span><span class="v">' + (f.cfo_ttm != null ? '$' + (+f.cfo_ttm / 1e9).toFixed(1) + 'B' : '—') + '</span></div>' +
+      '<div class="drow"><span class="k">Avg vol (20d)</span><span class="v">' + (f.avg_daily_volume != null ? (+f.avg_daily_volume / 1e3).toFixed(0) + 'K' : '—') + '</span></div>' +
+      '<div class="drow"><span class="k">Snapshot age</span><span class="v">' + (f.snapshot_age_days != null ? f.snapshot_age_days + 'd' : '—') + '</span></div>';
+  } catch (e) {
+    box.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+  }
+}
+
+loadAll();
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>
