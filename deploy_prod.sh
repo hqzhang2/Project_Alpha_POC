@@ -43,7 +43,8 @@ done
 echo "== Reloading PROD launchd jobs (bootout/bootstrap: plists may have changed) =="
 for job in com.alpha.terminal.prod com.ninestreet.ns1.prod com.ninestreet.ns2.prod \
            com.ninestreet.ns3.prod com.ninestreet.ns4.prod com.ninestreet.ns5.prod \
-           com.ninestreet.ns6.prod com.ninestreet.ns7.prod; do
+           com.ninestreet.ns6.prod com.ninestreet.ns7.prod \
+           com.ninestreet.ns6.pricefeed.prod; do
     if [ -f "$HOME/Library/LaunchAgents/$job.plist" ]; then
         launchctl bootout "gui/$(id -u)/$job" 2>/dev/null || true
         sleep 1
