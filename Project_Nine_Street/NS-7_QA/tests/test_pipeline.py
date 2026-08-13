@@ -405,6 +405,52 @@ def test_selection_doc_carries_benchmark_flags(env, monkeypatch):
     assert len(doc3["selections"]) == 2
 
 
+# ── NS-2 advisory overlay (DESIGN §4.3) ─────────────────────────────────
+def test_load_ns2_signals_parses_cache(tmp_path):
+    p = tmp_path / "ns2_signal_cache.json"
+    p.write_text(json.dumps({"AAPL": {"signal": "HOLD LONG", "color": "#7ec8e3"},
+                             "NVDA": {"signal": "FLAT", "color": "#444"},
+                             "MSFT": {"signal": "NO-EDGE", "color": "#666"}}))
+    sigs = pipeline.load_ns2_signals(str(p))
+    assert sigs == {"AAPL": "HOLD LONG", "NVDA": "FLAT", "MSFT": "NO-EDGE"}
+
+
+def test_load_ns2_signals_fail_open():
+    assert pipeline.load_ns2_signals("/nonexistent/ns2.json") == {}
+
+
+def test_selection_carries_ns2_advisory_flags(env, monkeypatch, tmp_path):
+    # Force AAA/DDD to Major; NS-2 has no conviction on DDD, confirms AAA.
+    store.upsert_league("AAA", "major", 95, 0, "2026-01-01", env["as_of"])
+    store.upsert_league("DDD", "major", 95, 0, "2026-01-01", env["as_of"])
+    p = tmp_path / "ns2.json"
+    p.write_text(json.dumps({"AAA": {"signal": "HOLD LONG"},
+                             "DDD": {"signal": "FLAT"}}))
+    monkeypatch.setattr(config, "NS2_SIGNAL_PATH", p)
+    monkeypatch.setattr(pipeline, "bench_momentum", lambda as_of: None)
+    fm = {"AAA": pipeline.facts_for("AAA", env["as_of"], True),
+          "DDD": pipeline.facts_for("DDD", env["as_of"], False)}
+    doc = pipeline.run_selection(env["as_of"], fm)
+    by_t = {s["ticker"]: s for s in doc["selections"]}
+    assert by_t["AAA"]["ns2_signal"] == "HOLD LONG"
+    assert by_t["AAA"]["ns2_advisory"] is False
+    assert by_t["DDD"]["ns2_signal"] == "FLAT"
+    assert by_t["DDD"]["ns2_advisory"] is True
+
+
+def test_selection_ns2_neutral_when_missing(env, monkeypatch, tmp_path):
+    # No NS-2 cache → picks carry no signal, no advisory (neutral).
+    store.upsert_league("AAA", "major", 95, 0, "2026-01-01", env["as_of"])
+    monkeypatch.setattr(config, "NS2_SIGNAL_PATH",
+                        tmp_path / "missing_ns2.json")
+    monkeypatch.setattr(pipeline, "bench_momentum", lambda as_of: None)
+    fm = {"AAA": pipeline.facts_for("AAA", env["as_of"], True)}
+    doc = pipeline.run_selection(env["as_of"], fm)
+    s = doc["selections"][0]
+    assert s["ns2_signal"] is None
+    assert s["ns2_advisory"] is False
+
+
 # ── Full refresh + selection feed ───────────────────────────────────────
 def test_run_refresh_full_pipeline(env, monkeypatch):
     def fake_fetch(t, window):

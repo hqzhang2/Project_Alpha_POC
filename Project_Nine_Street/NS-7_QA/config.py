@@ -4,6 +4,7 @@ All thresholds live here so the walk-forward harness and the live server share
 one source of truth (the NS-6 config.py pattern). Nothing hardcoded downstream.
 """
 import os
+from pathlib import Path
 
 # ── Service identity ────────────────────────────────────────────────────
 PORT = int(os.environ.get("PORT", 9271))          # QA; PROD 9270 (reserved)
@@ -75,6 +76,14 @@ SELECTION_PATH = DATA_DIR / "selection.json"
 # yfinance and cached (the A_T store carries no index series).
 BENCH_SYMBOLS = ["SPY", "QQQ"]
 BENCH_CACHE = DATA_DIR / "bench_closes.json"
+
+# ── NS-2 advisory overlay (DESIGN §4.3) ─────────────────────────────────
+# NS-2's per-ticker HMM signals (ns2_signal_cache.json, watchlist subset):
+# signals in NO_CONVICTION mean NS-2 has no edge/conviction on the name →
+# flag for the PM (advisory only — NS-7 never excludes on NS-2; NS-6 enforces).
+NS2_SIGNAL_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-2_QA/ns2_signal_cache.json")
+NS2_NO_CONVICTION = {"FLAT", "NO-EDGE", "WATCH"}
 
 # ── Walk-forward harness (G1 acceptance gate) ───────────────────────────
 WF_START = "2016-01-01"              # first rebalance month

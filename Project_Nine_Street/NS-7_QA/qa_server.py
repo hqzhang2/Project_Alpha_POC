@@ -211,6 +211,8 @@ class NS7Handler(BaseHTTPRequestHandler):
             "compliant_today": compliant,
             "major_qualifying": major_qual,
             "grace_days_left_to_promotion": grace_left if row["league"] == config.LEAGUE_MINOR else None,
+            "ns2_signal": pipeline.load_ns2_signals().get(ticker.upper()),
+            "ns2_advisory": pipeline.load_ns2_signals().get(ticker.upper()) in config.NS2_NO_CONVICTION,
             "selection": self._selection_status(ticker),
             "momentum_window": mom,
             "facts": {k: facts.get(k) for k in

@@ -321,6 +321,21 @@ def update_leagues(facts_by_ticker: Dict[str, Dict], as_of: str,
 
 
 # ── Momentum + selection (§4) ───────────────────────────────────────────
+def load_ns2_signals(path: Optional[str] = None) -> Dict[str, str]:
+    """NS-2 HMM signals {ticker: signal} — fail-open ({} on any outage).
+
+    The NS-2 overlay is ADVISORY (DESIGN §4.3): a missing cache or ticker
+    is neutral, never a veto.
+    """
+    p = Path(path or str(config.NS2_SIGNAL_PATH))
+    try:
+        doc = json.loads(p.read_text())
+        return {str(t).upper(): str(v.get("signal", ""))
+                for t, v in doc.items() if isinstance(v, dict)}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
 def fetch_benchmarks() -> Dict[str, List[tuple]]:
     """SPY + QQQ daily closes [(date, close)] — yfinance, cached (bench filter).
 
@@ -408,10 +423,20 @@ def run_selection(as_of: str, facts_by_ticker: Dict[str, Dict]) -> Dict:
         log.warning("bench_momentum failed: %s", exc)
         bench = None
 
+    # NS-2 advisory overlay (DESIGN §4.3): tag picks with NS-2's HMM signal.
+    # Advisory ONLY — never excludes; a missing cache/ticker is neutral.
+    ns2 = load_ns2_signals()
+
     def _flag(s: dict) -> dict:
         s["outperforms_benchmarks"] = bool(
             bench and s["momentum"] > bench.get("spy", 1e9)
             and s["momentum"] > bench.get("qqq", 1e9))
+        return s
+
+    def _ns2_flag(s: dict) -> dict:
+        sig = ns2.get(s["ticker"], "")
+        s["ns2_signal"] = sig or None
+        s["ns2_advisory"] = sig in config.NS2_NO_CONVICTION
         return s
 
     # All scored Major names (ranked desc) — /api/major + the full
@@ -423,7 +448,8 @@ def run_selection(as_of: str, facts_by_ticker: Dict[str, Dict]) -> Dict:
     prev = store.latest_selection()
     held = {s["ticker"] for s in
             (prev or {}).get("payload", {}).get("selections", [])}
-    ranked = [_flag(s) for s in selector.apply_turnover_band(ranked, held)]
+    ranked = [_ns2_flag(_flag(s))
+              for s in selector.apply_turnover_band(ranked, held)]
 
     doc = {
         "as_of": as_of,

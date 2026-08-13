@@ -59,6 +59,7 @@ def _make_server(tmp_path, monkeypatch):
                             "p_old": 100.0, "p_old_date": "2026-01-01",
                             "p_skip": 112.5, "p_skip_date": "2026-07-01",
                             "momentum": 0.125})
+    monkeypatch.setattr(qa_server.pipeline, "load_ns2_signals", lambda: {})
     store.set_meta("last_refresh", "2026-08-01")
 
     # Seed league + a selection doc.
@@ -137,6 +138,7 @@ def test_league_detail(tmp_path, monkeypatch):
         assert body["selection"]["band_kept"] is False
         assert body["momentum_window"]["momentum"] == 0.125
         assert body["momentum_window"]["p_old_date"] == "2026-01-01"
+        assert body["ns2_signal"] is None   # stubbed NS-2 cache (neutral)
         status, body = srv.get("/api/leagues/zzzz")
         assert status == 404
         assert body["tracked"] is False

@@ -61,6 +61,10 @@ def test_why_drilldown_buttons_present():
     assert "league_reason" in _html
     assert "momentum_window" in _html
     assert "closeDetail" in _html
+    # NS-2 advisory overlay (DESIGN §4.3).
+    assert "ns2-flag" in _html
+    assert "NS-2 HMM (advisory)" in _html
+    assert "ns2_advisory" in _html
 
 
 def test_no_duplicate_let_declarations():

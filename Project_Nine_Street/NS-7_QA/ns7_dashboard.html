@@ -58,6 +58,8 @@
   .filter-count { font-size: 11px; color: #64748b; font-variant-numeric: tabular-nums; }
   .outp { color: #4ade80; font-weight: 800; }
   .lags { color: #64748b; }
+  .ns2-flag { font-size: 9px; font-weight: 700; color: #fbbf24; border: 1px solid #fbbf24;
+    border-radius: 3px; padding: 0 3px; margin-left: 5px; vertical-align: 1px; }
 
   .dsec { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;
     letter-spacing: .6px; margin: 14px 0 4px; padding-bottom: 3px; border-bottom: 1px solid #1f2937; }
@@ -239,7 +241,10 @@ function renderSel() {
            (SEL.major_count || 0) + ' Major, ' + (SEL.scored_count || 0) + ' scored') : 'no refresh yet';
   tbody.innerHTML = shown.length ? shown.map(p =>
     '<tr class="clickable" onclick="showDetail(\'' + esc(p.ticker) + '\')">' +
-    '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b></td>' +
+    '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b>' +
+    (p.ns2_advisory
+      ? '<span class="ns2-flag" title="NS-2 HMM signal: ' + esc(p.ns2_signal || '') + ' (advisory)">' + esc(p.ns2_signal) + '</span>'
+      : '') + '</td>' +
     '<td class="num">' + fmtMom(p.momentum) + '</td>' +
     '<td class="num">' + (p.outperforms_benchmarks
       ? '<span class="outp">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
@@ -340,11 +345,26 @@ async function showDetail(ticker) {
       r(['Avg volume (20d)', f.avg_daily_volume != null ? (+f.avg_daily_volume / 1e3).toFixed(0) + 'K' : '—']) +
       r(['Snapshot age', f.snapshot_age_days != null ? f.snapshot_age_days + 'd' : '—']);
 
+    // ── NS-2 HMM (advisory) ────────────────────────────────────────────
+    let ns2 = '<div class="dsec">NS-2 HMM (advisory)</div>';
+    if (d.ns2_signal) {
+      ns2 += (d.ns2_advisory
+        ? '<span class="ns2-flag" title="No conviction — PM review">' + esc(d.ns2_signal) + '</span>'
+        : '<span class="outp">' + esc(d.ns2_signal) + '</span>') +
+        '<div class="muted" style="font-size:11px;margin-top:4px">' +
+        (d.ns2_advisory
+          ? 'NS-2 has no conviction on this name — flagged for PM review. ' +
+            'Advisory only: NS-7 never excludes on NS-2; NS-6 enforces.'
+          : 'NS-2 signal confirms the pick (advisory).') + '</div>';
+    } else {
+      ns2 += '<div class="muted" style="font-size:11px">Not on the NS-2 watchlist — neutral.</div>';
+    }
+
     box.innerHTML =
       '<div class="dtitle">' + esc(ticker) +
       '<button class="dclose" title="Close" onclick="closeDetail()">✕</button>' +
       ' ' + badge(d.league) + ' ' + compliant + '</div>' +
-      sels + lg + qv + fx;
+      sels + lg + ns2 + qv + fx;
   } catch (e) {
     box.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
   }
