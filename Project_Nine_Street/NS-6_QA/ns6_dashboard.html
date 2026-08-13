@@ -245,6 +245,16 @@
     </div>
 
     <div class="panel">
+      <h3>Screener Verdict <span class="summary">A_T fundamental screener</span></h3>
+      <div class="scenario-form">
+        <div class="field"><label>Ticker</label><input id="scr-ticker" placeholder="AAPL"></div>
+        <button class="btn primary" onclick="checkScreener()">Check verdict</button>
+      </div>
+      <div class="err" id="scr-err"></div>
+      <div id="scr-result"></div>
+    </div>
+
+    <div class="panel">
       <h3>Drift Alert Inbox</h3>
       <div id="drift"></div>
     </div>
@@ -276,6 +286,10 @@
 let PROFILES = [];
 let STATUS = {};
 let PORTFOLIO = null;
+
+// R2c: injected at serve time by qa_server (env-matched A_T port). The
+// scenario cockpit shows the real A_T screener verdict for the ticker.
+const AT_SCREENER_URL = '__AT_SCREENER_URL__';
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
@@ -518,6 +532,49 @@ function setMode(mode) {
   document.getElementById('sc-err').textContent = '';
 }
 
+async function screenerAgreement(ticker) {
+  // R2c: real A_T screener verdict (full row: {ticker, agreement, graham,
+  // greenblatt, lynch, buffett}) for a ticker, or null on failure (fail-open).
+  try {
+    const res = await fetch(AT_SCREENER_URL + '?ticker=' + encodeURIComponent(ticker));
+    if (!res.ok) return null;
+    const j = await res.json().catch(() => ({}));
+    const row = (j && j.results && j.results[0]) || null;
+    return (row && row.ticker) ? row : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// R2c: standalone "Screener Verdict" lookup — verdict on demand, not only
+// after a scenario run. Shows agreement + per-framework pass/fail, or an
+// explicit "unavailable" when A_T is down (never a silent blank).
+async function checkScreener() {
+  const err = document.getElementById('scr-err');
+  const box = document.getElementById('scr-result');
+  err.textContent = '';
+  const ticker = document.getElementById('scr-ticker').value.trim().toUpperCase();
+  if (!ticker) { err.textContent = 'ticker required'; return; }
+  const row = await screenerAgreement(ticker);
+  if (!row) {
+    box.innerHTML = '<div class="empty-note">Screener unavailable for ' + ticker +
+      ' — A_T unreachable or no data.</div>';
+    return;
+  }
+  const ag = (row.agreement != null) ? row.agreement : 'n/a';
+  let html = '<div style="font-size:12px;margin-top:4px">' + ticker +
+    ' · <b>' + ag + '/4</b> agreement</div>';
+  const fw = [['graham', 'Graham'], ['greenblatt', 'Greenblatt'],
+              ['lynch', 'Lynch'], ['buffett', 'Buffett']];
+  const parts = fw.map(([k, label]) => {
+    const ok = row[k] && row[k].pass;
+    return '<span style="color:' + (ok ? '#4ade80' : '#f87171') + '">' +
+      label + ': ' + (ok ? 'pass' : '—') + '</span>';
+  });
+  html += '<div style="font-size:11px;color:#94a3b8;margin-top:2px">' + parts.join(' · ') + '</div>';
+  box.innerHTML = html;
+}
+
 async function runScenario(kind) {
   const err = document.getElementById('sc-err');
   const ok = document.getElementById('sc-ok');
@@ -539,6 +596,13 @@ async function runScenario(kind) {
       body.proposed_weight = parseFloat(document.getElementById('sc-rp-wt').value);
       body.nav = parseFloat(document.getElementById('sc-rp-nav').value);
       if (!body.remove || !body.add) throw new Error('both remove and add required');
+    }
+    // R2c: fetch the A_T screener verdict for the ticker being ADDED (or the
+    // add side of a replace) so "should I add X" shows X's real agreement.
+    const scoreTicker = (kind === 'remove') ? null : (body.ticker || body.add);
+    if (scoreTicker) {
+      const row = await screenerAgreement(scoreTicker);
+      if (row && row.agreement != null) body.screener_scores = { [scoreTicker]: row.agreement };
     }
     const d = await api('/api/scenario/' + kind, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
@@ -564,6 +628,15 @@ function renderScenario(d) {
       (pc.active_profile || '?') + '</b> · hard floor ' + (pc.hard_floor*100).toFixed(0) +
       '% · SPY dd ratio ' + (pc.spy_dd_ratio*100).toFixed(0) +
       '% · crisis floor ' + (pc.crisis_floor*100).toFixed(0) + '%</div>';
+  }
+
+  // R2c: the A_T screener verdict the PM asked for ("should I add X").
+  // Show "n/a" when the scenario ran but A_T was unreachable — never a blank.
+  const sc = d.screener;
+  if (sc && sc.ticker) {
+    const ag = (sc.agreement != null) ? sc.agreement + '/4' : 'n/a (A_T unavailable)';
+    html += '<div style="font-size:11px;color:#4ade80;margin-top:4px">A_T screener agreement: <b>' +
+      ag + '</b></div>';
   }
 
   const tw = d.target_weights || {};

@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 # Repo-root sys.path bootstrap — shared common/ + env -u PYTHONPATH at runtime.
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -37,6 +37,7 @@ import budget as budget_mod
 import config
 import drift_alert as drift_mod
 import enforcement as enforcement_mod
+import price_feed
 import rebalance as rebalance_mod
 import scenario as scenario_mod
 import store
@@ -53,6 +54,13 @@ NS5_POLICIES_PATH = (
 PORT = int(os.environ.get("PORT", 9261))
 ENV = os.environ.get("ENV", "QA")
 
+# R2c: A_T fundamental-screener base URL, env-matched (QA A_T on 9099, PROD
+# on 9098). Injected into the served dashboard so the scenario cockpit can
+# show the real per-ticker screener verdict (dashboard→A_T, cross-origin;
+# A_T sends CORS to localhost origins).
+A_T_PORT = 9099 if ENV == "QA" else 9098
+A_T_SCREENER_URL = f"http://localhost:{A_T_PORT}/api/fundamentals/screen"
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("ns6.qa_server")
 
@@ -65,14 +73,23 @@ DEFAULT_WEIGHTS = {
 }
 
 
-def _serve_dashboard(handler):
-    """Serve ns6_dashboard.html (the portal-facing UI)."""
+def _dashboard_html() -> Optional[bytes]:
+    """Read ns6_dashboard.html with the env-matched A_T screener URL injected
+    (R2c). Returns None if the file is missing."""
     dash_path = Path(__file__).resolve().parent / "ns6_dashboard.html"
     if not dash_path.exists():
-        handler._json({"error": "ns6_dashboard.html not found"}, 404)
-        return
+        return None
     with open(dash_path, "rb") as fh:
         body = fh.read()
+    return body.replace(b"__AT_SCREENER_URL__", A_T_SCREENER_URL.encode())
+
+
+def _serve_dashboard(handler):
+    """Serve ns6_dashboard.html (the portal-facing UI)."""
+    body = _dashboard_html()
+    if body is None:
+        handler._json({"error": "ns6_dashboard.html not found"}, 404)
+        return
     handler.send_response(200)
     handler.send_header("Content-Type", "text/html; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
@@ -188,7 +205,8 @@ class NS6Handler(BaseHTTPRequestHandler):
         active_profile = store.get_active_profile()
         theta = config.load_profile(active_profile)[0]  # profile theta (overrides applied)
         latest = store.latest()
-        # Phase 1: no live price ingestion — use last stored row or defaults.
+        # R2a: drawdown_log now populated by the daily price feed. If the feed
+        # hasn't run, surface data_stale (never silently show 0.0).
         if latest:
             budget_remaining = latest.get("budget_remaining_pct", 1.0)
             current_dd = latest.get("portfolio_dd_pct", 0.0)
@@ -199,6 +217,9 @@ class NS6Handler(BaseHTTPRequestHandler):
             current_dd = 0.0
             spy_dd = 0.0
             budget_pct = budget_mod.compute_budget(spy_dd, theta)
+
+        data_stale, data_as_of = price_feed.is_stale(
+            latest, theta["price_feed"]["staleness_days"])
 
         multiplier = enforcement_mod.compute_exposure_multiplier(budget_remaining, theta)
 
@@ -221,6 +242,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             "budget_pct": round(budget_pct, 4),
             "current_drawdown_pct": round(current_dd, 4),
             "budget_remaining_pct": round(budget_remaining, 4),
+            "data_as_of": data_as_of,
+            "data_stale": data_stale,
             "exposure_multiplier": round(multiplier, 4),
             "active_tiers": [],
             "covered_calls_gated": multiplier < theta["covered_calls"]["gate_multiplier"],
@@ -228,8 +251,9 @@ class NS6Handler(BaseHTTPRequestHandler):
             "circuit_breakers": [],
             "position_stops_triggered": [],
             "last_breaker_time": None,
-            "phase": 1,
-            "note": "Phase 1: budget-only multiplier. Price ingestion lands in Phase 2.",
+            "phase": 2,
+            "note": "Drawdown data live via price feed (R2a). Multiplier still Phase-1 "
+                    "budget-only (R3 fast de-risk pending).",
         })
 
     def _profile_get(self):
@@ -282,31 +306,12 @@ class NS6Handler(BaseHTTPRequestHandler):
     def _portfolio_holdings(self):
         """Resolve the cockpit's current portfolio holdings + source info.
 
-        Returns (source_name, is_model, holdings_weights, holdings_shares).
-        - If portfolio_source is a real NS-5 portfolio name -> its holdings
-          normalized to WEIGHTS (shares / total shares) for the engine,
-          is_model=False; holdings_shares = raw NS-5 shares (for the modal).
-        - If "model" or the stored name is gone -> the active profile's model
-          portfolio (already weights), is_model=True; holdings_shares = {}.
+        Delegates to price_feed.resolve_holdings (the single source of the
+        shares→weights normalization — shared with the daily price feed, R2a).
         """
         active = store.get_active_profile()
         source = store.get_portfolio_source()
-        if source != store.MODEL_SOURCE:
-            ns5 = self._ns5_portfolios()
-            if source in ns5:
-                raw = ns5[source]
-                shares = {}
-                for tk, v in raw.items():
-                    if isinstance(v, dict):
-                        shares[str(tk).upper()] = float(v.get("shares", 0))
-                    else:
-                        shares[str(tk).upper()] = float(v)
-                total = sum(shares.values())
-                weights = {tk: sh / total for tk, sh in shares.items()} if total else {}
-                return source, False, weights, shares
-            # stored name vanished -> fall back to model
-            log.warning("portfolio '%s' not in NS-5 store; using model", source)
-        return active, True, config.model_portfolio(active), {}
+        return price_feed.resolve_holdings(active, source, self._ns5_portfolios())
 
     def _portfolio_get(self):
         """GET /api/portfolio -> source, portfolio names (NS-5 + model),
