@@ -343,7 +343,28 @@ yfinance volume (U3) ───────────────────�
 qa_server.py :9271 ◄── ns7_dashboard.html ◄──┘   (portal tab ns7)
 ```
 
-### Remaining
-- QA deployment (launchd load of `com.ninestreet.ns7.qa` + `com.ninestreet.ns7.refresh`) — pending PM approval.
-- PROD (port 9270) via the house release flow.
-- v2 research: fundamental growth screen (revenue growth/ARR) — explicitly out of v1.
+### Status ledger (2026-08-13)
+
+**DONE — live on QA (9271):**
+- PM-corrected league rules (SP500 → Major immediately; non-SP500 $75B fast-track / $50–75B 90-day clock; SP500-removal recompute)
+- Momentum 126/21 + quality veto + top-20 + anti-churn band; G1 **8/11 PASS** (walk-forward, quarterly)
+- Why drill-down (A_T financials pattern); top-picks-only dashboard + full outperformer list (min/max toggle); Outperform-SPY&QQQ filter (fail-open)
+- **NS-2 HMM advisory overlay** (per-pick signal + PM flag; advisory only, NS-6 enforces)
+- 2b: NS-5 `sleeve_blend.py` joint universe (growth ∪ value, regime tilt, `/api/blend`, dashboard panel, daily 17:45)
+- CI (`ns7-ci.yml`), portal tab + health light, daily refresh 17:30 ET
+- Suites: NS-7 70 tests, NS-5 182, NS-6 182 (incl. drift-target policy resolution)
+
+**REQUIRED — remaining deliverable (awaiting PM go):**
+- PROD (port 9270) via the house release flow (`deploy_prod.sh`, tag `++minor`): `com.ninestreet.ns7.prod` + PROD refresh plist (port swap), NS-2 path → NS-2_PROD cache, NS-5 blend PROD-side (A_T 9098 + NS-7 PROD feed), NS-6 drift target on NS-5_PROD policy paths
+
+**OPERATIONAL / OPTIONAL (no code required unless requested):**
+- Sleeve tilt (`config.SLEEVE_TILT` — growth 80/20, defensive 50/50): momentum-dominant per the 2a evidence; PM-tunable config value
+- `PORTFOLIO_POLICIES` maintenance: each new NS-5 portfolio needs a pairing line for the NS-6 drift target
+- Watchdog for `ns7.refresh`: can currently fail silently (the code-watchdog covers `common/` only) — cheap hardening if wanted
+- NS-2 watchlist coverage: 13 tickers today → few advisory flags; grows with NS-2's cadence
+- First automated-run observation: 17:30 refresh → 17:35 log check → 17:45 blend (one log glance after 17:45)
+
+**DEFERRED (by design, not forgotten):**
+- v2 fundamental growth screen (revenue growth/ARR) — out of v1 scope (§5/§9)
+- 252/21 momentum variant — v1.1 experiment (§8 open decision #2)
+- Frontier sizing WITHIN sleeves — 2b constructs with equal-weight within sleeves; NS-5's frontier module exists but is not yet wired into the blend (Phase-2 refinement)
