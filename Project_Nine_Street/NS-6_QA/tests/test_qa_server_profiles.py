@@ -36,6 +36,58 @@ def temp_db(tmp_path, monkeypatch):
     store.init_db()
 
 
+def test_enforcement_status_flags_stale_when_no_feed(monkeypatch):
+    """No price-feed row -> data_stale True, data_as_of None (never 0.0)."""
+    h = _make_handler()
+    store.set_active_profile("balanced")
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["data_stale"] is True
+    assert body["data_as_of"] is None
+    assert body["phase"] == 2
+
+
+def test_enforcement_status_data_stale_on_old_row(tmp_path, monkeypatch):
+    """An old price-feed row (> staleness_days) is surfaced as stale, with
+    its real as_of, instead of silently showing 0.0."""
+    from datetime import date, timedelta
+    old = (date.today() - timedelta(days=5)).isoformat()
+    store.upsert_drawdown(old, -0.10, -0.05, -0.075, 0.5, 0.5)
+    h = _make_handler()
+    store.set_active_profile("balanced")
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["data_stale"] is True
+    assert body["data_as_of"] == old
+    assert body["current_drawdown_pct"] == pytest.approx(-0.05)  # real, not 0.0
+
+
+def test_enforcement_status_fresh_row_not_stale(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    fresh = (date.today() - timedelta(days=1)).isoformat()
+    store.upsert_drawdown(fresh, -0.10, -0.05, -0.075, 0.5, 0.5)
+    h = _make_handler()
+    store.set_active_profile("balanced")
+    h._enforcement_status()
+    body = h._sent["body"]
+    assert body["data_stale"] is False
+    assert body["data_as_of"] == fresh
+
+
+def test_serve_dashboard_injects_at_screener_url(monkeypatch):
+    """R2c: the served dashboard HTML has the env-matched A_T screener URL
+    substituted for the __AT_SCREENER_URL__ placeholder (no raw token left)."""
+    import qa_server as qs
+
+    monkeypatch.setattr(
+        qs, "A_T_SCREENER_URL", "http://localhost:9099/api/fundamentals/screen")
+
+    html = qs._dashboard_html().decode()
+    assert "__AT_SCREENER_URL__" not in html
+    assert "http://localhost:9099/api/fundamentals/screen" in html
+    assert "const AT_SCREENER_URL" in html
+
+
 def test_profile_get_returns_available_and_active():
     h = _make_handler()
     store.set_active_profile("growth")

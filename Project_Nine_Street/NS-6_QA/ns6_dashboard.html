@@ -277,6 +277,10 @@ let PROFILES = [];
 let STATUS = {};
 let PORTFOLIO = null;
 
+// R2c: injected at serve time by qa_server (env-matched A_T port). The
+// scenario cockpit shows the real A_T screener verdict for the ticker.
+const AT_SCREENER_URL = '__AT_SCREENER_URL__';
+
 async function api(url, opts) {
   const res = await fetch(url, opts);
   const data = await res.json().catch(() => ({}));
@@ -518,6 +522,20 @@ function setMode(mode) {
   document.getElementById('sc-err').textContent = '';
 }
 
+async function screenerAgreement(ticker) {
+  // R2c: real A_T screener verdict (agreement 0-4) for a ticker, or null on
+  // failure (scenario still runs — fail-open).
+  try {
+    const res = await fetch(AT_SCREENER_URL + '?ticker=' + encodeURIComponent(ticker));
+    if (!res.ok) return null;
+    const j = await res.json().catch(() => ({}));
+    const row = (j && j.results && j.results[0]) || {};
+    return (row.agreement != null) ? row.agreement : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function runScenario(kind) {
   const err = document.getElementById('sc-err');
   const ok = document.getElementById('sc-ok');
@@ -539,6 +557,13 @@ async function runScenario(kind) {
       body.proposed_weight = parseFloat(document.getElementById('sc-rp-wt').value);
       body.nav = parseFloat(document.getElementById('sc-rp-nav').value);
       if (!body.remove || !body.add) throw new Error('both remove and add required');
+    }
+    // R2c: fetch the A_T screener verdict for the ticker being ADDED (or the
+    // add side of a replace) so "should I add X" shows X's real agreement.
+    const scoreTicker = (kind === 'remove') ? null : (body.ticker || body.add);
+    if (scoreTicker) {
+      const agreement = await screenerAgreement(scoreTicker);
+      if (agreement != null) body.screener_scores = { [scoreTicker]: agreement };
     }
     const d = await api('/api/scenario/' + kind, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
@@ -564,6 +589,13 @@ function renderScenario(d) {
       (pc.active_profile || '?') + '</b> · hard floor ' + (pc.hard_floor*100).toFixed(0) +
       '% · SPY dd ratio ' + (pc.spy_dd_ratio*100).toFixed(0) +
       '% · crisis floor ' + (pc.crisis_floor*100).toFixed(0) + '%</div>';
+  }
+
+  // R2c: the A_T screener verdict the PM asked for ("should I add X").
+  const sc = d.screener;
+  if (sc && sc.agreement != null) {
+    html += '<div style="font-size:11px;color:#4ade80;margin-top:4px">A_T screener agreement: <b>' +
+      sc.agreement + '/4</b></div>';
   }
 
   const tw = d.target_weights || {};
