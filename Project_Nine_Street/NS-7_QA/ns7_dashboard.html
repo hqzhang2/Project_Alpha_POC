@@ -93,12 +93,12 @@
     <div class="kpis">
       <div class="kpi"><div class="lab">Major (active)</div><div class="val" id="kMajor">–</div>
         <div class="note">eligible for momentum ranking</div></div>
-      <div class="kpi"><div class="lab">Minor (paused)</div><div class="val" id="kMinor">–</div>
-        <div class="note">90-day grace clock running</div></div>
-      <div class="kpi"><div class="lab">Removed</div><div class="val" id="kRemoved">–</div>
-        <div class="note">out of compliance 90d · data kept</div></div>
       <div class="kpi"><div class="lab">Top-N pick</div><div class="val" id="kTop">–</div>
         <div class="note">#1 momentum name</div></div>
+      <div class="kpi"><div class="lab">Book size</div><div class="val" id="kBook">–</div>
+        <div class="note">top-N growth-sleeve feed → NS-5</div></div>
+      <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
+        <div class="note">last pipeline refresh</div></div>
     </div>
 
     <div class="panel">
@@ -114,16 +114,15 @@
     </div>
 
     <div class="panel">
-      <h3>League universe <span class="summary" id="uniSummary"></span></h3>
+      <h3>Major league — active candidates <span class="summary" id="uniSummary"></span></h3>
       <table id="uniTable">
-        <thead><tr><th>Ticker</th><th>League</th><th class="num">Compliant days</th>
-          <th class="num">Non-compliant</th><th>First seen</th></tr></thead>
+        <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th><th>First seen</th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="league-legend">
-        <span class="badge b-major">MAJOR</span> active · eligible for momentum
-        <span class="badge b-minor">MINOR</span> paused — 90 consecutive compliant days → promote
-        <span class="badge b-removed">REMOVED</span> 90 consecutive non-compliant days — data preserved
+        The Major league is the momentum-eligible universe — what NS-7 can pick.
+        Minor/Removed names are engine-internal (90-day anti-churn grace) and
+        are not surfaced here.
       </div>
     </div>
   </div>
@@ -162,11 +161,13 @@ let UNIVERSE = [];
 
 async function loadAll() {
   try {
-    const [uni, sel] = await Promise.all([api('/api/universe'), api('/api/select').catch(() => null)]);
+    const [uni, sel, maj] = await Promise.all([
+      api('/api/universe'), api('/api/select').catch(() => null),
+      api('/api/major')]);
     UNIVERSE = uni.members || [];
     renderKpis(uni, sel);
     renderSel(sel);
-    renderUni();
+    renderUni(maj);
     document.getElementById('asOf').textContent =
       'as of ' + (uni.as_of || '—') + (sel ? ' · generated ' + (sel.generated_at || '').slice(0, 16).replace('T', ' ') : '');
   } catch (e) {
@@ -177,10 +178,10 @@ async function loadAll() {
 function renderKpis(uni, sel) {
   const c = uni.counts || {};
   document.getElementById('kMajor').textContent = c.major || 0;
-  document.getElementById('kMinor').textContent = c.minor || 0;
-  document.getElementById('kRemoved').textContent = c.removed || 0;
   const picks = (sel && sel.selections) || [];
   document.getElementById('kTop').textContent = picks.length ? picks[0].ticker : '–';
+  document.getElementById('kBook').textContent = (sel && sel.top_n) || '–';
+  document.getElementById('kAsOf').textContent = uni.as_of || '–';
 }
 
 function renderSel(sel) {
@@ -196,17 +197,26 @@ function renderSel(sel) {
   ).join('') : '<tr><td colspan="3" class="muted">No Major names yet — league probation (90d) running.</td></tr>';
 }
 
-function renderUni() {
+function renderUni(maj) {
+  // Major-league candidates only (Minor/Removed are engine-internal).
+  const majorRows = UNIVERSE.filter(r => r.league === 'major');
+  const firstSeen = {};
+  majorRows.forEach(r => { firstSeen[r.ticker] = r.first_seen; });
+  const scores = (maj && maj.scores) || [];
+  const rows = scores.map((s, i) => ({
+    ticker: s.ticker, momentum: s.momentum, rank: i + 1,
+    first_seen: firstSeen[s.ticker] || '—'
+  }));
   const tbody = document.querySelector('#uniTable tbody');
-  document.getElementById('uniSummary').textContent = UNIVERSE.length + ' tracked';
-  tbody.innerHTML = UNIVERSE.map(r =>
+  document.getElementById('uniSummary').textContent =
+    rows.length + ' active' + (maj && maj.major_count != null && maj.major_count !== rows.length
+      ? ' / ' + maj.major_count + ' Major' : '');
+  tbody.innerHTML = rows.length ? rows.map(r =>
     '<tr class="clickable" onclick="showDetail(\'' + esc(r.ticker) + '\')">' +
-    '<td><b>' + esc(r.ticker) + '</b></td>' +
-    '<td>' + badge(r.league) + '</td>' +
-    '<td class="num">' + (r.consecutive_compliant || 0) + '</td>' +
-    '<td class="num">' + (r.consecutive_noncompliant || 0) + '</td>' +
+    '<td>' + r.rank + '</td><td><b>' + esc(r.ticker) + '</b></td>' +
+    '<td class="num">' + fmtMom(r.momentum) + '</td>' +
     '<td>' + esc(r.first_seen) + '</td></tr>'
-  ).join('') || '<tr><td colspan="5" class="muted">Empty — run the pipeline (pipeline.py) to seed the league table.</td></tr>';
+  ).join('') : '<tr><td colspan="4" class="muted">No Major names yet — league probation (90d) running; first promotions expected ~Nov 2026.</td></tr>';
 }
 
 async function showDetail(ticker) {

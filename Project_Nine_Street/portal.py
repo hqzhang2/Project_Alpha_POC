@@ -255,7 +255,8 @@ const SERVICE_ENDPOINTS = {
   'ns3': '/health',
   'ns4': '/health',
   'ns5': '/health',
-  'ns6': '/health'
+  'ns6': '/health',
+  'ns7': '/health'
 };
 
 async function checkServiceHealth(key, port, path) {
@@ -272,13 +273,15 @@ async function checkServiceHealth(key, port, path) {
 }
 
 async function updateStatusIndicators() {
-  const strategies = ['alpha', 'ns1', 'ns2', 'ns3', 'ns4', 'ns5', 'ns6'];
+  // Derived from STRATS — a new service tab gets its health light for free
+  // (the hardcoded array missed ns7 when it was added).
+  const strategies = Object.keys(STRATS);
   for (const key of strategies) {
     const s = STRATS[key];
     if (!s) continue;
     
     const port = s[currentEnv.toLowerCase()];
-    const path = SERVICE_ENDPOINTS[key];
+    const path = SERVICE_ENDPOINTS[key] || '/health';
     const isUp = await checkServiceHealth(key, port, path);
     
     const tab = document.querySelector(`[data-strategy="${{key}}"]`);

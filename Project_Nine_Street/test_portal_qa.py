@@ -191,10 +191,14 @@ def test_unknown_path_returns_404(server):
 def test_health_loop_polls_all_tabs_including_ns2():
     """Regression: updateStatusIndicators must poll ns2 too, or its dot stays dark."""
     html = portal.build_html()
-    # the JS loop that drives the status dots must include ns2
-    m = re.search(r"const strategies = \[([^\]]*)\]", html)
-    assert m, "strategies loop not found in html"
-    assert "'ns2'" in m.group(1), "ns2 missing from health-poll loop -> dark dot"
+    # The JS loop derives from STRATS (every tab — including any future one);
+    # the old hardcoded array missed ns2, and later ns7. Assert the derived
+    # pattern is used AND no hardcoded array remains (so the bug can't return).
+    assert "const strategies = Object.keys(STRATS)" in html, \
+        "health-poll loop must derive from STRATS (hardcoded array missed ns2/ns7)"
+    assert "const strategies = ['alpha'" not in html, \
+        "hardcoded strategies array must be gone"
+    assert "'ns7': '/health'" in html, "ns7 missing from SERVICE_ENDPOINTS -> dark dot"
 
 
 if __name__ == "__main__":
