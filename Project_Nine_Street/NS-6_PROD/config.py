@@ -268,6 +268,21 @@ THETA_DEFAULTS = {
     },
 
     # ═══════════════════════════════════════════════════════════════════
+    # PRICE FEED — daily EOD drawdown pipeline (R2a)
+    # ═══════════════════════════════════════════════════════════════════
+    # Feeds real closes → drawdown/budget → the drawdown_log so the
+    # enforcement loop stops reading current_dd=0.0. Frontier-owned.
+    "price_feed": {
+        # yfinance lookback window for closes (drawdown is from running peak).
+        "period": "2y",
+        # A row older than this many calendar days is surfaced as data_stale
+        # (never silently shown as 0.0 — the "fake valid default" guard).
+        "staleness_days": 2,
+        # Fetch ^VIX too (R3's fast de-risk needs the VIX level).
+        "fetch_vix": True,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════
     # DRIFT ALERTS — quarterly + event-driven drift classification
     # ═══════════════════════════════════════════════════════════════════
     "drift_alert": {
