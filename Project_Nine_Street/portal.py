@@ -192,6 +192,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <button class="nav-tab" data-strategy="ns5" onclick="switchStrategy('ns5')"><span class="status-indicator" id="status-ns5"></span>NS-5</button>
               <button class="nav-tab" data-strategy="ns6" onclick="switchStrategy('ns6')"><span class="status-indicator" id="status-ns6"></span>NS-6</button>
               <button class="nav-tab" data-strategy="ns7" onclick="switchStrategy('ns7')"><span class="status-indicator" id="status-ns7"></span>NS-7</button>
+              <button class="nav-tab" data-strategy="ns8" onclick="switchStrategy('ns8')"><span class="status-indicator" id="status-ns8"></span>NS-8</button>
             </div>
     </div>
     <div class="env-toggle">
@@ -257,7 +258,8 @@ const SERVICE_ENDPOINTS = {
   'ns4': '/health',
   'ns5': '/health',
   'ns6': '/health',
-  'ns7': '/health'
+  'ns7': '/health',
+  'ns8': '/health'
 };
 
 async function checkServiceHealth(key, port, path) {
