@@ -2,7 +2,7 @@
 store.py — NS-6 SQLite history store (drawdown_log, multiplier log).
 
 Follows sentiment_db / regime_store pattern: fail-open, INSERT OR REPLACE
-idempotent upsert, query_window(days), latest(). DB at <this-dir>/data/ns6.db.
+idempotent upsert, query_window(days), latest(). DB at NS-6_QA/data/ns6.db.
 
 Tests MUST redirect DB_PATH to a temp dir (monkeypatch) before init_db().
 """
@@ -41,10 +41,16 @@ def init_db() -> None:
                     portfolio_dd_pct REAL,
                     budget_pct     REAL,
                     budget_remaining_pct REAL,
-                    multiplier     REAL
+                    multiplier     REAL,
+                    vix_level      REAL
                 )
                 """
             )
+            # R3 migration: add vix_level to pre-existing drawdown_log tables
+            # (SQLite has no ADD COLUMN IF NOT EXISTS; check PRAGMA).
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(drawdown_log)")}
+            if "vix_level" not in cols:
+                conn.execute("ALTER TABLE drawdown_log ADD COLUMN vix_level REAL")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS circuit_breaker_log (
@@ -68,18 +74,23 @@ def init_db() -> None:
         log.warning("init_db failed: %s", exc)
 
 
-def upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining, multiplier) -> None:
-    """Upsert one drawdown snapshot row (idempotent on date)."""
+def upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining, multiplier,
+                    vix_level=None) -> None:
+    """Upsert one drawdown snapshot row (idempotent on date).
+
+    vix_level (R3): the EOD VIX close the snapshot was computed under — feeds
+    the fast-de-risk smile in the enforcement loop.
+    """
     try:
         with _connect() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO drawdown_log
                 (date, spy_dd_pct, portfolio_dd_pct, budget_pct,
-                 budget_remaining_pct, multiplier)
-                VALUES (?,?,?,?,?,?)
+                 budget_remaining_pct, multiplier, vix_level)
+                VALUES (?,?,?,?,?,?,?)
                 """,
-                (date, spy_dd, portfolio_dd, budget, remaining, multiplier),
+                (date, spy_dd, portfolio_dd, budget, remaining, multiplier, vix_level),
             )
     except Exception as exc:  # noqa: BLE001
         log.warning("upsert_drawdown failed: %s", exc)
@@ -214,3 +225,22 @@ def set_portfolio_source(name: str) -> str:
         name = MODEL_SOURCE
     set_setting(PORTFOLIO_SOURCE_KEY, name)
     return name
+
+
+# ── Fast de-risk crisis state (R3) ─────────────────────────────────────
+# The fast-de-risk VIX-smile uses hysteresis: crisis_mode is carried across
+# days (enter VIX >= crisis_in, exit VIX <= crisis_out, hold between). It is
+# persisted so the daily price feed updates it and the enforcement loop reads
+# it — never recomputed inside a read-only GET.
+CRISIS_MODE_KEY = "crisis_mode"
+
+
+def get_crisis_mode() -> bool:
+    """Persisted fast-de-risk crisis-mode flag (default False). Fail-open."""
+    return get_setting(CRISIS_MODE_KEY, "0") == "1"
+
+
+def set_crisis_mode(active: bool) -> bool:
+    """Persist the fast-de-risk crisis-mode flag. Returns the normalized value."""
+    set_setting(CRISIS_MODE_KEY, "1" if active else "0")
+    return bool(active)
