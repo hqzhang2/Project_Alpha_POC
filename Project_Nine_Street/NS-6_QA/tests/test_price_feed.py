@@ -46,24 +46,25 @@ def _closes(*series, index=None):
 
 # ── Holdings resolution ────────────────────────────────────────────────────
 def test_resolve_holdings_model():
-    src, is_model, w, shares = price_feed.resolve_holdings("balanced", "model", {})
+    src, is_model, w, shares, lots, cash = price_feed.resolve_holdings("balanced", "model", {})
     assert is_model is True and src == "balanced"
     assert abs(sum(w.values()) - 1.0) < 0.01
-    assert shares == {}
+    assert shares == {} and lots == {} and cash == 0.0
 
 
 def test_resolve_holdings_ns5_shares_to_weights():
     ns5 = {"Tech": {"MSFT": {"shares": 120.0}, "NVDA": {"shares": 80.0}}}
-    src, is_model, w, shares = price_feed.resolve_holdings("balanced", "Tech", ns5)
+    src, is_model, w, shares, lots, cash = price_feed.resolve_holdings("balanced", "Tech", ns5)
     assert is_model is False and src == "Tech"
     assert shares == {"MSFT": 120.0, "NVDA": 80.0}
     assert abs(sum(w.values()) - 1.0) < 0.01
     assert w["MSFT"] == pytest.approx(0.6)  # 120/200
     assert w["NVDA"] == pytest.approx(0.4)
+    assert lots == {} and cash == 0.0  # no lots/cash in this store
 
 
 def test_resolve_holdings_missing_name_falls_back_model():
-    src, is_model, w, _ = price_feed.resolve_holdings("balanced", "Gone", {"Tech": {}})
+    src, is_model, w, _, _, _ = price_feed.resolve_holdings("balanced", "Gone", {"Tech": {}})
     assert is_model is True and src == "balanced"
 
 
@@ -99,7 +100,7 @@ def test_weights_nav_drawdown_negative_on_decline():
 
 # ── Sign-correct budget snapshot: real breach AND real non-breach ──────────
 def _snapshot(closes, profile="balanced"):
-    src, is_model, w, shares = price_feed.resolve_holdings(profile, "model", {})
+    src, is_model, w, shares, _, _ = price_feed.resolve_holdings(profile, "model", {})
     theta = config.load_profile(profile)[0]
     return price_feed.compute_snapshot(w, shares, closes, theta)
 
@@ -147,7 +148,7 @@ def test_is_stale():
 def test_run_once_no_data_writes_no_row(monkeypatch):
     monkeypatch.setattr(price_feed, "fetch_prices", lambda *a, **k: {})
     monkeypatch.setattr(price_feed, "current_holdings",
-                        lambda: ("balanced", True, {"SPY": 1.0}, {}))
+                        lambda: ("balanced", True, {"SPY": 1.0}, {}, {}, 0.0))
     assert price_feed.run_once() is None
     assert store.latest() is None  # no fake row persisted
 
@@ -161,7 +162,7 @@ def test_run_once_writes_one_row(monkeypatch):
     )
     monkeypatch.setattr(price_feed, "fetch_prices", lambda *a, **k: closes)
     monkeypatch.setattr(price_feed, "current_holdings",
-                        lambda: ("balanced", True, {"SPY": 1.0}, {}))
+                        lambda: ("balanced", True, {"SPY": 1.0}, {}, {}, 0.0))
     snap = price_feed.run_once()
     assert snap is not None
     row = store.latest()
@@ -180,7 +181,7 @@ def test_run_once_persists_vix_and_enters_crisis(monkeypatch):
     )
     monkeypatch.setattr(price_feed, "fetch_prices", lambda *a, **k: closes)
     monkeypatch.setattr(price_feed, "current_holdings",
-                        lambda: ("balanced", True, {"SPY": 1.0}, {}))
+                        lambda: ("balanced", True, {"SPY": 1.0}, {}, {}, 0.0))
     snap = price_feed.run_once()
     assert snap["crisis_mode"] is True
     assert snap["fast_derisk_cap"] == pytest.approx(0.20)  # balanced crisis_floor
@@ -197,7 +198,7 @@ def test_run_once_low_vix_leaves_crisis_off(monkeypatch):
     )
     monkeypatch.setattr(price_feed, "fetch_prices", lambda *a, **k: closes)
     monkeypatch.setattr(price_feed, "current_holdings",
-                        lambda: ("balanced", True, {"SPY": 1.0}, {}))
+                        lambda: ("balanced", True, {"SPY": 1.0}, {}, {}, 0.0))
     snap = price_feed.run_once()
     assert snap["crisis_mode"] is False
     assert store.get_crisis_mode() is False

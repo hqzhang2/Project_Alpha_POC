@@ -37,6 +37,9 @@ import budget as budget_mod
 import config
 import drift_alert as drift_mod
 import enforcement as enforcement_mod
+import performance as performance_mod
+import options as options_mod
+import options_feed as options_feed_mod
 import price_feed
 import rebalance as rebalance_mod
 import scenario as scenario_mod
@@ -146,6 +149,10 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._portfolio_get()
         if path == "/api/drift":
             return self._drift()
+        if path == "/api/performance":
+            return self._performance()
+        if path == "/api/alerts":
+            return self._alerts()
         self._json({"error": f"not found: {path}"}, 404)
 
     def do_POST(self):
@@ -163,6 +170,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._portfolio_set(body)
         if path == "/api/drift":
             return self._drift(body)
+        if path == "/api/alerts/view":
+            return self._alerts_view()
         self._json({"error": f"not found: {path}"}, 404)
 
     # ── Handlers ─────────────────────────────────────────────────────────
@@ -172,7 +181,7 @@ class NS6Handler(BaseHTTPRequestHandler):
         w = body.get("current_weights")
         if isinstance(w, dict) and w:
             return w
-        _, _, weights, _ = self._portfolio_holdings()
+        _, _, weights, _, _, _ = self._portfolio_holdings()
         if weights:
             return dict(weights)
         return DEFAULT_WEIGHTS
@@ -200,6 +209,35 @@ class NS6Handler(BaseHTTPRequestHandler):
             return None, f"regime {regime}: unknown", regime
         reason = f"regime {regime}: {config.PROFILES[suggested]['label']}"
         return suggested, reason, regime
+
+    @staticmethod
+    def _parse_dt(iso):
+        """Parse an ISO timestamp to a tz-naive datetime, or None (fail-open)."""
+        if not iso:
+            return None
+        try:
+            return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).replace(tzinfo=None)
+        except (ValueError, TypeError):
+            return None
+
+    def _log_breaker_once(self, breaker_type, ticker, detail):
+        """Persist a breaker event exactly once per fire (G1 dedupe).
+
+        The dashboard polls /api/enforcement/status every ~15s but the data
+        only changes daily, so a triggered breaker stays triggered across many
+        consecutive polls. Dedupe against the log's LAST row: if the same
+        (type, ticker) is already the most recent entry, skip. Returns True
+        when a new row was written.
+        """
+        last = store.query_breakers(limit=1)
+        if last:
+            r = last[0]
+            if (r.get("breaker_type") == breaker_type
+                    and (r.get("ticker") or None) == (ticker or None)):
+                return False
+        store.log_circuit_breaker(breaker_type, ticker, detail)
+        store.append_alert(breaker_type, f"{ticker or ''} {detail}".strip())  # G5
+        return True
 
     def _enforcement_status(self):
         active_profile = store.get_active_profile()
@@ -232,11 +270,84 @@ class NS6Handler(BaseHTTPRequestHandler):
         fast_cap, _ = enforcement_mod.fast_derisk_exposure(vix, crisis, theta)
         multiplier = min(fast_cap, budget_mult)
 
+        # ── G1: circuit breakers + position stops on REAL per-ticker data ──
+        # position_drawdowns + cross_sectional_corr are persisted by the daily
+        # price feed (drawdown_log columns); the GET reads them and evaluates
+        # the pure enforcement functions (never recomputes from a fresh fetch).
+        position_drawdowns: Dict[str, float] = {}
+        cross_corr = None
+        if latest:
+            raw_pd = latest.get("position_drawdowns")
+            if isinstance(raw_pd, str):
+                try:
+                    position_drawdowns = json.loads(raw_pd) or {}
+                except ValueError:
+                    position_drawdowns = {}
+            elif isinstance(raw_pd, dict):
+                position_drawdowns = raw_pd
+            cross_corr = latest.get("cross_sectional_corr")
+
+        breakers = enforcement_mod.check_circuit_breakers(
+            current_dd, budget_pct, position_drawdowns, cross_corr, theta)
+        asset_classes = {tk: config.asset_class(tk) for tk in position_drawdowns}
+        stops = enforcement_mod.check_position_stops(
+            position_drawdowns, asset_classes, theta)
+
+        # Surface only TRIGGERED events; persist each fire exactly once.
+        circuit_breakers = []
+        for b in breakers:
+            if b.get("triggered"):
+                circuit_breakers.append({
+                    "breaker_type": b["type"],
+                    "detail": b.get("detail", ""),
+                    "ticker": None,
+                })
+                if latest:  # persist only when backed by a real data row
+                    self._log_breaker_once(b["type"], None, b.get("detail", ""))
+
+        position_stops_triggered = []
+        for s in stops:
+            if s.get("triggered"):
+                position_stops_triggered.append({
+                    "ticker": s["ticker"],
+                    "detail": s.get("action", ""),
+                    "drawdown": s.get("drawdown"),
+                    "threshold": s.get("threshold"),
+                    "asset_class": s.get("asset_class"),
+                })
+                if latest:
+                    self._log_breaker_once("position_stop", s["ticker"], s.get("detail", ""))
+
+        # Re-entry hysteresis: last breaker + per-ticker last-stop timestamps.
+        last_breaker_time = store.last_breaker_time()
+        last_breaker_dt = self._parse_dt(last_breaker_time)
+        last_stop_times = store.last_stop_times()
+        last_stop_dts = {tk: self._parse_dt(ts) for tk, ts in last_stop_times.items()}
+        reentry_blocked = enforcement_mod.check_reentry_hysteresis(
+            last_breaker_dt, last_stop_dts, theta=theta)
+
         suggested, suggestion_reason, regime = self._regime_suggestion(active_profile)
         suggestion_active = bool(
             suggested and suggested != active_profile
         )
-        port_source, port_is_model, _, _ = self._portfolio_holdings()
+        port_source, port_is_model, _, _, _, _ = self._portfolio_holdings()
+
+        # ── G3: protective put overlay — live A_T chain pricing (fail-open) ──
+        # NAV from the persisted performance row (G2); default when absent.
+        nav = 1_000_000.0
+        perf_rows = store.query_performance(limit=1)
+        if perf_rows and perf_rows[0].get("nav"):
+            nav = float(perf_rows[0]["nav"])
+        live = options_feed_mod.live_premiums(
+            base_url=f"http://localhost:{A_T_PORT}/api/options")
+        puts = options_mod.recommend_put_overlay(
+            multiplier, nav, vix_level=vix, theta=theta,
+            live_put_cost_pct=live.get("put_frac"))
+        puts["nav_used"] = round(nav, 0)
+        puts["live_put_monthly_pct"] = (
+            round(live["put_frac"] * 100.0, 4) if live.get("put_frac") is not None else None)
+        puts["live_call_monthly_pct"] = (
+            round(live["call_frac"] * 100.0, 4) if live.get("call_frac") is not None else None)
 
         self._json({
             "active_profile": active_profile,
@@ -260,10 +371,11 @@ class NS6Handler(BaseHTTPRequestHandler):
             "crisis_mode": crisis,
             "active_tiers": [],
             "covered_calls_gated": multiplier < theta["covered_calls"]["gate_multiplier"],
-            "protective_puts": None,
-            "circuit_breakers": [],
-            "position_stops_triggered": [],
-            "last_breaker_time": None,
+            "protective_puts": puts,
+            "circuit_breakers": circuit_breakers,
+            "position_stops_triggered": position_stops_triggered,
+            "last_breaker_time": last_breaker_time,
+            "reentry_blocked": reentry_blocked,
             "phase": 3,
             "note": "Fast de-risk live (R3): exposure = min(VIX-smile cap, budget multiplier). "
                     "VIX/crisis state persisted by the daily price feed.",
@@ -328,16 +440,24 @@ class NS6Handler(BaseHTTPRequestHandler):
 
     def _portfolio_get(self):
         """GET /api/portfolio -> source, portfolio names (NS-5 + model),
-        holdings WEIGHTS (engine) + raw SHARES (modal for NS-5)."""
+        holdings WEIGHTS (engine) + raw SHARES (modal for NS-5), plus the
+        G4 cash position and total NAV (from the latest performance row)."""
         ns5 = self._ns5_portfolios()
         active = store.get_active_profile()
-        source, is_model, weights, shares = self._portfolio_holdings()
+        source, is_model, weights, shares, lots, cash = self._portfolio_holdings()
+        nav = None
+        perf_rows = store.query_performance(limit=1)
+        if perf_rows and perf_rows[0].get("nav"):
+            nav = round(float(perf_rows[0]["nav"]), 2)
         self._json({
             "active_profile": active,
             "source": source,
             "is_model": is_model,
             "holdings": {k: round(v, 6) for k, v in weights.items()},
             "shares": {k: round(v, 4) for k, v in shares.items()} if shares else None,
+            "cash": round(cash, 2) if cash else 0.0,
+            "nav": nav,
+            "has_lots": bool(lots),
             "ns5_portfolios": sorted(ns5.keys()),
             "model_portfolios": {
                 name: {k: round(v, 6) for k, v in config.model_portfolio(name).items()}
@@ -407,6 +527,67 @@ class NS6Handler(BaseHTTPRequestHandler):
         result["target_source"] = target_source
         self._json(result)
 
+    def _performance(self):
+        """G2 scoreboard: trailing metrics, benchmark excess, attribution,
+        and backtest-vs-live reconciliation (fail-open when no data/baseline)."""
+        theta = self._active_theta()
+        rows_asc = list(reversed(store.query_performance(limit=1000)))
+        windows = theta.get("performance", {}).get("windows", [21, 63, 252])
+        navs = [r["nav"] for r in rows_asc]
+        trailing: Dict = {}
+        excess: Dict = {}
+        for w in list(windows) + [None]:
+            key = f"{w}d" if w else "inception"
+            m = performance_mod.trailing_metrics(navs, window=w)
+            trailing[key] = m
+            if not m:
+                excess[key] = {"spy": None, "universe": None}
+                continue
+            seg = rows_asc[-w:] if w and len(rows_asc) > w else rows_asc
+            spy = performance_mod.compounded_return([r.get("spy_ret") for r in seg])
+            uni = performance_mod.compounded_return([r.get("universe_ret") for r in seg])
+            excess[key] = {
+                "spy": round(m["total_return"] - spy, 4) if spy is not None else None,
+                "universe": round(m["total_return"] - uni, 4) if uni is not None else None,
+            }
+        attr = performance_mod.attribution(rows_asc)
+        recon = None
+        bt_map = performance_mod.load_backtest_baseline()
+        if bt_map and rows_asc:
+            live_map = {r["date"]: r["nav"] for r in rows_asc}
+            recon = performance_mod.reconcile(
+                live_map, bt_map,
+                divergence_pp=theta.get("performance", {}).get("reconcile_divergence_pp", 5.0))
+        self._json({
+            "as_of": rows_asc[-1]["date"] if rows_asc else None,
+            "benchmarks": {"spy": "SPY (calibration)",
+                           "universe": "Held universe (equal-weight)"},
+            "trailing": trailing,
+            "excess": excess,
+            "attribution": attr,
+            "reconciliation": recon,
+        })
+
+    def _alerts(self):
+        """G5: unread alert count (breaker/stop/crisis rows newer than the
+        last-viewed timestamp) + recent alerts. Fail-open."""
+        last_viewed = store.get_setting("alerts_last_viewed")
+        rows = store.query_breakers(limit=50)
+        unread = sum(1 for r in rows
+                     if last_viewed is None or (r.get("timestamp") or "") > last_viewed)
+        self._json({
+            "unread_count": unread,
+            "last_viewed": last_viewed,
+            "alerts": [{"timestamp": r["timestamp"], "type": r["breaker_type"],
+                        "ticker": r["ticker"], "detail": r["detail"]}
+                       for r in rows[:10]],
+        })
+
+    def _alerts_view(self):
+        """POST /api/alerts/view — mark all alerts viewed (G5 badge clear)."""
+        store.set_setting("alerts_last_viewed", datetime.now(timezone.utc).isoformat())
+        self._json({"ok": True})
+
     def _scenario_add(self, body):
         theta = self._active_theta()
         ticker = str(body.get("ticker", "")).strip().upper()
@@ -419,7 +600,8 @@ class NS6Handler(BaseHTTPRequestHandler):
         result = scenario_mod.analyze_add(
             ticker, proposed, current, nav,
             prices=prices, screener_scores=body.get("screener_scores"),
-            ns2_regimes=body.get("ns2_regimes"), theta=theta)
+            ns2_regimes=body.get("ns2_regimes"),
+            tax_lot_data=self._portfolio_holdings()[4], theta=theta)
         result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
@@ -433,7 +615,8 @@ class NS6Handler(BaseHTTPRequestHandler):
         result = scenario_mod.analyze_remove(
             ticker, current, nav, prices=body.get("prices") or {},
             screener_scores=body.get("screener_scores"),
-            ns2_regimes=body.get("ns2_regimes"), theta=theta)
+            ns2_regimes=body.get("ns2_regimes"),
+            tax_lot_data=self._portfolio_holdings()[4], theta=theta)
         result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
@@ -450,7 +633,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             rem, add, proposed, current, nav,
             prices=body.get("prices") or {},
             screener_scores=body.get("screener_scores"),
-            ns2_regimes=body.get("ns2_regimes"), theta=theta)
+            ns2_regimes=body.get("ns2_regimes"),
+            tax_lot_data=self._portfolio_holdings()[4], theta=theta)
         result["profile_context"] = self._profile_context(theta)
         self._json(result)
 

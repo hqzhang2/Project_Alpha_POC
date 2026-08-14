@@ -34,6 +34,9 @@ def _make_handler():
 def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "test.db")
     store.init_db()
+    # Hermetic (G3): no options-chain network fetch -> proxy fallback.
+    monkeypatch.setattr(qa_server.options_feed_mod, "live_premiums",
+                        lambda **kw: {"put_frac": None, "call_frac": None, "source": "proxy"})
 
 
 def test_enforcement_status_flags_stale_when_no_feed(monkeypatch):
