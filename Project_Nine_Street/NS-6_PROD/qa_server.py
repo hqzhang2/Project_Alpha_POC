@@ -221,7 +221,16 @@ class NS6Handler(BaseHTTPRequestHandler):
         data_stale, data_as_of = price_feed.is_stale(
             latest, theta["price_feed"]["staleness_days"])
 
-        multiplier = enforcement_mod.compute_exposure_multiplier(budget_remaining, theta)
+        # R3: fast de-risk (VIX-smile) is the PRIMARY exposure cap; the budget
+        # multiplier is demoted to a secondary structural floor. The effective
+        # exposure is the tighter of the two: min(smile_cap, budget_mult).
+        # VIX/crisis state is read from the store (persisted by the daily feed,
+        # never mutated on a GET). No VIX -> default_cap (fail-open, mid-smile).
+        budget_mult = enforcement_mod.compute_exposure_multiplier(budget_remaining, theta)
+        vix = latest.get("vix_level") if latest else None
+        crisis = store.get_crisis_mode()
+        fast_cap, _ = enforcement_mod.fast_derisk_exposure(vix, crisis, theta)
+        multiplier = min(fast_cap, budget_mult)
 
         suggested, suggestion_reason, regime = self._regime_suggestion(active_profile)
         suggestion_active = bool(
@@ -245,15 +254,19 @@ class NS6Handler(BaseHTTPRequestHandler):
             "data_as_of": data_as_of,
             "data_stale": data_stale,
             "exposure_multiplier": round(multiplier, 4),
+            "budget_multiplier": round(budget_mult, 4),
+            "fast_derisk_cap": round(fast_cap, 4),
+            "vix_level": round(vix, 2) if vix is not None else None,
+            "crisis_mode": crisis,
             "active_tiers": [],
             "covered_calls_gated": multiplier < theta["covered_calls"]["gate_multiplier"],
             "protective_puts": None,
             "circuit_breakers": [],
             "position_stops_triggered": [],
             "last_breaker_time": None,
-            "phase": 2,
-            "note": "Drawdown data live via price feed (R2a). Multiplier still Phase-1 "
-                    "budget-only (R3 fast de-risk pending).",
+            "phase": 3,
+            "note": "Fast de-risk live (R3): exposure = min(VIX-smile cap, budget multiplier). "
+                    "VIX/crisis state persisted by the daily price feed.",
         })
 
     def _profile_get(self):
