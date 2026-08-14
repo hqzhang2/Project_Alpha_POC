@@ -7,10 +7,11 @@ idempotent upsert, query_window(days), latest(). DB at NS-6_QA/data/ns6.db.
 Tests MUST redirect DB_PATH to a temp dir (monkeypatch) before init_db().
 """
 
+import json
 import logging
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -42,7 +43,9 @@ def init_db() -> None:
                     budget_pct     REAL,
                     budget_remaining_pct REAL,
                     multiplier     REAL,
-                    vix_level      REAL
+                    vix_level      REAL,
+                    position_drawdowns TEXT,
+                    cross_sectional_corr REAL
                 )
                 """
             )
@@ -51,6 +54,13 @@ def init_db() -> None:
             cols = {r[1] for r in conn.execute("PRAGMA table_info(drawdown_log)")}
             if "vix_level" not in cols:
                 conn.execute("ALTER TABLE drawdown_log ADD COLUMN vix_level REAL")
+            # G1 migration: per-ticker drawdowns (JSON) + cross-sectional corr
+            # so the enforcement loop can evaluate breakers/stops on real data
+            # (persisted by the feed, read by the GET — never recomputed live).
+            if "position_drawdowns" not in cols:
+                conn.execute("ALTER TABLE drawdown_log ADD COLUMN position_drawdowns TEXT")
+            if "cross_sectional_corr" not in cols:
+                conn.execute("ALTER TABLE drawdown_log ADD COLUMN cross_sectional_corr REAL")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS circuit_breaker_log (
@@ -70,27 +80,46 @@ def init_db() -> None:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS performance_log (
+                    date          TEXT PRIMARY KEY,
+                    nav           REAL,
+                    ret           REAL,
+                    spy_ret       REAL,
+                    universe_ret  REAL,
+                    contributions TEXT
+                )
+                """
+            )
     except Exception as exc:  # noqa: BLE001 — fail-open
         log.warning("init_db failed: %s", exc)
 
 
 def upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining, multiplier,
-                    vix_level=None) -> None:
+                    vix_level=None, position_drawdowns=None,
+                    cross_sectional_corr=None) -> None:
     """Upsert one drawdown snapshot row (idempotent on date).
 
     vix_level (R3): the EOD VIX close the snapshot was computed under — feeds
     the fast-de-risk smile in the enforcement loop.
+    position_drawdowns (G1): {ticker: dd} JSON string (or a dict, serialized).
+    cross_sectional_corr (G1): mean off-diagonal trailing correlation.
     """
+    if isinstance(position_drawdowns, dict):
+        position_drawdowns = json.dumps(position_drawdowns)
     try:
         with _connect() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO drawdown_log
                 (date, spy_dd_pct, portfolio_dd_pct, budget_pct,
-                 budget_remaining_pct, multiplier, vix_level)
-                VALUES (?,?,?,?,?,?,?)
+                 budget_remaining_pct, multiplier, vix_level,
+                 position_drawdowns, cross_sectional_corr)
+                VALUES (?,?,?,?,?,?,?,?,?)
                 """,
-                (date, spy_dd, portfolio_dd, budget, remaining, multiplier, vix_level),
+                (date, spy_dd, portfolio_dd, budget, remaining, multiplier,
+                 vix_level, position_drawdowns, cross_sectional_corr),
             )
     except Exception as exc:  # noqa: BLE001
         log.warning("upsert_drawdown failed: %s", exc)
@@ -147,6 +176,109 @@ def query_breakers(limit: int = 50) -> List[Dict]:
     except Exception as exc:  # noqa: BLE001
         log.warning("query_breakers failed: %s", exc)
         return []
+
+
+def last_breaker_time() -> Optional[str]:
+    """ISO timestamp of the most recent hard_floor/systemic_event breaker.
+
+    Used by the enforcement loop's re-entry hysteresis (G1). Position stops
+    are excluded — those are tracked per-ticker via last_stop_times().
+    Returns None when no such breaker has fired.
+    """
+    for row in query_breakers(limit=200):
+        if row.get("breaker_type") in ("hard_floor", "systemic_event"):
+            return row.get("timestamp")
+    return None
+
+
+def last_stop_times() -> Dict[str, str]:
+    """{ticker: ISO timestamp} of the most recent position_stop per ticker.
+
+    Used by the enforcement loop's re-entry hysteresis (G1) — a stop blocks
+    re-entry in that ticker for position_stop_reentry_days trading days.
+    """
+    out: Dict[str, str] = {}
+    for row in query_breakers(limit=500):
+        if row.get("breaker_type") == "position_stop" and row.get("ticker"):
+            out.setdefault(row["ticker"], row["timestamp"])
+    return out
+
+
+# ── Performance log (G2 scoreboard) ─────────────────────────────────────
+def upsert_performance(date: str, nav, ret, spy_ret=None, universe_ret=None,
+                       contributions=None) -> None:
+    """Upsert one daily performance row (idempotent on date).
+
+    nav: portfolio NAV (shares path = $ value; model path = 1.0-based).
+    ret: daily return fraction (nav_t/nav_{t-1} - 1).
+    spy_ret / universe_ret: same-day benchmark daily returns (SPY calibration
+        + held-universe equal-weight) for the excess math.
+    contributions: {ticker: w_i*r_i} JSON (or dict, serialized) for attribution.
+    """
+    if isinstance(contributions, dict):
+        contributions = json.dumps(contributions)
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO performance_log
+                (date, nav, ret, spy_ret, universe_ret, contributions)
+                VALUES (?,?,?,?,?,?)
+                """,
+                (date, nav, ret, spy_ret, universe_ret, contributions),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("upsert_performance failed: %s", exc)
+
+
+def query_performance(limit: int = 1000) -> List[Dict]:
+    """Most recent performance rows (NEWEST first), each with contributions
+    parsed from JSON. Fail-open: [] on error."""
+    try:
+        with _connect() as conn:
+            rows = conn.execute(
+                "SELECT date, nav, ret, spy_ret, universe_ret, contributions "
+                "FROM performance_log ORDER BY date DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        out: List[Dict] = []
+        for r in rows:
+            row = {
+                "date": r[0],
+                "nav": r[1],
+                "ret": r[2],
+                "spy_ret": r[3],
+                "universe_ret": r[4],
+            }
+            try:
+                row["contributions"] = json.loads(r[5]) if r[5] else {}
+            except (ValueError, TypeError):
+                row["contributions"] = {}
+            out.append(row)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning("query_performance failed: %s", exc)
+        return []
+
+
+# ── Alerts file (G5) ─────────────────────────────────────────────────────
+ALERTS_LOG = Path(__file__).resolve().parent / "logs" / "ns6_alerts.log"
+
+
+def append_alert(event_type: str, detail: str) -> None:
+    """Append one line to logs/ns6_alerts.log (G5). Fail-open.
+
+    Written on NEW breaker/stop/crisis-entry fires (never on repeated polls —
+    callers dedupe before calling). Kept a plain file this phase; an email
+    notifier can tail it later.
+    """
+    try:
+        ALERTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).isoformat()
+        with open(ALERTS_LOG, "a") as fh:
+            fh.write(f"{ts} {event_type} {detail}\n")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("append_alert failed: %s", exc)
 
 
 # ── Settings (active profile persistence) ───────────────────────────────

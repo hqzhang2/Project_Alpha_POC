@@ -19,7 +19,8 @@ log = logging.getLogger("ns6.options")
 
 
 # ── Protective put overlay (Phase 2) ──────────────────────────────────────
-def recommend_put_overlay(multiplier, nav, vix_level=None, theta=None):
+def recommend_put_overlay(multiplier, nav, vix_level=None, theta=None,
+                          live_put_cost_pct=None):
     """Return a protective put recommendation dict.
 
     Consumed by /api/enforcement/status and the backtest harness.
@@ -30,6 +31,10 @@ def recommend_put_overlay(multiplier, nav, vix_level=None, theta=None):
     nav : float — total portfolio NAV ($)
     vix_level : float or None — VIX for cost estimation (None → use config proxy)
     theta : dict — config.load_theta() or None
+    live_put_cost_pct : float or None — live ATM put mid premium as a FRACTION
+        of notional (0.01 = 1% monthly) from options_feed (G3). When provided
+        and > 0 it REPLACES the VIX parametric proxy and the output carries
+        pricing_source="live"; otherwise the proxy is used with source="proxy".
 
     Returns
     -------
@@ -39,6 +44,7 @@ def recommend_put_overlay(multiplier, nav, vix_level=None, theta=None):
         "strike_offset_pct": float,
         "notional_to_hedge": float,         # absolute $ notional (scaled by multipler)
         "estimated_annual_cost_pct": float, # drag as % of NAV (backtest: /252 daily)
+        "pricing_source": "live" | "proxy",
         "rationale": str,
     }
 
@@ -57,7 +63,13 @@ def recommend_put_overlay(multiplier, nav, vix_level=None, theta=None):
     if multiplier >= gate:
         return _no_put("multiplier above gate", gate)
 
-    monthly_cost = estimate_put_cost_pct(vix_level, theta)  # ATM base (monthly, % hedge notional)
+    # G3: live chain mid when available, else the VIX parametric proxy.
+    if live_put_cost_pct is not None and live_put_cost_pct > 0:
+        monthly_cost = float(live_put_cost_pct)
+        pricing_source = "live"
+    else:
+        monthly_cost = estimate_put_cost_pct(vix_level, theta)  # ATM base (monthly, % hedge notional)
+        pricing_source = "proxy"
 
     if multiplier >= bands["otm"]["low"]:  # [0.60, 0.80)
         strike_pct = bands["otm"]["strike_pct"]
@@ -88,6 +100,7 @@ def recommend_put_overlay(multiplier, nav, vix_level=None, theta=None):
         "strike_offset_pct": round(strike_pct, 3),
         "notional_to_hedge": round(notional, 0),
         "estimated_annual_cost_pct": round(annual_cost_pct, 4),
+        "pricing_source": pricing_source,
         "rationale": rationale,
     }
 
@@ -99,6 +112,7 @@ def _no_put(reason, gate):
         "strike_offset_pct": None,
         "notional_to_hedge": 0,
         "estimated_annual_cost_pct": 0.0,
+        "pricing_source": "proxy",
         "rationale": f"{reason} (≥ {gate})",
     }
 
