@@ -507,11 +507,19 @@ function showPortfolioModal() {
   }).join('');
   const modal = document.getElementById('pfModal');
   document.getElementById('pfModalTitle').textContent = title;
+  const cash = d.cash != null ? Number(d.cash) : null;
+  const nav = d.nav != null ? Number(d.nav) : null;
+  const foot = (nav || cash)
+    ? '<div style="font-size:11px;color:#94a3b8;margin-top:8px;border-top:1px solid #1f2937;padding-top:6px">' +
+      'Cash: $' + (cash != null ? cash.toLocaleString(undefined, {maximumFractionDigits: 0}) : '—') +
+      ' · Total NAV: $' + (nav != null ? nav.toLocaleString(undefined, {maximumFractionDigits: 0}) : '—') +
+      (d.has_lots ? ' · lot-level basis: yes' : '') + '</div>'
+    : '';
   document.getElementById('pfModalBody').innerHTML =
     '<div style="font-size:11px;color:#94a3b8;margin-bottom:8px">' +
     (isModel ? 'Weights (sum to 100%)' : 'Shares from NS-5') + ' — read only</div>' +
     '<table><tr><th>Ticker</th><th>' + (isModel ? 'Weight' : 'Shares') + '</th>' +
-    (isModel ? '<th>%</th>' : '<th></th>') + '</tr>' + rows + '</table>';
+    (isModel ? '<th>%</th>' : '<th></th>') + '</tr>' + rows + '</table>' + foot;
   modal.style.display = 'block';
 }
 
