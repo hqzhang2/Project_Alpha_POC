@@ -38,6 +38,8 @@ import config
 import drift_alert as drift_mod
 import enforcement as enforcement_mod
 import performance as performance_mod
+import options as options_mod
+import options_feed as options_feed_mod
 import price_feed
 import rebalance as rebalance_mod
 import scenario as scenario_mod
@@ -325,6 +327,23 @@ class NS6Handler(BaseHTTPRequestHandler):
         )
         port_source, port_is_model, _, _ = self._portfolio_holdings()
 
+        # ── G3: protective put overlay — live A_T chain pricing (fail-open) ──
+        # NAV from the persisted performance row (G2); default when absent.
+        nav = 1_000_000.0
+        perf_rows = store.query_performance(limit=1)
+        if perf_rows and perf_rows[0].get("nav"):
+            nav = float(perf_rows[0]["nav"])
+        live = options_feed_mod.live_premiums(
+            base_url=f"http://localhost:{A_T_PORT}/api/options")
+        puts = options_mod.recommend_put_overlay(
+            multiplier, nav, vix_level=vix, theta=theta,
+            live_put_cost_pct=live.get("put_frac"))
+        puts["nav_used"] = round(nav, 0)
+        puts["live_put_monthly_pct"] = (
+            round(live["put_frac"] * 100.0, 4) if live.get("put_frac") is not None else None)
+        puts["live_call_monthly_pct"] = (
+            round(live["call_frac"] * 100.0, 4) if live.get("call_frac") is not None else None)
+
         self._json({
             "active_profile": active_profile,
             "profile_label": config.PROFILES[active_profile]["label"],
@@ -347,7 +366,7 @@ class NS6Handler(BaseHTTPRequestHandler):
             "crisis_mode": crisis,
             "active_tiers": [],
             "covered_calls_gated": multiplier < theta["covered_calls"]["gate_multiplier"],
-            "protective_puts": None,
+            "protective_puts": puts,
             "circuit_breakers": circuit_breakers,
             "position_stops_triggered": position_stops_triggered,
             "last_breaker_time": last_breaker_time,

@@ -32,6 +32,9 @@ def temp_db(tmp_path, monkeypatch):
     # Hermetic: no regime-store read, no live NS-5 portfolio file.
     monkeypatch.setattr(qa_server.regime_store_mod, "latest", lambda: None)
     monkeypatch.setattr(qa_server, "NS5_PORTFOLIOS_PATH", tmp_path / "nope.json")
+    # Hermetic (G3): no options-chain network fetch -> proxy fallback.
+    monkeypatch.setattr(qa_server.options_feed_mod, "live_premiums",
+                        lambda **kw: {"put_frac": None, "call_frac": None, "source": "proxy"})
     return tmp_path
 
 
