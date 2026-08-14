@@ -201,6 +201,34 @@ class NS6Handler(BaseHTTPRequestHandler):
         reason = f"regime {regime}: {config.PROFILES[suggested]['label']}"
         return suggested, reason, regime
 
+    @staticmethod
+    def _parse_dt(iso):
+        """Parse an ISO timestamp to a tz-naive datetime, or None (fail-open)."""
+        if not iso:
+            return None
+        try:
+            return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).replace(tzinfo=None)
+        except (ValueError, TypeError):
+            return None
+
+    def _log_breaker_once(self, breaker_type, ticker, detail):
+        """Persist a breaker event exactly once per fire (G1 dedupe).
+
+        The dashboard polls /api/enforcement/status every ~15s but the data
+        only changes daily, so a triggered breaker stays triggered across many
+        consecutive polls. Dedupe against the log's LAST row: if the same
+        (type, ticker) is already the most recent entry, skip. Returns True
+        when a new row was written.
+        """
+        last = store.query_breakers(limit=1)
+        if last:
+            r = last[0]
+            if (r.get("breaker_type") == breaker_type
+                    and (r.get("ticker") or None) == (ticker or None)):
+                return False
+        store.log_circuit_breaker(breaker_type, ticker, detail)
+        return True
+
     def _enforcement_status(self):
         active_profile = store.get_active_profile()
         theta = config.load_profile(active_profile)[0]  # profile theta (overrides applied)
@@ -232,6 +260,62 @@ class NS6Handler(BaseHTTPRequestHandler):
         fast_cap, _ = enforcement_mod.fast_derisk_exposure(vix, crisis, theta)
         multiplier = min(fast_cap, budget_mult)
 
+        # ── G1: circuit breakers + position stops on REAL per-ticker data ──
+        # position_drawdowns + cross_sectional_corr are persisted by the daily
+        # price feed (drawdown_log columns); the GET reads them and evaluates
+        # the pure enforcement functions (never recomputes from a fresh fetch).
+        position_drawdowns: Dict[str, float] = {}
+        cross_corr = None
+        if latest:
+            raw_pd = latest.get("position_drawdowns")
+            if isinstance(raw_pd, str):
+                try:
+                    position_drawdowns = json.loads(raw_pd) or {}
+                except ValueError:
+                    position_drawdowns = {}
+            elif isinstance(raw_pd, dict):
+                position_drawdowns = raw_pd
+            cross_corr = latest.get("cross_sectional_corr")
+
+        breakers = enforcement_mod.check_circuit_breakers(
+            current_dd, budget_pct, position_drawdowns, cross_corr, theta)
+        asset_classes = {tk: config.asset_class(tk) for tk in position_drawdowns}
+        stops = enforcement_mod.check_position_stops(
+            position_drawdowns, asset_classes, theta)
+
+        # Surface only TRIGGERED events; persist each fire exactly once.
+        circuit_breakers = []
+        for b in breakers:
+            if b.get("triggered"):
+                circuit_breakers.append({
+                    "breaker_type": b["type"],
+                    "detail": b.get("detail", ""),
+                    "ticker": None,
+                })
+                if latest:  # persist only when backed by a real data row
+                    self._log_breaker_once(b["type"], None, b.get("detail", ""))
+
+        position_stops_triggered = []
+        for s in stops:
+            if s.get("triggered"):
+                position_stops_triggered.append({
+                    "ticker": s["ticker"],
+                    "detail": s.get("action", ""),
+                    "drawdown": s.get("drawdown"),
+                    "threshold": s.get("threshold"),
+                    "asset_class": s.get("asset_class"),
+                })
+                if latest:
+                    self._log_breaker_once("position_stop", s["ticker"], s.get("detail", ""))
+
+        # Re-entry hysteresis: last breaker + per-ticker last-stop timestamps.
+        last_breaker_time = store.last_breaker_time()
+        last_breaker_dt = self._parse_dt(last_breaker_time)
+        last_stop_times = store.last_stop_times()
+        last_stop_dts = {tk: self._parse_dt(ts) for tk, ts in last_stop_times.items()}
+        reentry_blocked = enforcement_mod.check_reentry_hysteresis(
+            last_breaker_dt, last_stop_dts, theta=theta)
+
         suggested, suggestion_reason, regime = self._regime_suggestion(active_profile)
         suggestion_active = bool(
             suggested and suggested != active_profile
@@ -261,9 +345,10 @@ class NS6Handler(BaseHTTPRequestHandler):
             "active_tiers": [],
             "covered_calls_gated": multiplier < theta["covered_calls"]["gate_multiplier"],
             "protective_puts": None,
-            "circuit_breakers": [],
-            "position_stops_triggered": [],
-            "last_breaker_time": None,
+            "circuit_breakers": circuit_breakers,
+            "position_stops_triggered": position_stops_triggered,
+            "last_breaker_time": last_breaker_time,
+            "reentry_blocked": reentry_blocked,
             "phase": 3,
             "note": "Fast de-risk live (R3): exposure = min(VIX-smile cap, budget multiplier). "
                     "VIX/crisis state persisted by the daily price feed.",

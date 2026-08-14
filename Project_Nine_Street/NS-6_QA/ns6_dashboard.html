@@ -526,6 +526,9 @@ function renderEvents() {
   if (STATUS.last_breaker_time) {
     html += '<div class="evt good"><div class="e-h">LAST BREAKER</div><div class="e-d">' + STATUS.last_breaker_time + '</div></div>';
   }
+  if (STATUS.reentry_blocked) {
+    html += '<div class="evt warn"><div class="e-h">RE-ENTRY BLOCKED</div><div class="e-d">hysteresis window active — no re-entry until it clears</div></div>';
+  }
   box.innerHTML = html || '<div class="empty-note">No enforcement events triggered.</div>';
 }
 
