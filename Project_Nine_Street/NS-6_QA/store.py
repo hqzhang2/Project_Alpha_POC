@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -259,6 +259,26 @@ def query_performance(limit: int = 1000) -> List[Dict]:
     except Exception as exc:  # noqa: BLE001
         log.warning("query_performance failed: %s", exc)
         return []
+
+
+# ── Alerts file (G5) ─────────────────────────────────────────────────────
+ALERTS_LOG = Path(__file__).resolve().parent / "logs" / "ns6_alerts.log"
+
+
+def append_alert(event_type: str, detail: str) -> None:
+    """Append one line to logs/ns6_alerts.log (G5). Fail-open.
+
+    Written on NEW breaker/stop/crisis-entry fires (never on repeated polls —
+    callers dedupe before calling). Kept a plain file this phase; an email
+    notifier can tail it later.
+    """
+    try:
+        ALERTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).isoformat()
+        with open(ALERTS_LOG, "a") as fh:
+            fh.write(f"{ts} {event_type} {detail}\n")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("append_alert failed: %s", exc)
 
 
 # ── Settings (active profile persistence) ───────────────────────────────

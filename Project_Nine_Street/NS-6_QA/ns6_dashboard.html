@@ -82,6 +82,8 @@
   .evt { font-size: 11px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; border: 1px solid #1f2937; }
   .evt.bad { background: #3b0d0d; border-color: #f87171; color: #fca5a5; }
   .evt.warn { background: #4d3d00; border-color: #f0b429; color: #fde68a; }
+  .alerts-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: #1f2937; color: #94a3b8; margin-left: 8px; }
+  .alerts-badge.hot { background: #7f1d1d; color: #fecaca; border: 1px solid #f87171; }
   .evt.good { background: #0f1a14; border-color: #4ade80; color: #86efac; }
   .evt .e-h { font-weight: 800; }
   .evt .e-d { color: #94a3b8; margin-top: 2px; }
@@ -206,7 +208,8 @@
     </div>
 
     <div class="panel">
-      <h3>Enforcement Events</h3>
+      <h3>Enforcement Events <span id="alerts-badge" class="alerts-badge"
+        style="display:none;cursor:pointer" onclick="viewAlerts()" title="click to clear">0 new</span></h3>
       <div id="events"></div>
     </div>
 
@@ -327,6 +330,27 @@ async function refreshPerformance() {
     const d = await api('/api/performance');
     renderPerformance(d);
   } catch (e) { /* silent — panel stays at '—' */ }
+}
+
+async function refreshAlerts() {
+  try {
+    const d = await api('/api/alerts');
+    const b = document.getElementById('alerts-badge');
+    if (d.unread_count > 0) {
+      b.style.display = '';
+      b.textContent = d.unread_count + ' new';
+      b.className = 'alerts-badge hot';
+    } else {
+      b.style.display = 'none';
+    }
+  } catch (e) { /* silent */ }
+}
+
+async function viewAlerts() {
+  try {
+    await api('/api/alerts/view', {method: 'POST'});
+    await refreshAlerts();
+  } catch (e) { /* silent */ }
 }
 
 function renderPerformance(d) {
@@ -788,6 +812,7 @@ async function refreshDrift() {
     await refreshStatus();
     await refreshPortfolio();
     await refreshPerformance();
+    await refreshAlerts();
   } catch (e) {
     document.getElementById('err').textContent = 'Failed to load: ' + e.message;
   }
@@ -796,6 +821,7 @@ async function refreshDrift() {
   setInterval(refreshDrift, 60000);
   setInterval(refreshPortfolio, 30000);
   setInterval(refreshPerformance, 60000);
+  setInterval(refreshAlerts, 30000);
   refreshDrift();
 })();
 </script>

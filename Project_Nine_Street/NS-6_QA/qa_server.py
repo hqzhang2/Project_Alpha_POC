@@ -151,6 +151,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._drift()
         if path == "/api/performance":
             return self._performance()
+        if path == "/api/alerts":
+            return self._alerts()
         self._json({"error": f"not found: {path}"}, 404)
 
     def do_POST(self):
@@ -168,6 +170,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._portfolio_set(body)
         if path == "/api/drift":
             return self._drift(body)
+        if path == "/api/alerts/view":
+            return self._alerts_view()
         self._json({"error": f"not found: {path}"}, 404)
 
     # ── Handlers ─────────────────────────────────────────────────────────
@@ -177,7 +181,7 @@ class NS6Handler(BaseHTTPRequestHandler):
         w = body.get("current_weights")
         if isinstance(w, dict) and w:
             return w
-        _, _, weights, _ = self._portfolio_holdings()
+        _, _, weights, _, _, _ = self._portfolio_holdings()
         if weights:
             return dict(weights)
         return DEFAULT_WEIGHTS
@@ -232,6 +236,7 @@ class NS6Handler(BaseHTTPRequestHandler):
                     and (r.get("ticker") or None) == (ticker or None)):
                 return False
         store.log_circuit_breaker(breaker_type, ticker, detail)
+        store.append_alert(breaker_type, f"{ticker or ''} {detail}".strip())  # G5
         return True
 
     def _enforcement_status(self):
@@ -325,7 +330,7 @@ class NS6Handler(BaseHTTPRequestHandler):
         suggestion_active = bool(
             suggested and suggested != active_profile
         )
-        port_source, port_is_model, _, _ = self._portfolio_holdings()
+        port_source, port_is_model, _, _, _, _ = self._portfolio_holdings()
 
         # ── G3: protective put overlay — live A_T chain pricing (fail-open) ──
         # NAV from the persisted performance row (G2); default when absent.
@@ -435,16 +440,24 @@ class NS6Handler(BaseHTTPRequestHandler):
 
     def _portfolio_get(self):
         """GET /api/portfolio -> source, portfolio names (NS-5 + model),
-        holdings WEIGHTS (engine) + raw SHARES (modal for NS-5)."""
+        holdings WEIGHTS (engine) + raw SHARES (modal for NS-5), plus the
+        G4 cash position and total NAV (from the latest performance row)."""
         ns5 = self._ns5_portfolios()
         active = store.get_active_profile()
-        source, is_model, weights, shares = self._portfolio_holdings()
+        source, is_model, weights, shares, lots, cash = self._portfolio_holdings()
+        nav = None
+        perf_rows = store.query_performance(limit=1)
+        if perf_rows and perf_rows[0].get("nav"):
+            nav = round(float(perf_rows[0]["nav"]), 2)
         self._json({
             "active_profile": active,
             "source": source,
             "is_model": is_model,
             "holdings": {k: round(v, 6) for k, v in weights.items()},
             "shares": {k: round(v, 4) for k, v in shares.items()} if shares else None,
+            "cash": round(cash, 2) if cash else 0.0,
+            "nav": nav,
+            "has_lots": bool(lots),
             "ns5_portfolios": sorted(ns5.keys()),
             "model_portfolios": {
                 name: {k: round(v, 6) for k, v in config.model_portfolio(name).items()}
@@ -555,6 +568,26 @@ class NS6Handler(BaseHTTPRequestHandler):
             "reconciliation": recon,
         })
 
+    def _alerts(self):
+        """G5: unread alert count (breaker/stop/crisis rows newer than the
+        last-viewed timestamp) + recent alerts. Fail-open."""
+        last_viewed = store.get_setting("alerts_last_viewed")
+        rows = store.query_breakers(limit=50)
+        unread = sum(1 for r in rows
+                     if last_viewed is None or (r.get("timestamp") or "") > last_viewed)
+        self._json({
+            "unread_count": unread,
+            "last_viewed": last_viewed,
+            "alerts": [{"timestamp": r["timestamp"], "type": r["breaker_type"],
+                        "ticker": r["ticker"], "detail": r["detail"]}
+                       for r in rows[:10]],
+        })
+
+    def _alerts_view(self):
+        """POST /api/alerts/view — mark all alerts viewed (G5 badge clear)."""
+        store.set_setting("alerts_last_viewed", datetime.now(timezone.utc).isoformat())
+        self._json({"ok": True})
+
     def _scenario_add(self, body):
         theta = self._active_theta()
         ticker = str(body.get("ticker", "")).strip().upper()
@@ -567,7 +600,8 @@ class NS6Handler(BaseHTTPRequestHandler):
         result = scenario_mod.analyze_add(
             ticker, proposed, current, nav,
             prices=prices, screener_scores=body.get("screener_scores"),
-            ns2_regimes=body.get("ns2_regimes"), theta=theta)
+            ns2_regimes=body.get("ns2_regimes"),
+            tax_lot_data=self._portfolio_holdings()[4], theta=theta)
         result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
@@ -581,7 +615,8 @@ class NS6Handler(BaseHTTPRequestHandler):
         result = scenario_mod.analyze_remove(
             ticker, current, nav, prices=body.get("prices") or {},
             screener_scores=body.get("screener_scores"),
-            ns2_regimes=body.get("ns2_regimes"), theta=theta)
+            ns2_regimes=body.get("ns2_regimes"),
+            tax_lot_data=self._portfolio_holdings()[4], theta=theta)
         result["profile_context"] = self._profile_context(theta)
         self._json(result)
 
@@ -598,7 +633,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             rem, add, proposed, current, nav,
             prices=body.get("prices") or {},
             screener_scores=body.get("screener_scores"),
-            ns2_regimes=body.get("ns2_regimes"), theta=theta)
+            ns2_regimes=body.get("ns2_regimes"),
+            tax_lot_data=self._portfolio_holdings()[4], theta=theta)
         result["profile_context"] = self._profile_context(theta)
         self._json(result)
 

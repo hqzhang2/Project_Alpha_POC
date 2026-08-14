@@ -64,33 +64,56 @@ def load_ns5_portfolios(path: Optional[Path] = None) -> Dict[str, dict]:
 
 def resolve_holdings(
     active: str, source: str, ns5_portfolios: Dict[str, dict]
-) -> Tuple[str, bool, Dict[str, float], Dict[str, float]]:
+) -> Tuple[str, bool, Dict[str, float], Dict[str, float], Dict[str, dict], float]:
     """Resolve the cockpit's current portfolio holdings + source info.
 
-    PURE (no I/O). Returns (source_name, is_model, weights, shares).
+    PURE (no I/O). Returns (source_name, is_model, weights, shares, lots, cash).
     - Real NS-5 portfolio name present in `ns5_portfolios` -> holdings
       normalized to WEIGHTS (shares / total shares) for the engine,
       is_model=False; `shares` = raw NS-5 shares (for the modal).
+    - `lots` (G4): {ticker: {"lots": [{shares, cost_per_share, date}]}} in the
+      shape tax_context._select_lots consumes; {} when the store has none
+      (proxy fallback). A reserved `cash` key on the portfolio is a $ position
+      added to NAV (default 0.0 when absent).
     - "model" or a vanished name -> active profile's model portfolio
-      (already weights), is_model=True; `shares` = {}.
+      (already weights), is_model=True; `shares`/`lots` = {} and cash = 0.0.
     """
     if source != store.MODEL_SOURCE:
         if source in ns5_portfolios:
             raw = ns5_portfolios[source]
             shares: Dict[str, float] = {}
+            lots: Dict[str, dict] = {}
+            cash = 0.0
             for tk, v in raw.items():
+                if str(tk).lower() == "cash":
+                    cash = float(v) if isinstance(v, (int, float)) else 0.0
+                    continue
+                tk_up = str(tk).upper()
                 if isinstance(v, dict):
-                    shares[str(tk).upper()] = float(v.get("shares", 0))
+                    if "shares" in v:
+                        shares[tk_up] = float(v.get("shares", 0))
+                        lot_list = v.get("lots") or []
+                        if lot_list:
+                            lots[tk_up] = {"lots": [
+                                {
+                                    "shares": float(l.get("qty", l.get("shares", 0))),
+                                    "cost_per_share": float(
+                                        l.get("basis", l.get("cost_per_share", 0))),
+                                    "date": l.get("acquired", l.get("date")),
+                                }
+                                for l in lot_list if isinstance(l, dict)
+                            ]}
                 else:
-                    shares[str(tk).upper()] = float(v)
+                    shares[tk_up] = float(v)
             total = sum(shares.values())
             weights = {tk: sh / total for tk, sh in shares.items()} if total else {}
-            return source, False, weights, shares
+            return source, False, weights, shares, lots, cash
         log.warning("portfolio '%s' not in NS-5 store; using model", source)
-    return active, True, config.model_portfolio(active), {}
+    return active, True, config.model_portfolio(active), {}, {}, 0.0
 
 
-def current_holdings() -> Tuple[str, bool, Dict[str, float], Dict[str, float]]:
+def current_holdings() -> Tuple[str, bool, Dict[str, float], Dict[str, float],
+                               Dict[str, dict], float]:
     """Resolve the persisted cockpit selection (batch-job convenience)."""
     active = store.get_active_profile()
     source = store.get_portfolio_source()
@@ -175,11 +198,12 @@ def _align(closes: Dict[str, "pd.Series"], weights: Dict[str, float]):
 
 
 def _portfolio_nav_series(
-    closes: Dict[str, "pd.Series"], weights: Dict[str, float], shares: Dict[str, float]
+    closes: Dict[str, "pd.Series"], weights: Dict[str, float],
+    shares: Dict[str, float], cash: float = 0.0,
 ) -> List[float]:
     """NAV series (floats) for the portfolio.
 
-    - shares path (NS-5 portfolio): NAV_t = Σ shares_i × price_{i,t}
+    - shares path (NS-5 portfolio): NAV_t = Σ shares_i × price_{i,t} + cash
       (absolute-dollar NAV — drawdown is scale-invariant so a base of $0 works).
     - weights path (model): daily return r_t = Σ w_i × r_{i,t}, chained from 1.0.
     """
@@ -191,7 +215,7 @@ def _portfolio_nav_series(
         ).dropna()
         if len(frame) < 2:
             return []
-        nav = (frame * pd.Series(shares).loc[frame.columns]).sum(axis=1)
+        nav = (frame * pd.Series(shares).loc[frame.columns]).sum(axis=1) + cash
         return [float(x) for x in nav.tolist()]
 
     idx, frame, sub = _align(closes, weights)
@@ -257,7 +281,7 @@ def cross_sectional_corr(closes: Dict,
 
 def compute_performance(closes: Dict[str, "pd.Series"], weights: Dict[str, float],
                         shares: Dict[str, float], as_of: str,
-                        theta=None) -> Optional[Dict]:
+                        theta=None, cash: float = 0.0) -> Optional[Dict]:
     """Daily performance row (G2) for the as_of date, from cached closes.
 
     Returns {date, nav, ret, spy_ret, universe_ret, contributions} or None
@@ -269,7 +293,7 @@ def compute_performance(closes: Dict[str, "pd.Series"], weights: Dict[str, float
     - contributions: {ticker: w_i * r_i} (weights = model weights or
       value weights from shares) so the sum equals the portfolio return.
     """
-    nav_series = _portfolio_nav_series(closes, weights, shares)
+    nav_series = _portfolio_nav_series(closes, weights, shares, cash=cash)
     if len(nav_series) < 2:
         return None
     nav, prev = float(nav_series[-1]), float(nav_series[-2])
@@ -361,7 +385,7 @@ def run_once(theta=None) -> Optional[Dict]:
     Returns the snapshot dict, or None if nothing could be computed (no fake
     data written). Designed for a launchd daily cron (R2a)."""
     store.init_db()  # idempotent — ensures the vix_level column migration (R3)
-    source, is_model, weights, shares = current_holdings()
+    source, is_model, weights, shares, lots, cash = current_holdings()
     tickers = list(weights.keys()) + [SPY_TICKER]
     theta = theta or config.load_profile(store.get_active_profile())[0]
     if theta.get("price_feed", {}).get("fetch_vix", True):
@@ -383,6 +407,10 @@ def run_once(theta=None) -> Optional[Dict]:
     if vix is not None:
         _, new_crisis = enforcement_mod.fast_derisk_exposure(vix, crisis, theta)
         store.set_crisis_mode(new_crisis)
+        # G5: alert exactly once on the False->True crisis transition.
+        if new_crisis and not crisis:
+            store.log_circuit_breaker("crisis_entry", None, f"crisis mode entered (VIX {vix:.1f})")
+            store.append_alert("crisis_entry", f"crisis mode entered (VIX {vix:.1f})")
         crisis = new_crisis
     snap["crisis_mode"] = crisis
     snap["fast_derisk_cap"], _ = enforcement_mod.fast_derisk_exposure(vix, crisis, theta)
@@ -397,7 +425,7 @@ def run_once(theta=None) -> Optional[Dict]:
     )
     # G2: persist the daily performance row (nav/ret/benchmarks/contributions)
     # alongside the drawdown row, from the same real closes (no second fetch).
-    perf = compute_performance(closes, weights, shares, snap["as_of"], theta)
+    perf = compute_performance(closes, weights, shares, snap["as_of"], theta, cash=cash)
     if perf is not None:
         store.upsert_performance(
             perf["date"], perf["nav"], perf["ret"],
