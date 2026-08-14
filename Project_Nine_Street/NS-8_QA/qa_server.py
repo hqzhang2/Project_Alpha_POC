@@ -10,6 +10,7 @@ import json
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -19,6 +20,16 @@ import store
 import walkforward
 
 app = FastAPI(title="NS-8 QA", version="0.1.0")
+
+# The portal (:8000) iframes + health-polls this service cross-origin, so CORS
+# must be allowed (same pattern as NS-7's end_headers() CORS, just idiomatic
+# FastAPI). Without this the browser blocks /health and the status dot stays red.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class RebalanceRequest(BaseModel):
