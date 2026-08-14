@@ -197,6 +197,9 @@
         <div class="row"><span class="k">Budget pct</span><span class="v" id="s-budget">—</span></div>
         <div class="row"><span class="k">Budget remaining</span><span class="v" id="s-rem">—</span></div>
         <div class="row"><span class="k">Covered calls</span><span class="v" id="s-cc">—</span></div>
+        <div class="row"><span class="k">VIX level</span><span class="v" id="s-vix">—</span></div>
+        <div class="row"><span class="k">Fast de-risk cap</span><span class="v" id="s-fd">—</span></div>
+        <div class="row"><span class="k">Crisis mode</span><span class="v" id="s-crisis">—</span></div>
       </div>
       <div style="margin-top:10px"><div class="row"><span class="k">Active signal tiers</span></div>
         <div class="chips" id="s-tiers"></div></div>
@@ -448,6 +451,10 @@ function renderStatus() {
   set('s-budget', STATUS.budget_pct !== undefined ? (STATUS.budget_pct*100).toFixed(1)+'%' : '—');
   set('s-rem', STATUS.budget_remaining_pct !== undefined ? (STATUS.budget_remaining_pct*100).toFixed(0)+'%' : '—');
   set('s-cc', STATUS.covered_calls_gated ? 'GATED' : 'OPEN', STATUS.covered_calls_gated ? 'warn' : 'good');
+  set('s-vix', STATUS.vix_level != null ? STATUS.vix_level.toFixed(1) : '—');
+  set('s-fd', STATUS.fast_derisk_cap != null ? (STATUS.fast_derisk_cap*100).toFixed(0)+'%' : '—',
+      STATUS.fast_derisk_cap != null && STATUS.fast_derisk_cap < 0.5 ? 'warn' : '');
+  set('s-crisis', STATUS.crisis_mode ? 'CRISIS' : 'normal', STATUS.crisis_mode ? 'bad' : '');
 
   // Tiers
   const tiers = STATUS.active_tiers || [];

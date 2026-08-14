@@ -249,6 +249,7 @@ def run_once(theta=None) -> Optional[Dict]:
 
     Returns the snapshot dict, or None if nothing could be computed (no fake
     data written). Designed for a launchd daily cron (R2a)."""
+    store.init_db()  # idempotent — ensures the vix_level column migration (R3)
     source, is_model, weights, shares = current_holdings()
     tickers = list(weights.keys()) + [SPY_TICKER]
     theta = theta or config.load_profile(store.get_active_profile())[0]
@@ -263,13 +264,27 @@ def run_once(theta=None) -> Optional[Dict]:
         log.warning("price feed: no live prices; no row written (enforcement will flag stale)")
         return None
 
+    # R3: persist VIX + update the fast-de-risk crisis hysteresis from the
+    # latest VIX (the enforcement loop reads these; it never mutates state on
+    # a GET). No VIX -> crisis unchanged, default_cap used downstream.
+    vix = snap.get("latest_vix")
+    crisis = store.get_crisis_mode()
+    if vix is not None:
+        _, new_crisis = enforcement_mod.fast_derisk_exposure(vix, crisis, theta)
+        store.set_crisis_mode(new_crisis)
+        crisis = new_crisis
+    snap["crisis_mode"] = crisis
+    snap["fast_derisk_cap"], _ = enforcement_mod.fast_derisk_exposure(vix, crisis, theta)
+    snap["fast_derisk_cap"] = round(snap["fast_derisk_cap"], 4)
+
     store.upsert_drawdown(
         snap["as_of"], snap["spy_drawdown_pct"], snap["current_drawdown_pct"],
         snap["budget_pct"], snap["budget_remaining_pct"], snap["exposure_multiplier"],
+        vix_level=vix,
     )
-    log.info("price feed upserted %s: dd=%.4f spy=%.4f budget=%.4f remaining=%.2f",
+    log.info("price feed upserted %s: dd=%.4f spy=%.4f budget=%.4f remaining=%.2f vix=%s crisis=%s",
              snap["as_of"], snap["current_drawdown_pct"], snap["spy_drawdown_pct"],
-             snap["budget_pct"], snap["budget_remaining_pct"])
+             snap["budget_pct"], snap["budget_remaining_pct"], vix, crisis)
     return snap
 
 

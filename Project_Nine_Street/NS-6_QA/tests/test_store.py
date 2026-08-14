@@ -108,3 +108,37 @@ def test_set_active_profile_rejects_unknown(tmp_path, monkeypatch):
     # unknown name refused → stays at default
     assert store.set_active_profile("nope") == "balanced"
     assert store.get_active_profile() == "balanced"
+
+
+# ── R3: vix_level column + crisis-mode state ─────────────────────────────
+def test_upsert_vix_level_and_latest(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "t.db")
+    store.init_db()
+    store.upsert_drawdown("2026-08-13", -0.04, -0.02, -0.05, 0.6, 0.6, vix_level=25.5)
+    assert store.latest()["vix_level"] == pytest.approx(25.5)
+
+
+def test_migration_adds_vix_column_to_existing_table(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "old.db")
+    conn = sqlite3.connect(str(store.DB_PATH))
+    conn.execute("CREATE TABLE drawdown_log (date TEXT PRIMARY KEY, spy_dd_pct REAL, "
+                 "portfolio_dd_pct REAL, budget_pct REAL, budget_remaining_pct REAL, multiplier REAL)")
+    conn.commit()
+    conn.close()
+    store.init_db()  # migration must add vix_level to a pre-existing table
+    cols = {r[1] for r in sqlite3.connect(str(store.DB_PATH)).execute("PRAGMA table_info(drawdown_log)")}
+    assert "vix_level" in cols
+    # and an upsert with vix works against the migrated table
+    store.upsert_drawdown("2026-08-13", -0.04, -0.02, -0.05, 0.6, 0.6, vix_level=20.0)
+    assert store.latest()["vix_level"] == pytest.approx(20.0)
+
+
+def test_crisis_mode_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "t.db")
+    store.init_db()
+    assert store.get_crisis_mode() is False
+    store.set_crisis_mode(True)
+    assert store.get_crisis_mode() is True
+    store.set_crisis_mode(False)
+    assert store.get_crisis_mode() is False
