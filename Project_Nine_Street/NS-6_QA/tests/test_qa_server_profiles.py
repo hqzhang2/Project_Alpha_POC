@@ -44,7 +44,7 @@ def test_enforcement_status_flags_stale_when_no_feed(monkeypatch):
     body = h._sent["body"]
     assert body["data_stale"] is True
     assert body["data_as_of"] is None
-    assert body["phase"] == 2
+    assert body["phase"] == 3
 
 
 def test_enforcement_status_data_stale_on_old_row(tmp_path, monkeypatch):
@@ -86,6 +86,49 @@ def test_serve_dashboard_injects_at_screener_url(monkeypatch):
     assert "__AT_SCREENER_URL__" not in html
     assert "http://localhost:9099/api/fundamentals/screen" in html
     assert "const AT_SCREENER_URL" in html
+
+
+# ── R3: fast de-risk in the live enforcement loop ─────────────────────────
+def _status_with_row(tmp_path, monkeypatch, fresh, **rowkw):
+    store.set_active_profile("balanced")
+    store.upsert_drawdown(fresh, -0.10, -0.05, -0.075, 0.66, 0.66, **rowkw)
+    h = _make_handler()
+    h._enforcement_status()
+    return h._sent["body"]
+
+
+def test_enforcement_status_fast_derisk_min(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    fresh = (date.today() - timedelta(days=1)).isoformat()
+    store.set_crisis_mode(False)
+    b = _status_with_row(tmp_path, monkeypatch, fresh, vix_level=15.0)
+    assert b["phase"] == 3
+    assert b["fast_derisk_cap"] == pytest.approx(1.0)      # smile at VIX 15
+    assert b["budget_multiplier"] == pytest.approx(0.66)   # Phase-1 budget floor
+    assert b["exposure_multiplier"] == pytest.approx(0.66)  # min(1.0, 0.66)
+    assert b["vix_level"] == pytest.approx(15.0)
+    assert b["crisis_mode"] is False
+
+
+def test_enforcement_status_crisis_floor_binds(tmp_path, monkeypatch):
+    """In crisis mode the flat floor caps exposure below the budget multiplier."""
+    from datetime import date, timedelta
+    fresh = (date.today() - timedelta(days=1)).isoformat()
+    store.set_crisis_mode(True)
+    b = _status_with_row(tmp_path, monkeypatch, fresh, vix_level=35.0)
+    assert b["crisis_mode"] is True
+    assert b["fast_derisk_cap"] == pytest.approx(0.20)      # balanced crisis_floor
+    assert b["exposure_multiplier"] == pytest.approx(0.20)  # min(0.20, 0.66)
+
+
+def test_enforcement_status_no_vix_fail_open(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    fresh = (date.today() - timedelta(days=1)).isoformat()
+    store.set_crisis_mode(False)
+    b = _status_with_row(tmp_path, monkeypatch, fresh, vix_level=None)
+    assert b["vix_level"] is None
+    assert b["fast_derisk_cap"] == pytest.approx(0.65)      # default_cap (mid-smile)
+    assert b["crisis_mode"] is False
 
 
 def test_profile_get_returns_available_and_active():

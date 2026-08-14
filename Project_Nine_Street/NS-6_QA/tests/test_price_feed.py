@@ -169,3 +169,35 @@ def test_run_once_writes_one_row(monkeypatch):
     assert row["portfolio_dd_pct"] == pytest.approx(-0.2)  # SPY-only model mirrors SPY decline
     assert row["date"] == snap["as_of"]
     assert snap["latest_vix"] == pytest.approx(40.0)
+
+
+def test_run_once_persists_vix_and_enters_crisis(monkeypatch):
+    """R3: a high-VIX day persists vix_level and flips crisis-mode on."""
+    store.set_crisis_mode(False)
+    closes = _closes(
+        ("SPY", [100.0, 100.0, 100.0]),
+        ("^VIX", [20.0, 35.0, 35.0]),  # >= crisis_in (28) -> crisis
+    )
+    monkeypatch.setattr(price_feed, "fetch_prices", lambda *a, **k: closes)
+    monkeypatch.setattr(price_feed, "current_holdings",
+                        lambda: ("balanced", True, {"SPY": 1.0}, {}))
+    snap = price_feed.run_once()
+    assert snap["crisis_mode"] is True
+    assert snap["fast_derisk_cap"] == pytest.approx(0.20)  # balanced crisis_floor
+    row = store.latest()
+    assert row["vix_level"] == pytest.approx(35.0)
+    assert store.get_crisis_mode() is True  # persisted
+
+
+def test_run_once_low_vix_leaves_crisis_off(monkeypatch):
+    store.set_crisis_mode(False)
+    closes = _closes(
+        ("SPY", [100.0, 100.0, 100.0]),
+        ("^VIX", [15.0, 15.0, 15.0]),  # below crisis_out -> no crisis
+    )
+    monkeypatch.setattr(price_feed, "fetch_prices", lambda *a, **k: closes)
+    monkeypatch.setattr(price_feed, "current_holdings",
+                        lambda: ("balanced", True, {"SPY": 1.0}, {}))
+    snap = price_feed.run_once()
+    assert snap["crisis_mode"] is False
+    assert store.get_crisis_mode() is False
