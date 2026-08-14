@@ -47,39 +47,41 @@ def _target_after_change(current_weights, add=None, remove=None,
 
 def analyze_add(ticker, proposed_weight, current_weights, nav,
                 prices=None, screener_scores=None, ns2_regimes=None,
-                theta=None) -> Dict:
+                tax_lot_data=None, theta=None) -> Dict:
     theta = theta or config.load_theta()
     target = _target_after_change(current_weights, add=ticker,
                                   proposed_weight=proposed_weight)
     return _scenario_response("add", target, current_weights, nav, prices,
                               screener_scores, ns2_regimes, theta,
-                              new_ticker=ticker)
+                              new_ticker=ticker, tax_lot_data=tax_lot_data)
 
 
 def analyze_remove(ticker, current_weights, nav, prices=None,
-                   screener_scores=None, ns2_regimes=None, theta=None) -> Dict:
+                   screener_scores=None, ns2_regimes=None,
+                   tax_lot_data=None, theta=None) -> Dict:
     theta = theta or config.load_theta()
     target = _target_after_change(current_weights, remove=ticker)
     return _scenario_response("remove", target, current_weights, nav, prices,
                               screener_scores, ns2_regimes, theta,
-                              removed_ticker=ticker)
+                              removed_ticker=ticker, tax_lot_data=tax_lot_data)
 
 
 def analyze_replace(remove_ticker, add_ticker, proposed_weight,
                     current_weights, nav, prices=None, screener_scores=None,
-                    ns2_regimes=None, theta=None) -> Dict:
+                    ns2_regimes=None, tax_lot_data=None, theta=None) -> Dict:
     theta = theta or config.load_theta()
     target = _target_after_change(current_weights, add=add_ticker,
                                   remove=remove_ticker,
                                   proposed_weight=proposed_weight)
     return _scenario_response("replace", target, current_weights, nav, prices,
                               screener_scores, ns2_regimes, theta,
-                              new_ticker=add_ticker, removed_ticker=remove_ticker)
+                              new_ticker=add_ticker, removed_ticker=remove_ticker,
+                              tax_lot_data=tax_lot_data)
 
 
 def _scenario_response(kind, target_weights, current_weights, nav, prices,
                        screener_scores, ns2_regimes, theta, new_ticker=None,
-                       removed_ticker=None) -> Dict:
+                       removed_ticker=None, tax_lot_data=None) -> Dict:
     prices = prices or {}
     screener_scores = screener_scores or {}
     ns2_regimes = ns2_regimes or {}
@@ -87,7 +89,7 @@ def _scenario_response(kind, target_weights, current_weights, nav, prices,
     funding_paths = rebalance_mod.generate_funding_paths(
         current_weights, target_weights, nav,
         screener_scores=screener_scores, ns2_regimes=ns2_regimes,
-        theta=theta, prices=prices,
+        theta=theta, prices=prices, tax_lot_data=tax_lot_data,
     )
 
     # Drawdown impact: show budget remaining (before) — computing "after" is

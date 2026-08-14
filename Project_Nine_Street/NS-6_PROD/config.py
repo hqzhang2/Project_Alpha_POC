@@ -133,6 +133,9 @@ THETA_DEFAULTS = {
             "pct_positions": 0.60,     # ≥60% of positions
             "pct_threshold": -0.15,    # down >15%
             "corr_threshold": 0.70,    # AND cross-sectional corr > 0.7
+            # Trailing window (trading days) of daily returns used for the
+            # cross-sectional correlation. Frontier-owned (G1).
+            "corr_lookback_days": 60,
         },
     },
 
@@ -280,6 +283,17 @@ THETA_DEFAULTS = {
         "staleness_days": 2,
         # Fetch ^VIX too (R3's fast de-risk needs the VIX level).
         "fetch_vix": True,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PERFORMANCE SCOREBOARD (G2) — trailing metrics + reconciliation
+    # ═══════════════════════════════════════════════════════════════════
+    "performance": {
+        # Trailing windows (trading days) reported by /api/performance.
+        "windows": [21, 63, 252],
+        # |live_total_ret - backtest_total_ret| in percentage points above
+        # which the reconciliation flags divergence (G2).
+        "reconcile_divergence_pp": 5.0,
     },
 
     # ═══════════════════════════════════════════════════════════════════
@@ -490,3 +504,33 @@ PORTFOLIO_POLICIES = {
 def model_portfolio(profile):
     """Return the model portfolio weights dict for a profile, or {} if unknown."""
     return dict(MODEL_PORTFOLIOS.get(profile, {}))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ASSET-CLASS MAP (G1) — per-position stop classification.
+# ═══════════════════════════════════════════════════════════════════════
+# Classifies each holding ticker for the per-position stop thresholds in
+# THETA_DEFAULTS["position_stops"]. The known sleeve ETFs get explicit
+# classes; everything else (individual equities / equity ETFs) is "equity".
+# Frontier-owned constant — read it, never hardcode per-ticker classes in
+# other modules.
+ASSET_CLASSES = {
+    "BIL": "cash_proxy",
+    "SPY": "equity",          # equity ETF
+    "TLT": "bond_etf",
+    "GLD": "commodity_etf",
+    "IEF": "bond_etf",
+    "DBC": "commodity_etf",
+}
+ASSET_CLASS_DEFAULT = "equity"
+
+
+def asset_class(ticker):
+    """Asset class for a ticker (default "equity", per the G1 spec).
+
+    Unlike enforcement.check_position_stops' internal "unknown" fallback
+    (which only applies when a ticker is ABSENT from the dict), the live
+    loop passes a complete {ticker: class} map, so unclassified individual
+    equities resolve to "equity" (-0.25), not "unknown" (-0.20).
+    """
+    return ASSET_CLASSES.get(str(ticker).upper(), ASSET_CLASS_DEFAULT)
