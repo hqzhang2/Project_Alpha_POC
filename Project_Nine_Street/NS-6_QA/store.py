@@ -80,6 +80,18 @@ def init_db() -> None:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS performance_log (
+                    date          TEXT PRIMARY KEY,
+                    nav           REAL,
+                    ret           REAL,
+                    spy_ret       REAL,
+                    universe_ret  REAL,
+                    contributions TEXT
+                )
+                """
+            )
     except Exception as exc:  # noqa: BLE001 — fail-open
         log.warning("init_db failed: %s", exc)
 
@@ -190,6 +202,63 @@ def last_stop_times() -> Dict[str, str]:
         if row.get("breaker_type") == "position_stop" and row.get("ticker"):
             out.setdefault(row["ticker"], row["timestamp"])
     return out
+
+
+# ── Performance log (G2 scoreboard) ─────────────────────────────────────
+def upsert_performance(date: str, nav, ret, spy_ret=None, universe_ret=None,
+                       contributions=None) -> None:
+    """Upsert one daily performance row (idempotent on date).
+
+    nav: portfolio NAV (shares path = $ value; model path = 1.0-based).
+    ret: daily return fraction (nav_t/nav_{t-1} - 1).
+    spy_ret / universe_ret: same-day benchmark daily returns (SPY calibration
+        + held-universe equal-weight) for the excess math.
+    contributions: {ticker: w_i*r_i} JSON (or dict, serialized) for attribution.
+    """
+    if isinstance(contributions, dict):
+        contributions = json.dumps(contributions)
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO performance_log
+                (date, nav, ret, spy_ret, universe_ret, contributions)
+                VALUES (?,?,?,?,?,?)
+                """,
+                (date, nav, ret, spy_ret, universe_ret, contributions),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("upsert_performance failed: %s", exc)
+
+
+def query_performance(limit: int = 1000) -> List[Dict]:
+    """Most recent performance rows (NEWEST first), each with contributions
+    parsed from JSON. Fail-open: [] on error."""
+    try:
+        with _connect() as conn:
+            rows = conn.execute(
+                "SELECT date, nav, ret, spy_ret, universe_ret, contributions "
+                "FROM performance_log ORDER BY date DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        out: List[Dict] = []
+        for r in rows:
+            row = {
+                "date": r[0],
+                "nav": r[1],
+                "ret": r[2],
+                "spy_ret": r[3],
+                "universe_ret": r[4],
+            }
+            try:
+                row["contributions"] = json.loads(r[5]) if r[5] else {}
+            except (ValueError, TypeError):
+                row["contributions"] = {}
+            out.append(row)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning("query_performance failed: %s", exc)
+        return []
 
 
 # ── Settings (active profile persistence) ───────────────────────────────

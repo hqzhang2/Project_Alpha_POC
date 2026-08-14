@@ -261,6 +261,14 @@
       <h3>Drift Alert Inbox</h3>
       <div id="drift"></div>
     </div>
+
+    <div class="panel">
+      <h3>Performance &amp; Attribution <span class="summary">live vs backtest</span></h3>
+      <div class="rows" id="perf-trailing"></div>
+      <div class="rows" id="perf-excess"></div>
+      <div class="rows" id="perf-attrib"></div>
+      <div class="rows" id="perf-recon"></div>
+    </div>
   </div>
 
   <div class="rail">
@@ -312,6 +320,58 @@ async function refreshStatus() {
   STATUS = d;
   renderStatus();
   renderEvents();
+}
+
+async function refreshPerformance() {
+  try {
+    const d = await api('/api/performance');
+    renderPerformance(d);
+  } catch (e) { /* silent — panel stays at '—' */ }
+}
+
+function renderPerformance(d) {
+  const fmtPct = (x, dp) => x == null ? '—' : (x * 100).toFixed(dp ?? 1) + '%';
+  const t = d.trailing || {};
+  let html = '';
+  for (const [k, m] of Object.entries(t)) {
+    if (!m) continue;
+    html += '<div class="row"><span class="k">' + k.toUpperCase() + '</span>' +
+      '<span class="v">ret ' + fmtPct(m.total_return) + ' · ann ' + fmtPct(m.annualized_return) +
+      ' · vol ' + fmtPct(m.vol) + ' · Sharpe ' + (m.sharpe == null ? '—' : m.sharpe.toFixed(2)) +
+      ' · maxDD ' + fmtPct(m.max_drawdown) + '</span></div>';
+  }
+  document.getElementById('perf-trailing').innerHTML = html ||
+    '<div class="row"><span class="k">trailing</span><span class="v">no data yet</span></div>';
+  const ex = d.excess || {};
+  let exHtml = '';
+  for (const [k, v] of Object.entries(ex)) {
+    if (!v) continue;
+    exHtml += '<div class="row"><span class="k">excess ' + k.toUpperCase() + '</span>' +
+      '<span class="v">vs SPY ' + fmtPct(v.spy) + ' · vs universe ' + fmtPct(v.universe) + '</span></div>';
+  }
+  document.getElementById('perf-excess').innerHTML = exHtml ||
+    '<div class="row"><span class="k">excess</span><span class="v">—</span></div>';
+  const a = d.attribution || {};
+  let aHtml = '';
+  (a.top || []).forEach(x => aHtml += '<div class="row"><span class="k">' + x.ticker +
+    '</span><span class="v good">+' + (x.contribution * 100).toFixed(2) + '%</span></div>');
+  (a.bottom || []).forEach(x => aHtml += '<div class="row"><span class="k">' + x.ticker +
+    '</span><span class="v bad">' + (x.contribution * 100).toFixed(2) + '%</span></div>');
+  if (!aHtml) aHtml = '<div class="row"><span class="k">attribution</span><span class="v">—</span></div>';
+  document.getElementById('perf-attrib').innerHTML = aHtml;
+  const r = d.reconciliation;
+  let rHtml;
+  if (r && r.divergent) {
+    rHtml = '<div class="row"><span class="k">reconciliation</span><span class="v bad">DIVERGENT Δ' +
+      r.delta_pp.toFixed(2) + 'pp</span></div>';
+  } else if (r) {
+    rHtml = '<div class="row"><span class="k">reconciliation</span><span class="v">live ' +
+      fmtPct(r.live_total_ret, 2) + ' · bt ' + fmtPct(r.backtest_total_ret, 2) +
+      ' · Δ ' + (r.delta_pp == null ? '—' : r.delta_pp.toFixed(2) + 'pp') + '</span></div>';
+  } else {
+    rHtml = '<div class="row"><span class="k">reconciliation</span><span class="v">no baseline (fail-open)</span></div>';
+  }
+  document.getElementById('perf-recon').innerHTML = rHtml;
 }
 
 // ── Profile grid + suggestion ───────────────────────────────────────────
@@ -727,6 +787,7 @@ async function refreshDrift() {
     await refreshProfile();
     await refreshStatus();
     await refreshPortfolio();
+    await refreshPerformance();
   } catch (e) {
     document.getElementById('err').textContent = 'Failed to load: ' + e.message;
   }
@@ -734,6 +795,7 @@ async function refreshDrift() {
   setInterval(refreshProfile, 60000);
   setInterval(refreshDrift, 60000);
   setInterval(refreshPortfolio, 30000);
+  setInterval(refreshPerformance, 60000);
   refreshDrift();
 })();
 </script>

@@ -286,6 +286,17 @@ THETA_DEFAULTS = {
     },
 
     # ═══════════════════════════════════════════════════════════════════
+    # PERFORMANCE SCOREBOARD (G2) — trailing metrics + reconciliation
+    # ═══════════════════════════════════════════════════════════════════
+    "performance": {
+        # Trailing windows (trading days) reported by /api/performance.
+        "windows": [21, 63, 252],
+        # |live_total_ret - backtest_total_ret| in percentage points above
+        # which the reconciliation flags divergence (G2).
+        "reconcile_divergence_pp": 5.0,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════
     # DRIFT ALERTS — quarterly + event-driven drift classification
     # ═══════════════════════════════════════════════════════════════════
     "drift_alert": {

@@ -255,6 +255,56 @@ def cross_sectional_corr(closes: Dict,
     return round(total / count, 4) if count else None
 
 
+def compute_performance(closes: Dict[str, "pd.Series"], weights: Dict[str, float],
+                        shares: Dict[str, float], as_of: str,
+                        theta=None) -> Optional[Dict]:
+    """Daily performance row (G2) for the as_of date, from cached closes.
+
+    Returns {date, nav, ret, spy_ret, universe_ret, contributions} or None
+    when there aren't 2 NAV points (fail-open — nothing persisted).
+    - ret: nav_t/nav_{t-1} - 1 from the NAV series' last two points.
+    - spy_ret: same-day SPY daily return (calibration benchmark).
+    - universe_ret: equal-weight mean of the HOLDINGS' daily returns (the
+      honest bar per R5 — labeled, never a hardcoded "beat SPY" gate).
+    - contributions: {ticker: w_i * r_i} (weights = model weights or
+      value weights from shares) so the sum equals the portfolio return.
+    """
+    nav_series = _portfolio_nav_series(closes, weights, shares)
+    if len(nav_series) < 2:
+        return None
+    nav, prev = float(nav_series[-1]), float(nav_series[-2])
+    ret = nav / prev - 1.0 if prev else None
+    if ret is None:
+        return None
+    spy = closes.get(SPY_TICKER)
+    spy_ret = (float(spy.iloc[-1] / spy.iloc[-2] - 1.0)
+               if spy is not None and len(spy) >= 2 else None)
+    holdings = [tk for tk in (list(shares.keys()) if shares else list(weights.keys()))
+                if tk in closes and len(closes[tk]) >= 2
+                and tk not in (SPY_TICKER, VIX_TICKER)]
+    h_rets = {tk: float(closes[tk].iloc[-1] / closes[tk].iloc[-2] - 1.0)
+              for tk in holdings}
+    universe_ret = (sum(h_rets.values()) / len(h_rets)) if h_rets else None
+    # weights for contributions: model weights, or value weights from shares.
+    if weights:
+        tot = sum(weights.get(tk, 0.0) for tk in h_rets) or 1.0
+        w = {tk: weights.get(tk, 0.0) / tot for tk in h_rets}
+    else:
+        prices = {tk: float(closes[tk].iloc[-1]) for tk in h_rets}
+        vals = {tk: shares.get(tk, 0.0) * prices[tk] for tk in h_rets}
+        tot = sum(vals.values())
+        w = {tk: vals[tk] / tot for tk in h_rets} if tot else {}
+    contribs = {tk: round(w.get(tk, 0.0) * h_rets[tk], 6) for tk in h_rets}
+    return {
+        "date": as_of,
+        "nav": nav,
+        "ret": ret,
+        "spy_ret": spy_ret,
+        "universe_ret": universe_ret,
+        "contributions": contribs,
+    }
+
+
 def compute_snapshot(
     weights: Dict[str, float],
     shares: Dict[str, float],
@@ -345,6 +395,14 @@ def run_once(theta=None) -> Optional[Dict]:
         position_drawdowns=snap.get("position_drawdowns"),
         cross_sectional_corr=snap.get("cross_sectional_corr"),
     )
+    # G2: persist the daily performance row (nav/ret/benchmarks/contributions)
+    # alongside the drawdown row, from the same real closes (no second fetch).
+    perf = compute_performance(closes, weights, shares, snap["as_of"], theta)
+    if perf is not None:
+        store.upsert_performance(
+            perf["date"], perf["nav"], perf["ret"],
+            perf.get("spy_ret"), perf.get("universe_ret"), perf.get("contributions"),
+        )
     log.info("price feed upserted %s: dd=%.4f spy=%.4f budget=%.4f remaining=%.2f vix=%s crisis=%s",
              snap["as_of"], snap["current_drawdown_pct"], snap["spy_drawdown_pct"],
              snap["budget_pct"], snap["budget_remaining_pct"], vix, crisis)

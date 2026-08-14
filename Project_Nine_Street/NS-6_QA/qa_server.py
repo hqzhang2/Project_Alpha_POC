@@ -37,6 +37,7 @@ import budget as budget_mod
 import config
 import drift_alert as drift_mod
 import enforcement as enforcement_mod
+import performance as performance_mod
 import price_feed
 import rebalance as rebalance_mod
 import scenario as scenario_mod
@@ -146,6 +147,8 @@ class NS6Handler(BaseHTTPRequestHandler):
             return self._portfolio_get()
         if path == "/api/drift":
             return self._drift()
+        if path == "/api/performance":
+            return self._performance()
         self._json({"error": f"not found: {path}"}, 404)
 
     def do_POST(self):
@@ -491,6 +494,47 @@ class NS6Handler(BaseHTTPRequestHandler):
         result["profile_context"] = self._profile_context(theta)
         result["target_source"] = target_source
         self._json(result)
+
+    def _performance(self):
+        """G2 scoreboard: trailing metrics, benchmark excess, attribution,
+        and backtest-vs-live reconciliation (fail-open when no data/baseline)."""
+        theta = self._active_theta()
+        rows_asc = list(reversed(store.query_performance(limit=1000)))
+        windows = theta.get("performance", {}).get("windows", [21, 63, 252])
+        navs = [r["nav"] for r in rows_asc]
+        trailing: Dict = {}
+        excess: Dict = {}
+        for w in list(windows) + [None]:
+            key = f"{w}d" if w else "inception"
+            m = performance_mod.trailing_metrics(navs, window=w)
+            trailing[key] = m
+            if not m:
+                excess[key] = {"spy": None, "universe": None}
+                continue
+            seg = rows_asc[-w:] if w and len(rows_asc) > w else rows_asc
+            spy = performance_mod.compounded_return([r.get("spy_ret") for r in seg])
+            uni = performance_mod.compounded_return([r.get("universe_ret") for r in seg])
+            excess[key] = {
+                "spy": round(m["total_return"] - spy, 4) if spy is not None else None,
+                "universe": round(m["total_return"] - uni, 4) if uni is not None else None,
+            }
+        attr = performance_mod.attribution(rows_asc)
+        recon = None
+        bt_map = performance_mod.load_backtest_baseline()
+        if bt_map and rows_asc:
+            live_map = {r["date"]: r["nav"] for r in rows_asc}
+            recon = performance_mod.reconcile(
+                live_map, bt_map,
+                divergence_pp=theta.get("performance", {}).get("reconcile_divergence_pp", 5.0))
+        self._json({
+            "as_of": rows_asc[-1]["date"] if rows_asc else None,
+            "benchmarks": {"spy": "SPY (calibration)",
+                           "universe": "Held universe (equal-weight)"},
+            "trailing": trailing,
+            "excess": excess,
+            "attribution": attr,
+            "reconciliation": recon,
+        })
 
     def _scenario_add(self, body):
         theta = self._active_theta()
