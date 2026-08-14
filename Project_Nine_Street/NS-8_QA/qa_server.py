@@ -10,6 +10,7 @@ import json
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import config
@@ -89,6 +90,15 @@ def health():
             "risky_assets": config.RISKY_ASSETS,
         }
     }
+
+
+@app.get("/dashboard")
+def dashboard():
+    """Serve the NS-8 dashboard HTML."""
+    dashboard_path = config.DATA_DIR.parent / "ns8_dashboard.html"
+    if dashboard_path.exists():
+        return FileResponse(dashboard_path)
+    raise HTTPException(404, "Dashboard not found")
 
 
 if __name__ == "__main__":
