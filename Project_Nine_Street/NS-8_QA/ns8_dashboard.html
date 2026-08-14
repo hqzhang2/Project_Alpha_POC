@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-8 Tactical Allocation — QA</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117;
+    color: #e8e8f0;
+    padding: 24px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #1e1e2e;
+  }
+  .title { font-size: 20px; font-weight: 700; }
+  .title span { color: #8888a0; font-weight: 400; margin-left: 8px; }
+  .badge {
+    background: #14532d;
+    color: #4ade80;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: #161b22;
+    border: 1px solid #1e1e2e;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #8888a0;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #21262d;
+  }
+  .metric:last-child { border-bottom: none; }
+  .metric-label { color: #8888a0; }
+  .metric-value { font-weight: 600; font-family: monospace; }
+  .metric-value.up { color: #3fb950; }
+  .metric-value.down { color: #f85149; }
+  .metric-value.neutral { color: #4ade80; }
+  .signal-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-family: monospace;
+    font-size: 12px;
+  }
+  .signal-on { color: #3fb950; }
+  .signal-off { color: #f85149; }
+  .weights-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .weights-table th { text-align: left; color: #8888a0; padding: 6px; font-weight: 600; }
+  .weights-table td { padding: 6px; border-top: 1px solid #21262d; }
+  .weights-table .pos { color: #3fb950; }
+  .weights-table .cash { color: #4ade80; }
+  .weights-table .zero { color: #6b7280; }
+  .tranche-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .tranche {
+    background: #12121a;
+    border: 1px solid #1e1e2e;
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+  .tranche.active { border-color: #4ade80; background: #0f1a0f; }
+  .tranche-num { font-size: 10px; color: #8888a0; text-transform: uppercase; }
+  .tranche-date { font-family: monospace; font-size: 11px; }
+  .loading { color: #6b7280; text-align: center; padding: 20px; }
+  .btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #e8e8f0;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: #4ade80; color: #4ade80; }
+  .btn-primary { background: #14532d; border-color: #4ade80; color: #4ade80; }
+  .btn-primary:hover { background: #1a6b35; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">NS-8 Tactical Allocation <span>QA Environment</span></div>
+    <span class="badge" id="env-badge">QA</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Current Signal</h3>
+      <div id="signal-content" class="loading">Loading...</div>
+    </div>
+
+    <div class="card">
+      <h3>Portfolio Weights</h3>
+      <table class="weights-table" id="weights-table">
+        <thead>
+          <tr><th>Asset</th><th>ETF</th><th class="metric-value">Weight</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Tranche Schedule</h3>
+      <div id="tranche-content" class="loading">Loading...</div>
+    </div>
+
+    <div class="card">
+      <h3>Walk-Forward Metrics</h3>
+      <div id="wf-content" class="loading">Loading...</div>
+    </div>
+  </div>
+
+  <div class="actions" style="margin-top: 24px;">
+    <button class="btn btn-primary" onclick="triggerRebalance()">Rebalance Now</button>
+    <button class="btn" onclick="refreshAll()">Refresh</button>
+  </div>
+
+<script>
+const API_BASE = 'http://localhost:9281';
+const ASSET_INFO = {
+  SPY: { name: 'US Large-Cap Equity', role: 'Growth' },
+  EFA: { name: 'Developed Intl Equity', role: 'Growth' },
+  IEF: { name: 'US Intermediate Bonds', role: 'Diversifier' },
+  VNQ: { name: 'US REITs', role: 'Real Assets' },
+  DBC: { name: 'Broad Commodities', role: 'Inflation Hedge' },
+  SHV: { name: 'Short Treasury (0-1Y)', role: 'Cash Proxy' }
+};
+
+async function fetchJSON(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.error('Fetch error:', e);
+    return null;
+  }
+}
+
+function renderSignals(doc) {
+  const container = document.getElementById('signal-content');
+  if (!doc || !doc.signals) {
+    container.innerHTML = '<div class="loading">No signal data</div>';
+    return;
+  }
+  let html = '';
+  for (const [ticker, signal] of Object.entries(doc.signals)) {
+    const info = ASSET_INFO[ticker];
+    const cls = signal === 1 ? 'signal-on' : 'signal-off';
+    const label = signal === 1 ? 'LONG' : 'CASH';
+    html += `<div class="signal-row">
+      <span>${ticker}</span>
+      <span class="${cls}">${label}</span>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+function renderWeights(doc) {
+  const tbody = document.querySelector('#weights-table tbody');
+  if (!doc || !doc.weights) {
+    tbody.innerHTML = '<tr><td colspan="3" class="loading">No weight data</td></tr>';
+    return;
+  }
+  let html = '';
+  for (const [ticker, weight] of Object.entries(doc.weights)) {
+    const info = ASSET_INFO[ticker];
+    let cls = 'pos';
+    if (weight === 0) cls = 'zero';
+    else if (ticker === 'SHV') cls = 'cash';
+    const pct = (weight * 100).toFixed(1) + '%';
+    html += `<tr>
+      <td>${ticker}</td>
+      <td>${info?.name || ''}</td>
+      <td class="metric-value ${cls}">${pct}</td>
+    </tr>`;
+  }
+  tbody.innerHTML = html;
+}
+
+function renderTranche(doc) {
+  const container = document.getElementById('tranche-content');
+  if (!doc || !doc.tranche) {
+    container.innerHTML = '<div class="loading">No tranche data</div>';
+    return;
+  }
+  const { current, schedule, total } = doc.tranche;
+  let html = `<div style="margin-bottom:8px;font-size:12px;color:#8888a0;">
+    Current tranche: <strong>${current + 1}/${total}</strong> (0-indexed: ${current})
+  </div>
+  <div class="tranche-grid">`;
+  schedule.forEach((date, i) => {
+    const active = i === current ? 'active' : '';
+    html += `<div class="tranche ${active}">
+      <div class="tranche-num">Tranche ${i + 1}</div>
+      <div class="tranche-date">${date}</div>
+    </div>`;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderWalkforward(doc) {
+  const container = document.getElementById('wf-content');
+  if (!doc || !doc.metrics) {
+    container.innerHTML = '<div class="loading">No walkforward data</div>';
+    return;
+  }
+  const m = doc.metrics;
+  const gates = [
+    { label: 'Sharpe ≥ 0.60', value: m.sharpe >= 0.60, actual: m.sharpe.toFixed(3) },
+    { label: 'MaxDD ≤ 15%', value: m.max_drawdown <= 0.15, actual: (m.max_drawdown * 100).toFixed(2) + '%' },
+    { label: 'Turnover ≤ 0.8%', value: m.annual_turnover <= 0.008, actual: (m.annual_turnover * 100).toFixed(2) + '%' },
+    { label: 'Cost Drag ≤ 30bps', value: m.annual_cost_drag <= 0.0030, actual: (m.annual_cost_drag * 10000).toFixed(1) + 'bps' }
+  ];
+  let html = '<div style="display:grid;gap:8px;">';
+  gates.forEach(g => {
+    html += `<div class="signal-row" style="align-items:center;">
+      <span>${g.label}</span>
+      <span class="metric-value ${g.value ? 'up' : 'down'}">${g.value ? 'PASS' : 'FAIL'} (${g.actual})</span>
+    </div>`;
+  });
+  html += `<div class="signal-row" style="margin-top:8px;padding-top:8px;border-top:1px solid #21262d;">
+    <span>CAGR</span>
+    <span class="metric-value">${(m.cagr * 100).toFixed(2)}%</span>
+  </div>
+  <div class="signal-row">
+    <span>Final Equity</span>
+    <span class="metric-value">${m.final_equity.toFixed(4)}x</span>
+  </div>`;
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+async function loadSignals() {
+  const doc = await fetchJSON(`${API_BASE}/api/signals`);
+  if (doc) {
+    renderSignals(doc);
+    renderWeights(doc);
+    renderTranche(doc);
+  }
+}
+
+async function loadTranche() {
+  const doc = await fetchJSON(`${API_BASE}/api/tranche`);
+  if (doc) renderTranche(doc);
+}
+
+async function loadWalkforward() {
+  const doc = await fetchJSON(`${API_BASE}/api/walkforward`);
+  if (doc) renderWalkforward(doc);
+}
+
+async function refreshAll() {
+  document.querySelectorAll('.loading').forEach(el => el.textContent = 'Refreshing...');
+  await Promise.all([loadSignals(), loadTranche(), loadWalkforward()]);
+}
+
+async function triggerRebalance() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Rebalancing...';
+  try {
+    const res = await fetch(`${API_BASE}/api/rebalance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'yfinance' })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      btn.textContent = 'Done';
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'Rebalance Now'; refreshAll(); }, 1000);
+    } else {
+      btn.textContent = 'Error';
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'Rebalance Now'; }, 2000);
+    }
+  } catch (e) {
+    btn.textContent = 'Error';
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Rebalance Now'; }, 2000);
+  }
+}
+
+// Initial load
+refreshAll();
+// Auto-refresh every 60 seconds
+setInterval(refreshAll, 60000);
+</script>
+</body>
+</html>

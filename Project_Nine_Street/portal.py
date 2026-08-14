@@ -44,6 +44,7 @@ STRATEGIES = {
     'ns5':   {'name': 'NS-5 (Portfolio Grading)', 'path': 'ns5_dashboard.html', 'prod': 9250, 'qa': 9251},
     'ns6':   {'name': 'NS-6 (Drawdown Engine)', 'path': 'ns6_dashboard.html', 'prod': 9260, 'qa': 9261},
     'ns7':   {'name': 'NS-7 (Growth/Momentum)', 'path': 'ns7_dashboard.html', 'prod': 9270, 'qa': 9271},
+    'ns8':   {'name': 'NS-8 (Tactical Alloc)', 'path': 'ns8_dashboard.html', 'prod': 9280, 'qa': 9281},
 }
 
 # HTML Template with all braces escaped for Python .format()
