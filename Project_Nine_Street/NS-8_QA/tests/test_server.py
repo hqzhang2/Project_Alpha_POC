@@ -1,95 +1,119 @@
-"""tests/test_server.py — NS-8 QA Server Verification.
+"""tests/test_server.py — NS-8 Server Verification (stdlib http.server).
 
-Canonical tests for qa_server.py so CORS and endpoint behavior have a
-repeatable, non-ad-hoc check (previously only verified via manual curl).
-Uses FastAPI TestClient — no live server needed.
+Canonical tests for qa_server.py (now stdlib http.server, not FastAPI).
+Spins up the real HTTPServer on a scratch port and exercises the endpoints,
+matching the other NS services' verification approach.
 """
+import json
+import os
 import sys
+import threading
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi.testclient import TestClient  # noqa: E402
-from qa_server import app  # noqa: E402
+import qa_server  # noqa: E402
 
-client = TestClient(app)
+SCRATCH_PORT = 9381
+
+
+def _start_server():
+    os.environ["PORT"] = str(SCRATCH_PORT)
+    os.environ["ENV"] = "QA"
+    qa_server.store.init_db()
+    qa_server.store.init_tranche_state()
+    from http.server import HTTPServer
+    srv = HTTPServer(("0.0.0.0", SCRATCH_PORT), qa_server.NS8Handler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    return srv
+
+
+def _get(path, headers=None):
+    req = urllib.request.Request(f"http://localhost:{SCRATCH_PORT}{path}",
+                                 headers=headers or {})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.status, dict(resp.headers), resp.read()
+
+
+_server = None
+
+
+def setup_module():
+    global _server
+    _server = _start_server()
+
+
+def teardown_module():
+    if _server:
+        _server.shutdown()
 
 
 def test_health_ok():
-    """Health endpoint returns service metadata."""
-    r = client.get("/health")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["service"] == "NS-8 QA"
-    assert body["config"]["sma_window"] == 200
-    assert body["config"]["tranches"] == 4
+    """Health endpoint returns service metadata + env."""
+    status, _, body = _get("/health")
+    assert status == 200
+    data = json.loads(body)
+    assert data["service"] == "NS-8"
+    assert data["env"] == "QA"
+    assert data["config"]["sma_window"] == 200
+    assert data["config"]["tranches"] == 4
 
 
 def test_health_cors_header():
     """Cross-origin health poll (from portal :8000) must expose CORS."""
-    r = client.get(
-        "/health",
-        headers={"Origin": "http://localhost:8000"},
-    )
-    assert r.status_code == 200
-    assert r.headers.get("access-control-allow-origin") == "*"
+    status, headers, _ = _get("/health", headers={"Origin": "http://localhost:8000"})
+    assert status == 200
+    assert headers.get("Access-Control-Allow-Origin") == "*"
 
 
 def test_preflight_cors():
     """OPTIONS preflight carries CORS allow headers."""
-    r = client.options(
-        "/health",
+    req = urllib.request.Request(
+        f"http://localhost:{SCRATCH_PORT}/health",
         headers={
             "Origin": "http://localhost:8000",
             "Access-Control-Request-Method": "GET",
-        },
-    )
-    assert r.status_code in (200, 204)
-    assert r.headers.get("access-control-allow-origin") == "*"
+        }, method="OPTIONS")
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        assert resp.status in (200, 204)
+        assert resp.headers.get("Access-Control-Allow-Origin") == "*"
 
 
 def test_dashboard_served():
     """Dashboard HTML is served at /dashboard with CORS."""
-    r = client.get(
-        "/dashboard",
-        headers={"Origin": "http://localhost:8000"},
-    )
-    assert r.status_code == 200
-    assert "NS-8 Tactical Allocation" in r.text
-    assert r.headers.get("access-control-allow-origin") == "*"
+    status, headers, body = _get("/dashboard")
+    assert status == 200
+    assert b"NS-8 Tactical Allocation" in body
+    assert headers.get("Access-Control-Allow-Origin") == "*"
 
 
-def test_dashboard_missing_returns_404():
-    """Dashboard returns 404 only if the HTML file is absent."""
-    import config
-    from pathlib import Path as P
-    orig = config.DATA_DIR.parent / "ns8_dashboard.html"
-    if not orig.exists():
-        r = client.get("/dashboard")
-        assert r.status_code == 404
-
-
-def test_signals_404_without_data():
-    """/api/signals returns 404 before any rebalance has run."""
-    # TestClient uses a fresh app; the store may or may not have data.
-    # Guard: if store DB is absent/empty, expect 404; else expect 200 shape.
-    r = client.get("/api/signals")
-    if r.status_code == 200:
-        body = r.json()
-        assert "signals" in body
-        assert "weights" in body
-    else:
-        assert r.status_code == 404
+def test_root_serves_dashboard():
+    """Root / also serves the dashboard."""
+    status, _, body = _get("/")
+    assert status == 200
+    assert b"NS-8" in body
 
 
 def test_tranche_structure():
     """Tranche endpoint returns current + total + schedule."""
-    r = client.get("/api/tranche")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["total_tranches"] == 4
-    assert "current_tranche" in body
-    assert "schedule" in body
+    status, _, body = _get("/api/tranche")
+    assert status == 200
+    data = json.loads(body)
+    assert data["total"] == 4
+    assert "current" in data
+    assert "schedule" in data
+
+
+def test_unknown_route_404():
+    """Unknown route returns 404."""
+    try:
+        _get("/api/nonexistent")
+        assert False, "expected 404"
+    except urllib.error.HTTPError as e:
+        assert e.code == 404
 
 
 if __name__ == "__main__":

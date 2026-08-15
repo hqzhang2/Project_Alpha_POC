@@ -30,6 +30,7 @@ SERVICES=(
     "Project_Nine_Street/NS-5_PROD"
     "Project_Nine_Street/NS-6_PROD"
     "Project_Nine_Street/NS-7_PROD"
+    "Project_Nine_Street/NS-8_PROD"
 )
 for s in "${SERVICES[@]}"; do
     if git cat-file -e "$RELEASE:$s" 2>/dev/null; then
@@ -43,7 +44,7 @@ done
 echo "== Reloading PROD launchd jobs (bootout/bootstrap: plists may have changed) =="
 for job in com.alpha.terminal.prod com.ninestreet.ns1.prod com.ninestreet.ns2.prod \
            com.ninestreet.ns3.prod com.ninestreet.ns4.prod com.ninestreet.ns5.prod \
-           com.ninestreet.ns6.prod com.ninestreet.ns7.prod \
+           com.ninestreet.ns6.prod com.ninestreet.ns7.prod com.ninestreet.ns8.prod \
            com.ninestreet.ns6.pricefeed.prod; do
     if [ -f "$HOME/Library/LaunchAgents/$job.plist" ]; then
         launchctl bootout "gui/$(id -u)/$job" 2>/dev/null || true
@@ -57,7 +58,7 @@ done
 
 echo "== Verifying health endpoints =="
 sleep 6
-for port in 9098 9218 9228 9236 9240 9250 9260 9270; do
+for port in 9098 9218 9228 9236 9240 9250 9260 9270 9280; do
     if curl -sf -m 8 "http://localhost:$port/health" >/dev/null; then
         echo "  Port $port: OK"
     else

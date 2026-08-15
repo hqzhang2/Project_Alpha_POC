@@ -29,8 +29,8 @@ import pipeline
 import store
 import walkforward
 
-PORT = int(os.environ.get("PORT", 9281))
-ENV = os.environ.get("ENV", "QA")
+PORT = int(os.environ.get("PORT", 9280))
+ENV = os.environ.get("ENV", "PROD")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("ns8.qa_server")
