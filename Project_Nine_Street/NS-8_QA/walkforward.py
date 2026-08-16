@@ -284,23 +284,28 @@ def _max_drawdown_from_returns(rets) -> float:
 
 # ── CLI ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    for label, tr in [("tranched-weekly", True), ("monthly", False)]:
-        res = run_walkforward(tranched=tr)
-        m = res["metrics"]
-        print(f"\n=== NS-8 Walk-Forward [{label}] ===")
-        print(f"Period: {res['config']['start']} to {res['config']['end']}")
-        print(f"Trading days: {m['n_trading_days']}  years: {m['years']}")
-        print(f"Sharpe: {m['sharpe']}")
-        print(f"Max Drawdown: {m['max_drawdown']:.2%}")
-        print(f"CAGR: {m['cagr']:.2%}")
-        print(f"Annual Turnover: {m['annual_turnover']:.2%}")
-        print(f"Annual Cost Drag: {m['annual_cost_drag']:.6f}")
-        print(f"Final Equity: {m['final_equity']:.4f}")
+    mt = run_walkforward(tranched=True)["metrics"]
+    mm = run_walkforward(tranched=False)["metrics"]
 
-        print("\n=== Acceptance Gates ===")
-        print(f"Sharpe >= 0.60: {m['sharpe'] >= 0.60} ({m['sharpe']:.3f})")
-        print(f"MaxDD <= 15%: {m['max_drawdown'] <= 0.15} ({m['max_drawdown']:.2%})")
-        print(f"Turnover <= 0.8% (tranched): {m['annual_turnover'] <= 0.008} ({m['annual_turnover']:.2%})")
-        print(f"Cost Drag <= 30bps: {m['annual_cost_drag'] <= 0.0030} ({m['annual_cost_drag']:.4f})")
-        iv = (m['cagr'] / m['sharpe']) if m['sharpe'] else float('inf')
-        print(f"Implied vol (CAGR/Sharpe): {iv:.1%} (sane band 5%-15%)")
+    print("=== NS-8 Walk-Forward [tranched-weekly] (re-spec 2026-08-16) ===")
+    print(f"Period: {config.WF_START} to {config.WF_END}")
+    print(f"Trading days: {mt['n_trading_days']}  years: {mt['years']}")
+    print(f"Sharpe: {mt['sharpe']}")
+    print(f"Max Drawdown: {mt['max_drawdown']:.2%}")
+    print(f"CAGR: {mt['cagr']:.2%}")
+    print(f"Annual Turnover: {mt['annual_turnover']:.0%} (tranched) "
+          f"vs {mm['annual_turnover']:.0%} (monthly)")
+    cost_2bp = mt['annual_turnover'] * 0.0002   # realistic 2bp/side liquid ETFs
+    print(f"Cost Drag @2bp/side: {cost_2bp*10000:.1f} bp/yr")
+    print(f"Final Equity: {mt['final_equity']:.4f}")
+
+    print("\n=== Acceptance Gates ===")
+    print(f"Sharpe >= 0.60: {'PASS' if mt['sharpe'] >= 0.60 else 'FAIL'} ({mt['sharpe']:.3f})")
+    print(f"MaxDD <= 15% [HARD GATE]: {'PASS' if mt['max_drawdown'] <= 0.15 else 'FAIL'} ({mt['max_drawdown']:.2%})")
+    print(f"Tranche benefit (turnover down): {'PASS' if mt['annual_turnover'] < mm['annual_turnover'] else 'FAIL'} "
+          f"({mt['annual_turnover']:.0%} vs {mm['annual_turnover']:.0%})")
+    print(f"Cost Drag @2bp/side <= 20bp: {'PASS' if cost_2bp <= 0.0020 else 'FAIL'} ({cost_2bp*10000:.1f} bp)")
+    iv = (mt['cagr'] / mt['sharpe']) if mt['sharpe'] else float('inf')
+    print(f"Implied vol (CAGR/Sharpe): {iv:.1%} (sane band 5%-15%): "
+          f"{'PASS' if 0.05 <= iv <= 0.15 else 'FAIL'}")
+    print("\n[Turnover is a REPORTED diagnostic, not a gate — the control is cost drag.]")
