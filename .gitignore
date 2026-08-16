@@ -86,7 +86,9 @@ Project_Nine_Street/NS-7_PROD/data/
 Project_Nine_Street/NS-8_QA/data/
 Project_Nine_Street/NS-8_PROD/data/
 Project_Nine_Street/NS-X_QA/data/
+Project_Nine_Street/NS-X_PROD/data/
 Project_Nine_Street/NS-PC/data/
+Project_Nine_Street/NS-PC_PROD/data/
 ns6_backtest_results.json
 Project_Nine_Street/combined_walkforward_results.json
 Project_Nine_Street/R2_frontier_validation.json

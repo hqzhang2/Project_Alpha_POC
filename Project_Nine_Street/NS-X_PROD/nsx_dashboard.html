@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-X — Strategy Allocation</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9;
+          --dim:#8b949e; --accent:#58a6ff; --green:#3fb950; --red:#f85149; --amber:#d29922; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font:13px/1.5 -apple-system,SF Mono,Menlo,monospace; padding:16px; }
+  h1 { font-size:15px; margin-bottom:12px; color:#e6edf3; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--dim); margin:16px 0 6px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; }
+  .full { grid-column:1/-1; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--border); }
+  th { color:var(--dim); font-weight:600; }
+  td.num, th.num { text-align:right; }
+  .bar { height:10px; background:var(--border); border-radius:3px; overflow:hidden; display:inline-block; vertical-align:middle; }
+  .bar span { display:block; height:100%; background:var(--accent); }
+  .pos { color:var(--green); } .neg { color:var(--red); }
+  .chip { display:inline-block; padding:1px 6px; border-radius:3px; font-size:11px; margin-left:6px; }
+  .chip.return { background:#1f3d2b; color:var(--green); }
+  .chip.defensive { background:#3d301f; color:var(--amber); }
+  .chip.diversifier { background:#1f3a5f; color:var(--accent); }
+  .chip.riskoff { background:#3a1f1f; color:var(--red); }
+  .chip.supplemental { background:#333; color:var(--dim); }
+  .meta { color:var(--dim); font-size:11px; }
+  #status { color:var(--dim); margin-top:8px; }
+</style>
+</head>
+<body>
+<h1>NS-X — Strategy Allocation <span class="meta">(risk-adjusted relative momentum)</span></h1>
+<div class="grid">
+  <div class="panel">
+    <h2>Strategy Weights</h2>
+    <table id="weights"><thead><tr><th>Strategy</th><th>Role</th><th class="num">Weight</th><th class="num">Momentum</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="panel">
+    <h2>Allocation Summary</h2>
+    <div id="summary" class="meta">loading…</div>
+    <h2>Registry</h2>
+    <table id="registry"><thead><tr><th>id</th><th>cadence</th><th>enabled</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="panel full">
+    <h2>Weight Bar</h2>
+    <div id="barchart"></div>
+    <div id="status">fetching /api/alloc …</div>
+  </div>
+</div>
+<script>
+async function j(url){ const r=await fetch(url); return r.json(); }
+function weightBar(name, w){
+  const row=document.createElement('div'); row.style.marginBottom='4px';
+  const pct=(w*100).toFixed(1)+'%';
+  row.innerHTML=`<span style="display:inline-block;width:90px">${name}</span>
+    <span class="bar" style="width:${Math.max(w*280,2)}px"><span style="width:100%"></span></span>
+    <span style="margin-left:8px">${pct}</span>`;
+  return row;
+}
+(async ()=>{
+  try{
+    const a=await j('/api/alloc');
+    const rot=await j('/api/rotation');
+    const reg=await j('/api/registry');
+    const w=a.strategies||{}, m=rot.momentum_scores||{};
+    const roles=(reg.registry||[]).reduce((o,s)=>(o[s.id]=s.role,o),{});
+    const tbody=document.querySelector('#weights tbody');
+    Object.entries(w).sort((x,y)=>y[1]-x[1]).forEach(([k,v])=>{
+      const tr=document.createElement('tr');
+      const ms=m[k];
+      const momTxt=ms===null?'—':(ms>0?`<span class="pos">${(ms*100).toFixed(1)}</span>`:`<span class="neg">${(ms*100).toFixed(1)}</span>`);
+      tr.innerHTML=`<td>${k}</td><td><span class="chip ${roles[k]||''}">${roles[k]||''}</span></td>
+        <td class="num">${(v*100).toFixed(1)}%</td><td class="num">${momTxt}</td>`;
+      tbody.appendChild(tr);
+    });
+    const sum=document.querySelector('#summary');
+    sum.innerHTML=`as_of <b>${a.as_of}</b> · rotation <b>${a.rotation||'—'}</b> ·
+      weights_sum <b>${a.weights_sum}</b> · generated ${a.generated_at||'—'}`;
+    const bc=document.querySelector('#barchart');
+    Object.entries(w).sort((x,y)=>y[1]-x[1]).forEach(([k,v])=>bc.appendChild(weightBar(k,v)));
+    const rt=document.querySelector('#registry tbody');
+    (reg.registry||[]).forEach(s=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${s.id}</td><td>${s.cadence}</td><td>${s.enabled?'✅':'❌'}</td>`;
+      rt.appendChild(tr);
+    });
+    document.querySelector('#status').textContent='OK · rotation v static: see /api/walkforward';
+  }catch(e){ document.querySelector('#status').textContent='error: '+e; }
+})();
+</script>
+</body>
+</html>

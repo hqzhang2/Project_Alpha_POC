@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NS-PC — Portfolio Constructor</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9;
+          --dim:#8b949e; --accent:#58a6ff; --green:#3fb950; --amber:#d29922; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font:13px/1.5 -apple-system,SF Mono,Menlo,monospace; padding:16px; }
+  h1 { font-size:15px; margin-bottom:4px; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--dim); margin:16px 0 6px; }
+  .meta { color:var(--dim); font-size:11px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; }
+  .full { grid-column:1/-1; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--border); }
+  th { color:var(--dim); } td.num, th.num { text-align:right; }
+  button { background:var(--accent); color:#0d1117; border:none; padding:6px 14px;
+           border-radius:4px; cursor:pointer; font-weight:600; }
+  #status { color:var(--dim); margin-top:8px; }
+</style>
+</head>
+<body>
+<h1>NS-PC — Portfolio Constructor <span class="meta">(targets → positions → paper_portfolio.json)</span></h1>
+<div class="grid">
+  <div class="panel">
+    <h2>Account</h2>
+    <div id="account" class="meta">loading…</div>
+    <h2>Composed Book (targets)</h2>
+    <table id="targets"><thead><tr><th>Ticker</th><th class="num">Weight</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="panel">
+    <h2>Guardrails</h2>
+    <div id="guardrails" class="meta">—</div>
+    <h2>Positions</h2>
+    <table id="positions"><thead><tr><th>Ticker</th><th class="num">Shares</th><th class="num">Alloc</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="panel full">
+    <button onclick="construct()">Run Constructor</button>
+    <div id="status">ready</div>
+  </div>
+</div>
+<script>
+async function j(url, opts){ const r=await fetch(url, opts); return r.json(); }
+async function construct(){
+  document.querySelector('#status').textContent='constructing…';
+  try{
+    const r=await j('/construct',{method:'POST'});
+    document.querySelector('#status').textContent=r.error?('error: '+r.error):('OK — '+r.positions+' positions, eff-N '+r.guardrails.eff_n);
+    load();
+  }catch(e){ document.querySelector('#status').textContent='error: '+e; }
+}
+async function load(){
+  try{
+    const t=await j('/targets');
+    const tb=document.querySelector('#targets tbody'); tb.innerHTML='';
+    Object.entries(t.weights).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${k}</td><td class="num">${(v*100).toFixed(2)}%</td>`; tb.appendChild(tr);
+    });
+    if(t.guardrails){
+      const g=t.guardrails;
+      document.querySelector('#guardrails').innerHTML=
+        `n ${g.n} · eff-N <b>${g.eff_n}</b> (min ${g.min_eff_n}) · max ${(g.max_weight*100).toFixed(1)}% · Σ ${g.weights_sum}`;
+    }
+    const p=await j('/portfolio');
+    if(p.error){ document.querySelector('#account').textContent='no portfolio yet'; return; }
+    const a=p.account;
+    document.querySelector('#account').innerHTML=
+      `NAV <b>$${a.total_nav.toLocaleString()}</b> · cash $${a.cash.toLocaleString()} · updated ${a.last_updated}`;
+    const pb=document.querySelector('#positions tbody'); pb.innerHTML='';
+    Object.entries(p.positions.equities||{}).sort((a,b)=>b[1].allocation_pct-a[1].allocation_pct).forEach(([k,v])=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${k}</td><td class="num">${v.shares}</td><td class="num">${v.allocation_pct}%</td>`; pb.appendChild(tr);
+    });
+  }catch(e){ document.querySelector('#status').textContent='error: '+e; }
+}
+load();
+</script>
+</body>
+</html>
