@@ -39,3 +39,12 @@ AUDIT_LOG_PATH = DATA_DIR / "audit_log.jsonl"
 WF_START = "2006-01-01"
 WF_END = "2026-07-31"
 WF_REBALANCE_MONTHS = 1             # monthly signal generation
+
+# ── IBKR (paper only) ───────────────────────────────────────────────────
+# Credentials via env vars / Vault — NEVER hardcode
+# Note: ib_async authenticates via running Gateway/TWS (port 7497 paper).
+# IBKR username/password are for Gateway/TWS login, not this API.
+IBKR_HOST = os.environ.get("IBKR_HOST", "127.0.0.1")
+IBKR_PORT = int(os.environ.get("IBKR_PORT", "7497"))       # paper
+IBKR_CLIENT_ID = int(os.environ.get("IBKR_CLIENT_ID", "987654321"))
+IBKR_ACCOUNT = os.environ.get("IBKR_ACCOUNT", "DUR906177")
