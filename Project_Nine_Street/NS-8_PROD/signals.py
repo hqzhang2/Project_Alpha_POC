@@ -65,8 +65,61 @@ def compute_weights(signals: Dict[str, int]) -> Dict[str, float]:
             continue
         weights[ticker] = config.ASSET_WEIGHT if sig == 1 else 0.0
 
-    weights[config.CASH_PROXY] = 1.0 - sum(weights.values())
+    weights[config.CASH_PROXY] = round(1.0 - sum(weights.values()), 12)
     return weights
+
+
+def compute_weights_inverse_vol(signals: Dict[str, int],
+                                vols: Dict[str, Optional[float]]) -> Dict[str, float]:
+    """Inverse-vol weights within the in-trend set, scaled by the in-trend count.
+
+    Preserves the long/flat capital-preservation property: total risky exposure
+    = ASSET_WEIGHT × N_in_trend (so the book scales down toward cash as trends
+    break), while the in-trend allocation is risk-parity (∝ 1/σ) rather than
+    equal-weight. This is the long/flat analogue of MOP's 1/σ sizing that does
+    NOT re-normalize to 100% (which would concentrate risk when few assets are
+    in-trend).
+
+    Fail-open: an in-trend asset with a missing/None vol is treated as out of
+    trend (weight 0); if no in-trend asset has a valid vol the book goes to cash.
+    """
+    inv_vol = {}
+    for t, s in signals.items():
+        if s == 1 and t != config.CASH_PROXY:
+            v = vols.get(t)
+            if v:                       # truthy -> valid, non-zero vol
+                inv_vol[t] = 1.0 / v
+    total = sum(inv_vol.values())
+    weights = {t: 0.0 for t in signals if t != config.CASH_PROXY}
+    if total > 0:
+        # scale by the count of assets with a VALID vol only (conservative:
+        # an in-trend asset whose vol can't be estimated is treated as not
+        # held, so the book holds proportionally more cash, never more risk).
+        scale = config.ASSET_WEIGHT * len(inv_vol)
+        for t, iv in inv_vol.items():
+            weights[t] = scale * (iv / total)
+    weights[config.CASH_PROXY] = round(1.0 - sum(weights.values()), 12)
+    return weights
+
+
+def generate_signals_sign12m(prices: Dict[str, List[float]],
+                             window_days: int = 252) -> Dict[str, int]:
+    """Long if trailing 12-month return > 0, else cash (MOP canonical signal).
+
+    Args:
+        prices: {ticker: [daily closes oldest-first]} for RISKY_ASSETS only.
+        window_days: trailing lookback (default 252 trading days ~ 12 months).
+
+    Returns:
+        Binary signals: 1 = long, 0 = cash.
+    """
+    sigs = {}
+    for t, closes in prices.items():
+        if len(closes) >= window_days and closes[-1] > closes[-window_days]:
+            sigs[t] = 1
+        else:
+            sigs[t] = 0
+    return sigs
 
 
 def build_signal_document(

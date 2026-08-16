@@ -297,4 +297,26 @@ parent (MOP 2012). It captures the one high-value, mandate-compatible idea the
 paper offers (inverse-vol sizing) while explicitly declining the two that the
 DD-first mandate forbids (short leg, leverage).
 
-**Next action:** run R4 (harness fix) first, then implement §7 Steps 2–6.
+**Measured result (2026-08-16, real 2006–2026 data, tranched-weekly):**
+
+| Metric | Fixed (v1) | **Inverse-vol (R8)** | Gate |
+|---|---|---|---|
+| Sharpe | 0.604 | **0.708** | ≥ 0.60 ✅ |
+| Max drawdown | 17.57% | **11.81%** | ≤ 15% ✅ (was ✗) |
+| CAGR | 4.51% | 4.25% | no material loss ✅ |
+| Implied vol | 7.5% | 6.0% | sane band ✅ |
+
+**R8 passes its gate** (Sharpe ↑, MaxDD ↓ below 15%, CAGR holds). The scaling
+decision that made this work: inverse-vol weights are scaled by `0.20 × N_valid_in_trend`
+(not re-normalized to 100%), which preserves NS-8's long/flat capital-preservation
+property — the book still scales down toward cash as trends break. Re-normalizing
+to 100% (a naive reading of MOP) *worsened* drawdown (22.5%) by concentrating
+the book when few assets are in-trend; that variant is rejected.
+
+**Out of scope (unchanged):** the short leg and leverage remain forbidden by the
+DD-first mandate.
+
+**Next action:** sync R8 to PROD, then re-spec NS-8's acceptance gate (the
+turnover gate ≤0.8% is miscalibrated for this strategy — real annual turnover is
+~320% even tranched, because the 200-day SMA whipsaws; that gate threshold needs
+revision, not the harness).

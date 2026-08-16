@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import config
+import signals
+import vol
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 HIST_PATH = DATA_DIR / "ns8_hist_closes.json"
@@ -54,27 +56,54 @@ def load_historical_prices(path: Optional[Path] = None) -> Tuple[Dict, List[str]
     return prices, dates
 
 
-# ── Signal (validated SMA logic; no inverse-vol — that is R8) ────────────
+# ── Signal + sizing (validated SMA logic + R8 inverse-vol / sign12m) ────
+def _daily_returns_upto(date: str, prices: Dict[str, Dict[str, float]],
+                        window: int) -> Dict[str, List[float]]:
+    """{ticker: [daily returns oldest-first]} over `window` days ending at date."""
+    out = {}
+    for t, series in prices.items():
+        up_to = [c for d, c in sorted(series.items()) if d <= date]
+        if len(up_to) >= window + 1:
+            closes = up_to[-(window + 1):]
+            out[t] = [closes[i + 1] / closes[i] - 1.0
+                      for i in range(len(closes) - 1)]
+    return out
+
+
 def target_weights_on(date: str, prices: Dict[str, Dict[str, float]],
                       window: Optional[int] = None) -> Dict[str, float]:
-    """Target weights for `date` from the 200-day SMA binary signal.
+    """Target weights for `date`, honoring config.SIGNAL_METHOD / SIZING_METHOD.
 
-    Fixed 20% per in-trend asset (v1 construction) so R4 isolates harness
-    correctness from R8's inverse-vol sizing change. Insufficient history ->
-    cash (fail-open).
+    - Signal: 200-day SMA binary (default) OR 12-month sign (R8 variant).
+    - Sizing: fixed 20% (v1) OR inverse-vol equal-risk (R8 default).
+    Insufficient history -> cash (fail-open). R8 applies the MOP ex-ante vol at
+    t-1 (no lookahead): only data <= date is used to estimate vol.
     """
     window = window or config.SMA_WINDOW
-    sigs = {}
-    for t in config.RISKY_ASSETS:
-        up_to = [c for d, c in sorted(prices.get(t, {}).items()) if d <= date]
-        if len(up_to) >= window:
-            sma = sum(up_to[-window:]) / window
-            sigs[t] = 1 if up_to[-1] > sma else 0
-        else:
-            sigs[t] = 0  # insufficient history -> cash
-    weights = {t: (config.ASSET_WEIGHT if sigs[t] == 1 else 0.0)
-               for t in config.RISKY_ASSETS}
-    weights[config.CASH_PROXY] = round(1.0 - sum(weights.values()), 12)
+
+    # 1. Signal
+    up_to_all = {t: [c for d, c in sorted(prices.get(t, {}).items()) if d <= date]
+                 for t in config.RISKY_ASSETS}
+    if config.SIGNAL_METHOD == "sign12m":
+        sigs = signals.generate_signals_sign12m(up_to_all, window_days=252)
+    else:  # "sma" (default)
+        sigs = {}
+        for t, closes in up_to_all.items():
+            if len(closes) >= window:
+                sma = sum(closes[-window:]) / window
+                sigs[t] = 1 if closes[-1] > sma else 0
+            else:
+                sigs[t] = 0  # insufficient history -> cash
+
+    # 2. Sizing
+    if config.SIZING_METHOD == "inverse_vol":
+        rets = _daily_returns_upto(date, prices, window=60)
+        vols = {t: vol.exante_vol(rets.get(t, [])) for t in config.RISKY_ASSETS}
+        weights = signals.compute_weights_inverse_vol(sigs, vols)
+    else:  # "fixed" (v1)
+        weights = {t: (config.ASSET_WEIGHT if sigs[t] == 1 else 0.0)
+                   for t in config.RISKY_ASSETS}
+        weights[config.CASH_PROXY] = round(1.0 - sum(weights.values()), 12)
     return weights
 
 
