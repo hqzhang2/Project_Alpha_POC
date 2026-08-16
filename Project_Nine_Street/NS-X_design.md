@@ -130,9 +130,14 @@ REGISTRY: List[Strategy] = [
     Strategy("ns8", "Tactical Multi-AA", "diversifier", "ns8_signals", "ns8_returns", "monthly"),
     Strategy("ns1", "ETF Cap-Preservation", "defensive", "ns1_book", "ns1_returns", "monthly"),
     Strategy("ns3", "Sector Rotation", "supplemental", "ns3_book", "ns3_returns", "quarterly"),
+    Strategy("cash", "Cash / Risk-Off (SHV)", "riskoff", "shv_book", "shv_returns", "daily"),
     # NS-9/10: add a row here. No other code change.
 ]
 ```
+
+> **`cash` is mandatory**, not optional — it is the residual risk-off sleeve that
+> preserves the DD-first mandate when all risky strategies hit the quality floor
+> (§5.2). Its `role` is `riskoff` and it always scores 0 momentum (reference point).
 
 ### 4.2 Adding NS-9/10 later
 
@@ -165,46 +170,77 @@ now** so the v4 DB swap is an implementation detail, not a redesign.
 
 ---
 
-## 5. Rotation Signal: Relative Momentum Across Strategies
+## 5. Rotation Signal: Relative Momentum Across Strategies (RISK-ADJUSTED)
 
-### 5.1 Signal (mirrors NS-7's validated momentum construction)
+### 5.0 Design corrections (frontier review, 2026-08-16)
 
-- **Lookback:** skip-month momentum over each strategy's return stream —
-  `P[t−skip] / P[t−lookback] − 1` (default lookback 126 days, skip 21 — the same
-  validated params as NS-7's stock momentum).
-- **Universe:** all enabled registry strategies with a full return series.
-- **Ranking:** rank strategies by relative momentum, descending (cross-sectional,
-  not absolute — this is *relative* momentum across strategies).
+Four correctness issues were identified in the original §5/§8 and are folded in
+here. These are NOT refinements — they are required for the allocator to be
+correct:
+
+1. **Risk-adjusted momentum, not raw return.** Strategies span an order of
+   magnitude of volatility (NS-7 equity ~15–20% vs NS-8 multi-asset ~5–6%).
+   Ranking on raw return is a *beta sort*, not momentum: high-vol strategies
+   always win up markets and lose down markets purely from vol. The signal MUST
+   be **momentum on vol-normalized returns** (return/σ, the MOP 2012 lesson
+   already in our stack via NS-8's `vol.py` / R8 inverse-vol).
+2. **A cash/risk-off strategy is mandatory.** With no cash sleeve, NS-X cannot
+   express "rotate out of everything" when all strategies have negative momentum —
+   silently violating DD-first. **Cash (SHV) is added to the registry.**
+3. **Walk-forward validation gate.** The allocator must prove, OOS, that rotation
+   beats a static/equal-weight strategy split on the combined fund (Sharpe and/or
+   DD ratio). Mechanical gates (sum=1, long-only) are necessary but not sufficient.
+4. **Cadence reconciliation.** Strategies refresh at different frequencies
+   (daily/quarterly/monthly). The momentum score is only well-defined on a shared
+   grid. Rule: **align to the slowest enabled strategy's cadence** (last-known
+   value per strategy), with the option to override per-strategy.
+
+### 5.1 Signal (risk-adjusted skip-month momentum)
+
+- **Return normalization:** each strategy's return stream is divided by its
+  ex-ante volatility (EWMA, 60-day center — same as NS-8 `vol.py`), so scores are
+  comparable across strategies of different vol.
+- **Lookback:** skip-month momentum over the *vol-normalized* stream —
+  `mom_i = (P̂[t−skip] / P̂[t−lookback] − 1)` where `P̂` is the vol-normalized
+  equity index (default lookback 126 days, skip 21 — the same validated params as
+  NS-7's stock momentum).
+- **Universe:** all enabled registry strategies with a full vol-normalized return
+  series, **plus the cash strategy (SHV)** which always scores 0 (reference point).
+- **Ranking:** rank strategies by risk-adjusted momentum, descending.
 
 ### 5.2 Weighting
 
 | Method | Rule |
 |---|---|
 | **Relative-momentum tilt** | `w_i ∝ max(mom_i − mom_median, 0)` — overweight only strategies above the cross-sectional median |
-| **Quality floor** | a strategy with negative absolute momentum or an unavailable return stream gets weight 0 (fail-open → its share goes to the survivors) |
-| **Concentration cap** | max single-strategy weight ≤ `NSX_MAX_STRATEGY_W` (default 0.40) — no one strategy monopolizes |
+| **Quality floor** | a strategy with negative *risk-adjusted* momentum, or an unavailable stream → weight 0 |
+| **Concentration cap** | max single-strategy weight ≤ `NSX_MAX_STRATEGY_W` (default 0.40) |
 | **Min sleeve** | default 0.03 floor on any enabled strategy with a valid positive-momentum score (optional) |
-| **Regime override** | (advisory) the NS-5 regime axis can scale the whole risky bucket, but the *relative* ranking is momentum-driven |
+| **Cash / risk-off** | `w_cash = 1 − Σ_i w_i` — SHV absorbs the residual; **when all risky strategies hit the floor, w_cash = 1.0** (full risk-off, DD-first preserved) |
+| **Regime override** | (advisory) the NS-5 regime axis scales the whole risky bucket (risk-on vs risk-off), but the *relative* ranking is momentum-driven |
 
 ### 5.3 Output
 
 ```json
 {
   "as_of": "2026-08-16",
-  "rotation": "relative_momentum",
+  "rotation": "relative_momentum_risk_adjusted",
   "strategies": {
     "ns7":  0.35,
     "ns8":  0.28,
     "at_val": 0.17,
     "ns1":  0.00,
-    "ns3":  0.20
+    "ns3":  0.20,
+    "cash": 0.00
   },
-  "momentum_scores": {"ns7": 0.082, "ns8": 0.061, ...},
+  "momentum_scores": {"ns7": 0.82, "ns8": 0.61, "at_val": 0.34, "cash": 0.0, ...},
   "weights_sum": 1.0
 }
 ```
 
-Weights sum to 1.0 (fully invested, long-only, no leverage).
+`momentum_scores` are **risk-adjusted** (vol-normalized), so the values are
+comparable across strategies. Weights sum to 1.0 (long-only, no leverage), with
+`cash` as the residual risk-off sleeve.
 
 ---
 
@@ -261,7 +297,11 @@ MOM_SKIP_DAYS = 21
 NSX_MAX_STRATEGY_W = 0.40
 NSX_MIN_SLEEVE = 0.03
 NSX_STALE_DAYS = 5
-ROTATION = "relative_momentum"
+ROTATION = "relative_momentum_risk_adjusted"
+RISK_ADJUST = True              # vol-normalize returns before momentum (mandatory)
+VOL_DELTA = 60 / 61             # EWMA center-of-mass (reuse NS-8 vol.py convention)
+CASH_STRATEGY_ID = "cash"       # residual risk-off sleeve
+MAX_BOOK_TURNS_PER_YEAR = 2.0   # strategy-level rotation turnover cap
 ```
 
 ### 7.3 Outputs / Endpoints
@@ -284,12 +324,20 @@ QA **9291** · PROD **9290** (next free pair after NS-8's 9281/9280).
 
 | Metric | Threshold | Rationale |
 |---|---|---|
-| Weights sum | = 1.0 (±1e-6) | Fully invested, long-only |
+| Weights sum | = 1.0 (±1e-6) | Fully invested (incl. cash), long-only |
 | Long-only | all w ≥ 0 | No shorts/leverage (mandate) |
-| Concentration | max strategy w ≤ 0.40 | No single-strategy domination |
+| Concentration | max risky-strategy w ≤ 0.40 | No single-strategy domination |
 | Fail-open | missing return stream → weight 0, no crash | House rule |
 | Deterministic | same inputs → same weights | Reproducible rotation |
-| Relative-momentum behavior | outperforming strategies overweight | The rotation signal works |
+| Risk-adjusted | momentum scores are vol-normalized (comparable across strategies) | Correctness (§5.0 #1) |
+| **Walk-forward evidence (HARD GATE)** | rotation beats static/equal-weight split on the combined fund OOS (Sharpe and/or DD ratio ≥ static) | The signal must *prove* it adds value before moving capital (§5.0 #3) |
+| **Turnover gate** | strategy-level rotation turnover ≤ threshold (e.g. ≤ 2 full book-turns/yr) at a stated cost model | Rotation costs money; measure and gate it |
+| Cadence | momentum computed on a shared grid (slowest-enabled-strategy cadence) | Scores must be contemporaneous (§5.0 #4) |
+
+The **walk-forward evidence gate** is mandatory and non-negotiable: a rotation
+signal that cannot be shown, OOS, to improve the combined fund over a static
+strategy split is not a signal — it is churn. This is the same discipline NS-7
+(G1) and NS-8 (§6) already follow.
 
 ---
 
@@ -297,15 +345,18 @@ QA **9291** · PROD **9290** (next free pair after NS-8's 9281/9280).
 
 | Phase | Task | Effort | Dependencies |
 |---|---|---|---|
-| 1 | Registry + return-stream loaders | Low | — |
-| 2 | Relative-momentum rotation + weighting | Medium | Phase 1 |
+| 1 | Registry + return-stream loaders (incl. cash) | Low | — |
+| 2 | Relative-momentum rotation + risk-adjusted weighting | Medium | Phase 1 |
 | 3 | allocator run_once + alloc.json | Low | Phase 2 |
-| 4 | QA server + dashboard (9291) | Low | Phase 3 |
-| 5 | Wire into NS-5 construction (strategy-level bounds) | Medium | Phase 3 + NS-5 read |
-| 6 | Paper-trade migration (R5: blend + NS-8 book under NS-X weights) | Medium | Phase 5 |
-| 7 | PROD deploy (9290) + launchd | Low | QA sign-off |
+| 4 | **Walk-forward validation** (rotation vs static split, OOS) | Medium | Phase 2 — **HARD GATE before any capital moves** |
+| 5 | QA server + dashboard (9291) | Low | Phase 3 |
+| 6 | Wire into NS-5 construction (strategy-level bounds) | Medium | Phase 4 + NS-5 read |
+| 7 | Paper-trade migration (R5: blend + NS-8 book under NS-X weights) | Medium | Phase 6 |
+| 8 | PROD deploy (9290) + launchd | Low | QA sign-off |
 
-**Estimated:** 2–3 weeks to a paper-tradable NS-X allocation.
+**Estimated:** 2–3 weeks to a paper-tradable NS-X allocation, **gated on the
+walk-forward evidence (Phase 4)**. If rotation does not beat static allocation
+OOS, the design is revised before any wiring or paper migration.
 
 ---
 
