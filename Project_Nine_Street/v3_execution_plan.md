@@ -28,11 +28,11 @@ not arbitrary; it is forced by the critical path.
 | **R1** | Combined-fund walk-forward (the headline deliverable) | ⏳ NOT STARTED | Frontier | No |
 | **R2** | Wire NS-5 frontier into the blend (replace equal-weight) | ⏳ DEFERRED | Frontier + Junior | No |
 | **R3** | Unify the strategy evaluation framework | ⏳ NOT STARTED | Frontier + Junior | No |
-| **R4** | Fix the NS-8 walk-forward harness | 🔴 BROKEN | Frontier | No |
+| **R4** | Fix the NS-8 walk-forward harness | ✅ DONE | Frontier | No |
 | **R5** | Migrate the live paper book to the actual strategies | ⏳ NOT STARTED | Junior + PM | No |
-| **R6** | Fix the NS-6 PROD price feed (`TypeError`) | 🔴 REGRESSED | Junior + Frontier review | No |
-| **R7** | Settle the benchmark | ⏳ PENDING | PM | No |
-| **R8** | Enhance NS-8 with inverse-vol sizing (+ 12-mo sign variant) | ⏳ SPEC DRAFTED | Frontier + Junior | ✅ `NS-8_enhancement.md` |
+| **R6** | Fix the NS-6 PROD price feed (`TypeError`) | ✅ DONE | Junior + Frontier review | No |
+| **R7** | Settle the benchmark | ✅ DONE | PM | No |
+| **R8** | Enhance NS-8 with inverse-vol sizing (+ 12-mo sign variant) | ✅ DONE | Frontier + Junior | ✅ `NS-8_enhancement.md` |
 
 **Only R8 has a spec today.** R1, R2, R3, R5, R6, R7 exist only as recommendation
 paragraphs in the v3 review. Specs are drafted as each phase begins.
@@ -68,7 +68,7 @@ R5**. R7 gates the *interpretation* of R1, not its construction.
 |---|---|---|---|
 | **R6** | Fix the `TypeError: Cannot convert numpy.ndarray to numpy.ndarray` in NS-6 PROD `price_feed.py`; add a regression test that exercises the **PROD path** (not just QA) | Junior (fix) + Frontier (review — feeds enforcement) | PROD drawdown reads a real, non-zero `current_dd`; regression test catches the exact failure |
 | **R4** | Fix `NS-8_QA/walkforward.py` return/vol/cost math; reproduce the v1 fixed-weight numbers as a sanity anchor | Frontier | Harness reports a plausible Sharpe (not 1.19 w/ 3.1% CAGR), non-zero cost drag, and correctly simulates tranched-weekly |
-| **R7** | PM decides the benchmark | PM | One sentence: "beat the held universe with ≤0.5× SPY drawdown, SPY as calibration" — or the PM's alternative |
+| **R7** | PM decides the benchmark | PM | ✅ Decided (2026-08-16): "outperform cap-weighted SPY, ≤0.75× SPY drawdown; SPY is the benchmark" |
 
 **Why Phase 0 first:** R6 is the only *urgent* item (a blind protection floor is a
 live risk, not a future one). R4 is the precondition for every downstream NS-8
@@ -160,7 +160,7 @@ UI/tests/docs/plumbing, never touches signal/backtest functions.**
 | Blocker | Impact | Notes |
 |---|---|---|
 | R4 harness fix is harder than it looks | Delays the entire critical path | The "implausible Sharpe 1.19 / 3.1% CAGR / ~zero cost drag" triad suggested the return-series construction was wrong, not just a bad annualization — confirmed and fixed (R4) |
-| R7 benchmark undecided when R1 lands | R1's result can be *built* but not *judged* | ✅ Resolved 2026-08-16 — benchmark decided ("outperform held universe, ≤0.5× SPY DD"); R1 can now be judged on arrival |
+| R7 benchmark undecided when R1 lands | R1's result can be *built* but not *judged* | ✅ Resolved 2026-08-16 — benchmark decided ("outperform cap-weighted SPY, ≤0.75× SPY DD"); R1 can now be judged on arrival |
 | R3 is a large cross-cutting change | Could balloon scope | Scope it as *one common harness + one gate schema*, not a rewrite of every strategy's internals |
 | Short-leg crisis alpha (MOP 2012) stays off the table | The fund forgoes the paper's biggest alpha | Deliberate — DD-first forbids shorts; NS-6's put overlay is the only sanctioned path |
 | Sibling-session working-tree clobber | Uncommitted edits lost | Never `reset --hard` without verifying; re-verify commits land on the *active* branch (may switch mid-session) |
@@ -173,7 +173,7 @@ UI/tests/docs/plumbing, never touches signal/backtest functions.**
 |---|---|---|---|---|
 | R6 | 0 | ✅ **DONE** — env self-check live (QA+PROD); PROD DD now reads −0.0276 | feature/v4.0 (unreleased) | 2026-08-16 |
 | R4 | 0 | ✅ **DONE** — real-data harness, tranching, cost/Sharpe fix (QA+PROD) | feature/v4.0 (unreleased) | 2026-08-16 |
-| R7 | 0 | ✅ **DONE** — benchmark decided: "outperform held universe, ≤0.5× SPY DD, SPY calibration" | — (PM decision) | 2026-08-16 |
+| R7 | 0 | ✅ **DONE** — benchmark decided (revised 2026-08-16): "outperform cap-weighted SPY, ≤0.75× SPY DD, SPY is the benchmark" | — (PM decision) | 2026-08-16 |
 | R8 | 1 | ✅ **DONE** — inverse-vol sizing + sign12m (QA+PROD); MaxDD 17.6%→11.8%, Sharpe→0.708 | feature/v4.0 (unreleased) | 2026-08-16 |
 | R3 | 2 | ⏳ NOT STARTED | — | — |
 | R1 | 3 | ⏳ NOT STARTED | — | — |
