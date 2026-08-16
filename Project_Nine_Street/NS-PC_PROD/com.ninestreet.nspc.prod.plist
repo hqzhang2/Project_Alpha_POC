@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ninestreet.nspc.prod</string>
+    <key>KeepAlive</key>
+    <dict>
+        <key>Crashed</key>
+        <true/>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>WorkingDirectory</key>
+    <string>/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-PC_PROD</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>sleep 2; exec /Users/chuck/.hermes/hermes-agent/venv/bin/python3 /Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-PC_PROD/qa_server.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string></string>
+        <key>ENV</key>
+        <string>PROD</string>
+        <key>PORT</key>
+        <string>9300</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/chuck/Project_Alpha_POC/Project_Nine_Street/logs/nspc_prod.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/chuck/Project_Alpha_POC/Project_Nine_Street/logs/nspc_prod.err.log</string>
+</dict>
+</plist>
