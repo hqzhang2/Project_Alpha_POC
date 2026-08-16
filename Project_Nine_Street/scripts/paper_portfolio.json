@@ -1,57 +1,450 @@
 {
   "account": {
     "initial_balance": 100000.0,
-    "cash": 0,
+    "cash": 5783.63,
     "total_nav": 100000.0,
     "commissions_paid": 0.0,
-    "last_updated": "2026-07-24"
+    "last_updated": "2026-08-16"
   },
   "positions": {
     "equities": {
-      "SPY": {
-        "shares": 51,
-        "entry_price": 738.40,
-        "current_price": 738.40,
-        "allocation_pct": 37.9,
-        "strategy": "NS-Capital-Preservation",
+      "ACGL": {
+        "shares": 12,
+        "entry_price": 98.71,
+        "current_price": 98.71,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
         "pnl": 0.0,
         "pnl_pct": 0.0
       },
-      "XLF": {
-        "shares": 605,
-        "entry_price": 55.92,
-        "current_price": 55.92,
-        "allocation_pct": 33.8,
-        "strategy": "NS-Capital-Preservation",
+      "ACN": {
+        "shares": 7,
+        "entry_price": 176.89,
+        "current_price": 176.89,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
         "pnl": 0.0,
         "pnl_pct": 0.0
       },
-      "XLV": {
-        "shares": 130,
-        "entry_price": 162.49,
-        "current_price": 162.49,
-        "allocation_pct": 21.3,
-        "strategy": "NS-Capital-Preservation",
+      "ADBE": {
+        "shares": 4,
+        "entry_price": 264.02,
+        "current_price": 264.02,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "AES": {
+        "shares": 84,
+        "entry_price": 14.73,
+        "current_price": 14.73,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "ALL": {
+        "shares": 4,
+        "entry_price": 261.41,
+        "current_price": 261.41,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "AMAT": {
+        "shares": 4,
+        "entry_price": 507.18,
+        "current_price": 507.18,
+        "allocation_pct": 2.5,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "AMD": {
+        "shares": 2,
+        "entry_price": 514.39,
+        "current_price": 514.39,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
         "pnl": 0.0,
         "pnl_pct": 0.0
       },
       "BIL": {
-        "shares": 76,
-        "entry_price": 91.60,
-        "current_price": 91.60,
-        "allocation_pct": 7.0,
-        "strategy": "NS-Capital-Preservation",
+        "shares": 109,
+        "entry_price": 91.53,
+        "current_price": 91.53,
+        "allocation_pct": 10.0,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "CIEN": {
+        "shares": 2,
+        "entry_price": 428.77,
+        "current_price": 428.77,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "CINF": {
+        "shares": 7,
+        "entry_price": 173.17,
+        "current_price": 173.17,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "CMCSA": {
+        "shares": 47,
+        "entry_price": 26.18,
+        "current_price": 26.18,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "CTSH": {
+        "shares": 21,
+        "entry_price": 58.79,
+        "current_price": 58.79,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "DBC": {
+        "shares": 266,
+        "entry_price": 30.0,
+        "current_price": 30.0,
+        "allocation_pct": 8.0,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "DDOG": {
+        "shares": 4,
+        "entry_price": 255.46,
+        "current_price": 255.46,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "DELL": {
+        "shares": 2,
+        "entry_price": 490.81,
+        "current_price": 490.81,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "EFA": {
+        "shares": 73,
+        "entry_price": 108.64,
+        "current_price": 108.64,
+        "allocation_pct": 8.0,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "FFIV": {
+        "shares": 3,
+        "entry_price": 403.2,
+        "current_price": 403.2,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "FLEX": {
+        "shares": 9,
+        "entry_price": 126.16,
+        "current_price": 126.16,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "FSLR": {
+        "shares": 5,
+        "entry_price": 225.56,
+        "current_price": 225.56,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "FTNT": {
+        "shares": 7,
+        "entry_price": 160.01,
+        "current_price": 160.01,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "GL": {
+        "shares": 6,
+        "entry_price": 181.0,
+        "current_price": 181.0,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "GLW": {
+        "shares": 7,
+        "entry_price": 165.99,
+        "current_price": 165.99,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "HIG": {
+        "shares": 9,
+        "entry_price": 138.02,
+        "current_price": 138.02,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "HOOD": {
+        "shares": 13,
+        "entry_price": 95.56,
+        "current_price": 95.56,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "HUM": {
+        "shares": 3,
+        "entry_price": 389.05,
+        "current_price": 389.05,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "KLAC": {
+        "shares": 12,
+        "entry_price": 203.72,
+        "current_price": 203.72,
+        "allocation_pct": 2.5,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "LDOS": {
+        "shares": 8,
+        "entry_price": 143.83,
+        "current_price": 143.83,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "LII": {
+        "shares": 2,
+        "entry_price": 422.01,
+        "current_price": 422.01,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "LRCX": {
+        "shares": 3,
+        "entry_price": 332.36,
+        "current_price": 332.36,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "LULU": {
+        "shares": 10,
+        "entry_price": 119.55,
+        "current_price": 119.55,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "MRVL": {
+        "shares": 5,
+        "entry_price": 222.02,
+        "current_price": 222.02,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "MU": {
+        "shares": 1,
+        "entry_price": 971.66,
+        "current_price": 971.66,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "PANW": {
+        "shares": 3,
+        "entry_price": 384.27,
+        "current_price": 384.27,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "PGR": {
+        "shares": 5,
+        "entry_price": 209.6,
+        "current_price": 209.6,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "PHM": {
+        "shares": 9,
+        "entry_price": 130.18,
+        "current_price": 130.18,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "PTC": {
+        "shares": 8,
+        "entry_price": 149.75,
+        "current_price": 149.75,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "SHV": {
+        "shares": 72,
+        "entry_price": 110.24,
+        "current_price": 110.24,
+        "allocation_pct": 8.0,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "SPY": {
+        "shares": 10,
+        "entry_price": 776.34,
+        "current_price": 776.34,
+        "allocation_pct": 8.0,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "STX": {
+        "shares": 1,
+        "entry_price": 973.44,
+        "current_price": 973.44,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "TROW": {
+        "shares": 11,
+        "entry_price": 110.56,
+        "current_price": 110.56,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "UNH": {
+        "shares": 3,
+        "entry_price": 401.73,
+        "current_price": 401.73,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "VNQ": {
+        "shares": 80,
+        "entry_price": 98.83,
+        "current_price": 98.83,
+        "allocation_pct": 8.0,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "VRT": {
+        "shares": 4,
+        "entry_price": 293.84,
+        "current_price": 293.84,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
+        "pnl": 0.0,
+        "pnl_pct": 0.0
+      },
+      "WDC": {
+        "shares": 2,
+        "entry_price": 508.8,
+        "current_price": 508.8,
+        "allocation_pct": 1.25,
+        "strategy": "NS-X-fund",
         "pnl": 0.0,
         "pnl_pct": 0.0
       }
     },
     "options": {}
   },
+  "guardrails": {
+    "n": 45,
+    "eff_n": 20.84,
+    "max_weight": 0.08,
+    "weights_sum": 1.0,
+    "min_eff_n": 15,
+    "max_name_w": 0.08
+  },
   "history": [
     {
       "date": "2026-07-24",
       "nav": 100000.0,
       "note": "BIL as cash equivalent (7%). VIX 18.6, exposure cap 93%."
+    },
+    {
+      "date": "2026-08-16",
+      "nav": 100000.0,
+      "note": "defensive regime; equity 67% tactical 27% cash 0%"
+    },
+    {
+      "date": "2026-08-16",
+      "nav": 100000.0,
+      "note": "defensive regime; equity 67% tactical 27% cash 0%"
+    },
+    {
+      "date": "2026-08-16",
+      "nav": 100000.0,
+      "note": "defensive regime; equity 50% tactical 40% cash 10%"
+    },
+    {
+      "date": "2026-08-16",
+      "nav": 100000.0,
+      "note": "defensive regime; equity 50% tactical 40% cash 10%"
+    },
+    {
+      "date": "2026-08-16",
+      "nav": 100000.0,
+      "note": "defensive regime; equity 50% tactical 40% cash 10%"
     }
   ]
 }

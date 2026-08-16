@@ -103,9 +103,10 @@ async def submit_moc_orders(
     aum: float,
     current_shares: Dict[str, int],
     prices: Optional[Dict[str, float]] = None,
-    host: str = "127.0.0.1",
-    port: int = 7497,
-    client_id: int = 8
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    client_id: Optional[int] = None,
+    account: Optional[str] = None,
 ) -> List[Dict]:
     """Submit Market-On-Close orders via ib_async.
 
@@ -114,20 +115,31 @@ async def submit_moc_orders(
         aum: Total AUM.
         current_shares: Current holdings.
         prices: Price override.
-        host: IB Gateway/TWS host.
-        port: Port (7497=paper, 7496=live).
-        client_id: Unique client ID.
+        host: IB Gateway/TWS host (default from config).
+        port: Port (default 7497 paper from config).
+        client_id: Unique client ID (default from config).
+        account: IBKR account ID (default from config).
 
     Returns:
         List of order confirmations: {symbol, side, qty, order_id, status}.
+
+    Note: IBKR username/password are for Gateway/TWS login (outside this process).
+    The ib_async API authenticates via the running Gateway/TWS.
     """
-    from ib_async import IB, MarketOrder, Stock, util
+    from ib_async import IB, MarketOrder, Stock
+
+    # Use config defaults if not provided
+    host = host or config.IBKR_HOST
+    port = port or config.IBKR_PORT
+    client_id = client_id or config.IBKR_CLIENT_ID
+    account = account or config.IBKR_ACCOUNT
 
     prices = prices or fetch_latest_prices(list(doc["weights"].keys()))
     targets = compute_target_shares(aum, doc["weights"], prices)
 
     ib = IB()
-    await ib.connect(host, port, clientId=client_id)
+    # Connect via ib_async (auth is via running Gateway/TWS)
+    await ib.connectAsync(host, port, clientId=client_id)
 
     confirmations = []
 
@@ -146,6 +158,7 @@ async def submit_moc_orders(
 
             order = MarketOrder("BUY" if delta > 0 else "SELL", abs(delta))
             order.tif = "MOC"  # Market-On-Close
+            order.account = account
 
             trade = ib.placeOrder(contract, order)
             # Wait briefly for order acknowledgment

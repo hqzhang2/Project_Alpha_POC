@@ -13,13 +13,23 @@ TRANCHES = 4                        # weekly tranching
 TRANCHE_WEEK = [1, 2, 3, 4]         # which week each tranche rebalances
 
 # ── Service ─────────────────────────────────────────────────────────────
-PORT = int(os.environ.get("PORT", 9280))    # PROD; QA 9281
-ENV = os.environ.get("ENV", "PROD")
+PORT = int(os.environ.get("PORT", 9281))    # QA; PROD 9280
 
 # ── Universe ────────────────────────────────────────────────────────────
 RISKY_ASSETS = ["SPY", "EFA", "IEF", "VNQ", "DBC"]
 CASH_PROXY = "SHV"
-ASSET_WEIGHT = 0.20                 # 20% each when in-trend
+ASSET_WEIGHT = 0.20                 # fixed-weight path (v1); ignored by inverse_vol
+
+# ── Sizing / signal (R8) ────────────────────────────────────────────────
+SIZING_METHOD = "inverse_vol"       # "fixed" (v1) | "inverse_vol" (default)
+SIGNAL_METHOD = "sma"               # "sma" (default) | "sign12m"
+VOL_DELTA = 60 / 61                 # EWMA center-of-mass = 60 days (MOP eq. 1)
+VOL_ANN = 261                       # trading days/year for ex-ante vol
+
+# Optional book-level vol target (Phase 2, default OFF — never leverage).
+VOL_TARGET_ENABLED = False
+VOL_TARGET_ANN = 0.10               # 10% annualized target book vol
+VOL_TARGET_MAX_SCALE = 1.0          # never scale > 1 (no leverage)
 
 # ── Costs ───────────────────────────────────────────────────────────────
 TXN_COST_BPS = 10                   # per round-trip
@@ -40,3 +50,12 @@ AUDIT_LOG_PATH = DATA_DIR / "audit_log.jsonl"
 WF_START = "2006-01-01"
 WF_END = "2026-07-31"
 WF_REBALANCE_MONTHS = 1             # monthly signal generation
+
+# ── IBKR (paper only) ───────────────────────────────────────────────────
+# Credentials via env vars / Vault — NEVER hardcode
+# Note: ib_async authenticates via running Gateway/TWS (port 7497 paper).
+# IBKR username/password are for Gateway/TWS login, not this API.
+IBKR_HOST = os.environ.get("IBKR_HOST", "127.0.0.1")
+IBKR_PORT = int(os.environ.get("IBKR_PORT", "7497"))       # paper
+IBKR_CLIENT_ID = int(os.environ.get("IBKR_CLIENT_ID", "987654321"))
+IBKR_ACCOUNT = os.environ.get("IBKR_ACCOUNT", "DUR906177")
