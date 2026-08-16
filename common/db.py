@@ -345,3 +345,209 @@ def append_nav(portfolio: str, date: str, nav: float, note: str = "") -> bool:
             conn.close()
         except Exception:
             pass
+
+
+# ── NS-6 enforcement logs (mirrors NS-6_QA/store.py API) ──────────────────
+def upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining,
+                    multiplier, vix_level=None, position_drawdowns=None,
+                    cross_sectional_corr=None) -> bool:
+    """Upsert one drawdown snapshot (idempotent on date). Mirrors store.py."""
+    conn = _connect()
+    if conn is None:
+        return False
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO drawdown_log (date, spy_dd_pct, portfolio_dd_pct, "
+                " budget_pct, budget_remaining_pct, multiplier, vix_level, "
+                " position_drawdowns, cross_sectional_corr) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (date) DO UPDATE SET "
+                " spy_dd_pct=EXCLUDED.spy_dd_pct, portfolio_dd_pct=EXCLUDED.portfolio_dd_pct, "
+                " budget_pct=EXCLUDED.budget_pct, budget_remaining_pct=EXCLUDED.budget_remaining_pct, "
+                " multiplier=EXCLUDED.multiplier, vix_level=EXCLUDED.vix_level, "
+                " position_drawdowns=EXCLUDED.position_drawdowns, "
+                " cross_sectional_corr=EXCLUDED.cross_sectional_corr",
+                (date, spy_dd, portfolio_dd, budget, remaining, multiplier,
+                 vix_level, _jsonb(position_drawdowns), cross_sectional_corr),
+            )
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def latest_drawdown() -> Optional[Dict[str, Any]]:
+    """Most recent drawdown row (dict) or None. Mirrors store.latest()."""
+    conn = _connect()
+    if conn is None:
+        return None
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM drawdown_log ORDER BY date DESC LIMIT 1")
+            row = cur.fetchone()
+        return dict(row) if row else None
+    except Exception:
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def query_drawdown(days: int = 30) -> List[Dict[str, Any]]:
+    """Last N drawdown rows, newest first. Mirrors store.query_window()."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM drawdown_log ORDER BY date DESC LIMIT %s", (days,))
+            return [dict(r) for r in cur.fetchall()]
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def upsert_performance(date: str, nav, ret, spy_ret=None, universe_ret=None,
+                       contributions=None) -> bool:
+    """Upsert one daily performance row. Mirrors store.upsert_performance()."""
+    conn = _connect()
+    if conn is None:
+        return False
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO performance_log (date, nav, ret, spy_ret, "
+                " universe_ret, contributions) VALUES (%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (date) DO UPDATE SET nav=EXCLUDED.nav, ret=EXCLUDED.ret, "
+                " spy_ret=EXCLUDED.spy_ret, universe_ret=EXCLUDED.universe_ret, "
+                " contributions=EXCLUDED.contributions",
+                (date, nav, ret, spy_ret, universe_ret, _jsonb(contributions)),
+            )
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def query_performance(limit: int = 1000) -> List[Dict[str, Any]]:
+    """Most recent performance rows (newest first). Mirrors store.query_performance()."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT date, nav, ret, spy_ret, universe_ret, contributions "
+                "FROM performance_log ORDER BY date DESC LIMIT %s", (limit,))
+            return [dict(r) for r in cur.fetchall()]
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def log_circuit_breaker(breaker_type: str, ticker: Optional[str], detail: str) -> bool:
+    """Append a circuit-breaker event. Mirrors store.log_circuit_breaker()."""
+    conn = _connect()
+    if conn is None:
+        return False
+    try:
+        import datetime as _dt
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO circuit_breaker_log (timestamp, breaker_type, ticker, detail) "
+                "VALUES (%s,%s,%s,%s)",
+                (_dt.datetime.now().isoformat(), breaker_type, ticker, detail),
+            )
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def query_breakers(limit: int = 50) -> List[Dict[str, Any]]:
+    """Most recent circuit-breaker events (newest first). Mirrors store.query_breakers()."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM circuit_breaker_log ORDER BY id DESC LIMIT %s", (limit,))
+            return [dict(r) for r in cur.fetchall()]
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    """Read a settings row. Mirrors store.get_setting()."""
+    conn = _connect()
+    if conn is None:
+        return default
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT value FROM settings WHERE key=%s", (key,))
+            row = cur.fetchone()
+        return row[0] if row else default
+    except Exception:
+        return default
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def set_setting(key: str, value: str) -> bool:
+    """Upsert a settings row. Mirrors store.set_setting()."""
+    conn = _connect()
+    if conn is None:
+        return False
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO settings (key, value) VALUES (%s,%s) "
+                        "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                        (key, value))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _jsonb(v: Any) -> Any:
+    """Coerce a value to a JSONB-safe form (dict → json string; None stays None)."""
+    if v is None:
+        return None
+    if isinstance(v, (dict, list)):
+        return json.dumps(v)
+    return v

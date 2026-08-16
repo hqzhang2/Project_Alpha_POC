@@ -318,5 +318,72 @@ NS-6's drift target should read the latter.
 
 ---
 
-*Design + implementation doc. No tables created, no code changed. Awaiting
-sign-off on the phase scope (§B) and the py3.9 `psycopg2` install (Part D).*
+## PART F — Corrections learned during Phase 4 (frontier, 2026-08-16)
+
+**F.1 — NS-6 log schema was drafted too narrow in Phase 0.** The Phase-0 draft
+had `drawdown_log(id, date, current_dd, note)` / `performance_log(id, date, nav,
+return)` / `circuit_breaker_log(id, date, tripped, reason)` — but the real
+`NS-6_QA/store.py` tables carry far richer columns: `drawdown_log(date PK,
+spy_dd_pct, portfolio_dd_pct, budget_pct, budget_remaining_pct, multiplier,
+vix_level, position_drawdowns JSON, cross_sectional_corr)`, `performance_log(date
+PK, nav, ret, spy_ret, universe_ret, contributions JSON)`, `circuit_breaker_log
+(id, timestamp, breaker_type, ticker, detail)`, plus a `settings(key, value)`
+table the draft omitted. **Schema corrected to mirror `store.py` exactly**, with
+the JSON sub-documents (`position_drawdowns`, `contributions`) stored as JSONB.
+The accessors (`upsert_drawdown`, `latest_drawdown`, `query_drawdown`,
+`upsert_performance`, `query_performance`, `log_circuit_breaker`, `query_breakers`,
+`get_setting`, `set_setting`) mirror `store.py`'s API so the junior rewire is a
+drop-in swap.
+
+**F.2 — `bench_closes.json` is `[[date, price], …]` pairs, not a bare price
+list.** The NS-7 bench closes are self-describing `[date, price]` pairs (the
+`spy_closes.json` dates are redundant). The first daily_prices backfill attempt
+indexed it as a flat list and wrote the date-array as a numeric (caught by the
+`InvalidTextRepresentation` error). Corrected to unpack the pairs.
+
+**F.3 — daily_prices dedup:** NS-8's 6-ETF closes (5,186 dates each, from
+2006-01-03) and NS-7's SPY/QQQ bench (3,172 dates, from 2014-01-02) both overlap
+A_T's existing `daily_prices` SPY rows (1,301 dates). `ON CONFLICT (ticker, date)`
+upserts so the shared table holds the union without duplicates; the longest
+series (NS-8, 2006→present) wins for SPY.
+
+---
+
+## PART G — Phase 5 deprecation: scoped by reader-reach (junior, 2026-08-16)
+
+**G.1 — Full file deprecation is DEFERRED, gated on the design's own rule.**
+The design (§B Phase 5) deletes sqlite/JSON files "once every reader is on
+Postgres." That precondition is NOT met for three readers, which were never
+rewired (and `common.db` exposes no accessors for them):
+
+| Reader | Still reads | Status |
+|---|---|---|
+| **NS-7** (`store.py`, `config.py`) | `ns7.db`, `selection.json`, `bench_closes.json` | sqlite/JSON — not rewired |
+| **NS-8** (`store.py`, `config.py`, `pipeline.py`) | `ns8.db`, `signals.json`, `ns8_hist_closes.json` | sqlite/JSON — not rewired |
+| **`common/regime_store.py`** (read by NS-2/NS-5/NS-6/NS-7) | `regime_history.db` (sqlite) | sqlite — not rewired |
+
+Deleting `ns7.db`/`ns8.db`/`regime_history.db`/their JSONs now would break these
+readers. This is **not** a junior skip — it's the design's own gate. The safe,
+complete scope for this phase is below.
+
+**G.2 — What Phase 5 did land (safe, verified).**
+- **`.gitignore` already covers every NS `data/` dir** (NS-5/6/7/8/X/PC, QA+PROD)
+  and `common/data/` — all `.db` and data JSONs are runtime state, nothing tracked
+  to remove. The only tracked `.db` is `sector_etfs.db` (repo root, A_T migration
+  source — intentionally kept).
+- **NS-6 logs now write to Postgres in prod** (store.py seam → `common.db`),
+  with the sqlite implementation retained as the hermetic **test seam** (temp
+  `DB_PATH` monkeypatch → `_use_pg()==False`). 247 NS-6 tests stay green.
+- `run_daily_price_feed.py` persists via the store seam → Postgres automatically
+  (no direct change needed).
+
+**G.3 — Remaining work for FULL deprecation (a separate PR, frontier-scoped).**
+Rewire NS-7, NS-8, and `common/regime_store.py` to `common.db` (needs new
+accessors: NS-7 selection/volume, NS-8 signals/audit, regime CRUD), then delete
+the orphaned sqlite/JSON files. This is intentionally out of this PR's scope.
+
+---
+
+*Design + implementation doc. Phases 0–4 complete + Phase 5 (scoped) complete.
+Frontier: schema/accessors/backfill. Junior: NS-PC→PG, NS-X→PG, NS-6 store→PG.
+Full file deprecation deferred to a reader-rewire PR (Part G.3).*

@@ -88,21 +88,35 @@ CREATE TABLE IF NOT EXISTS regime_history (
 );
 
 -- ── NS-6 enforcement logs (from ns6.db) ─────────────────────────────────
+-- Schema mirrors NS-6_QA/store.py exactly (source of truth). position_drawdowns
+-- and contributions are JSON strings/dicts; keep as JSONB for queryability.
 CREATE TABLE IF NOT EXISTS drawdown_log (
-    id         SERIAL PRIMARY KEY,
-    date       DATE,
-    current_dd NUMERIC(8,6),
-    note       TEXT
+    date                  DATE PRIMARY KEY,
+    spy_dd_pct            DOUBLE PRECISION,
+    portfolio_dd_pct      DOUBLE PRECISION,
+    budget_pct            DOUBLE PRECISION,
+    budget_remaining_pct  DOUBLE PRECISION,
+    multiplier            DOUBLE PRECISION,
+    vix_level             DOUBLE PRECISION,
+    position_drawdowns    JSONB,
+    cross_sectional_corr  DOUBLE PRECISION
 );
 CREATE TABLE IF NOT EXISTS circuit_breaker_log (
-    id      SERIAL PRIMARY KEY,
-    date    DATE,
-    tripped BOOLEAN,
-    reason  TEXT
+    id           SERIAL PRIMARY KEY,
+    timestamp    TEXT,
+    breaker_type TEXT,
+    ticker       TEXT,
+    detail       TEXT
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
 );
 CREATE TABLE IF NOT EXISTS performance_log (
-    id     SERIAL PRIMARY KEY,
-    date   DATE,
-    nav    NUMERIC(14,2),
-    return DOUBLE PRECISION
+    date          DATE PRIMARY KEY,
+    nav           DOUBLE PRECISION,
+    ret           DOUBLE PRECISION,
+    spy_ret       DOUBLE PRECISION,
+    universe_ret  DOUBLE PRECISION,
+    contributions JSONB
 );

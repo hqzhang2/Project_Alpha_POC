@@ -157,6 +157,142 @@ def _backfill_regime() -> int:
             pass
 
 
+# ── NS-6 enforcement logs (Phase 4) ─────────────────────────────────────
+def _backfill_ns6_logs() -> int:
+    """ns6.db → drawdown_log / performance_log / circuit_breaker_log / settings."""
+    ns6_db = ROOT / "NS-6_QA" / "data" / "ns6.db"
+    if not ns6_db.exists():
+        return 0
+    try:
+        c = sqlite3.connect(ns6_db)
+        c.row_factory = sqlite3.Row
+        dd = [dict(r) for r in c.execute("SELECT * FROM drawdown_log ORDER BY date")]
+        perf = [dict(r) for r in c.execute("SELECT * FROM performance_log ORDER BY date")]
+        cb = [dict(r) for r in c.execute("SELECT * FROM circuit_breaker_log ORDER BY id")]
+        settings = [dict(r) for r in c.execute("SELECT * FROM settings")]
+        c.close()
+    except Exception:
+        return 0
+
+    conn = db._connect()
+    if conn is None:
+        return 0
+    n = 0
+    try:
+        with conn, conn.cursor() as cur:
+            for r in dd:
+                cur.execute(
+                    "INSERT INTO drawdown_log (date, spy_dd_pct, portfolio_dd_pct, "
+                    " budget_pct, budget_remaining_pct, multiplier, vix_level, "
+                    " position_drawdowns, cross_sectional_corr) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (date) DO UPDATE SET "
+                    " spy_dd_pct=EXCLUDED.spy_dd_pct, portfolio_dd_pct=EXCLUDED.portfolio_dd_pct, "
+                    " budget_pct=EXCLUDED.budget_pct, budget_remaining_pct=EXCLUDED.budget_remaining_pct, "
+                    " multiplier=EXCLUDED.multiplier, vix_level=EXCLUDED.vix_level, "
+                    " position_drawdowns=EXCLUDED.position_drawdowns, "
+                    " cross_sectional_corr=EXCLUDED.cross_sectional_corr",
+                    (r["date"], r.get("spy_dd_pct"), r.get("portfolio_dd_pct"),
+                     r.get("budget_pct"), r.get("budget_remaining_pct"), r.get("multiplier"),
+                     r.get("vix_level"), db._jsonb(r.get("position_drawdowns")),
+                     r.get("cross_sectional_corr")),
+                )
+                n += 1
+            for r in perf:
+                cur.execute(
+                    "INSERT INTO performance_log (date, nav, ret, spy_ret, "
+                    " universe_ret, contributions) VALUES (%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (date) DO UPDATE SET nav=EXCLUDED.nav, ret=EXCLUDED.ret, "
+                    " spy_ret=EXCLUDED.spy_ret, universe_ret=EXCLUDED.universe_ret, "
+                    " contributions=EXCLUDED.contributions",
+                    (r["date"], r.get("nav"), r.get("ret"), r.get("spy_ret"),
+                     r.get("universe_ret"), db._jsonb(r.get("contributions"))),
+                )
+                n += 1
+            for r in cb:
+                cur.execute(
+                    "INSERT INTO circuit_breaker_log (timestamp, breaker_type, ticker, detail) "
+                    "VALUES (%s,%s,%s,%s)",
+                    (r.get("timestamp"), r.get("breaker_type"), r.get("ticker"), r.get("detail")),
+                )
+                n += 1
+            for r in settings:
+                cur.execute(
+                    "INSERT INTO settings (key, value) VALUES (%s,%s) "
+                    "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                    (r["key"], r["value"]),
+                )
+                n += 1
+        return n
+    except Exception:
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+# ── Market data (Phase 4) ───────────────────────────────────────────────
+def _backfill_daily_prices() -> int:
+    """NS-8 6-ETF closes + NS-7 SPY/QQQ bench closes → shared daily_prices."""
+    conn = db._connect()
+    if conn is None:
+        return 0
+
+    # NS-8: ns8_hist_closes.json {tickers, dates, closes{ticker:[...]}}
+    rows = []
+    ns8 = ROOT / "NS-8_QA" / "data" / "ns8_hist_closes.json"
+    if ns8.exists():
+        try:
+            doc = json.loads(ns8.read_text())
+            tickers, dates = doc["tickers"], doc["dates"]
+            closes = doc["closes"]
+            for ti, t in enumerate(tickers):
+                for di, d in enumerate(dates):
+                    v = closes[t][di] if t in closes else None
+                    if v is not None:
+                        rows.append((t, d, v))
+        except Exception:
+            pass
+
+    # NS-7: bench_closes.json {SPY:[[date, price], ...], QQQ:[...]}
+    # each series is a list of [date, price] pairs (self-describing dates).
+    bench = ROOT / "NS-7_QA" / "data" / "bench_closes.json"
+    if bench.exists():
+        try:
+            bdoc = json.loads(bench.read_text())
+            for t, series in bdoc.items():
+                for pair in series:
+                    if isinstance(pair, (list, tuple)) and len(pair) >= 2 and pair[1] is not None:
+                        rows.append((t, pair[0], pair[1]))
+        except Exception:
+            pass
+
+    if not rows:
+        return 0
+    n = 0
+    try:
+        with conn, conn.cursor() as cur:
+            for t, d, v in rows:
+                cur.execute(
+                    "INSERT INTO daily_prices (ticker, date, raw_close, adj_close) "
+                    "VALUES (%s,%s,%s,%s) "
+                    "ON CONFLICT (ticker, date) DO UPDATE SET "
+                    " raw_close=EXCLUDED.raw_close, adj_close=EXCLUDED.adj_close",
+                    (t, d, v, v),
+                )
+                n += 1
+        return n
+    except Exception:
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def main() -> int:
     if not db.available():
         print("ERROR: Postgres unavailable (psycopg2 missing or DB down). Aborting.")
@@ -166,8 +302,11 @@ def main() -> int:
     so = _backfill_strategy_output()
     sr = _backfill_strategy_returns()
     rg = _backfill_regime()
+    ns6 = _backfill_ns6_logs()
+    dp = _backfill_daily_prices()
     print(f"backfilled: portfolios={p} strategy_output={so} "
-          f"strategy_returns={sr} regime_history={rg}")
+          f"strategy_returns={sr} regime_history={rg} "
+          f"ns6_logs={ns6} daily_prices={dp}")
     return 0
 
 
