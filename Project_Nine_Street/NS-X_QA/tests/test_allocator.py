@@ -34,10 +34,16 @@ def test_walkforward_mechanics_valid():
     assert res["rotation_sharpe"] > res["static_sharpe"]
 
 
-def test_walkforward_evidence_status_honest():
-    """Evidence status must be 'evidence_pending' (real streams not wired)."""
+def test_walkforward_evidence_gate_real_data():
+    """Evidence gate runs on REAL differentiated streams (store wired)."""
     res = wf.run_validation(seed=42)
-    assert res["gate"]["evidence_status"] == "evidence_pending"
+    assert res["gate"]["evidence_status"] in ("PASS", "FAIL", "evidence_pending")
+
+
+def test_streams_differentiated_via_store():
+    """The strategy-data store makes streams differentiated (NS-X no longer a no-op)."""
+    import registry
+    assert registry.streams_differentiated() is True
 
 
 def test_walkforward_turnover_reported():

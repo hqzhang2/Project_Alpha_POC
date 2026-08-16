@@ -42,3 +42,5 @@ STORE_DIR = Path(__file__).resolve().parent.parent  # repo root (cross-service r
 # ── Cross-service read paths (decoupled, house pattern) ─────────────────
 NS8_HIST = Path("/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-8_QA/data/ns8_hist_closes.json")
 NS7_SELECTION = Path("/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_QA/data/selection.json")
+NS7_WF = Path("/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_QA/data/walkforward_results.json")
+NS7_BLEND = Path("/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_QA/data/blend_results.json")

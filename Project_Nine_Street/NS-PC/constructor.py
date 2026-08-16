@@ -140,11 +140,16 @@ def apply_guards(weights: Dict[str, float]) -> Dict[str, float]:
 
 
 def guardrails(weights: Dict[str, float]) -> Dict[str, float]:
-    """Report the composed-book guardrail metrics (matches NS-5's block)."""
+    """Report the composed-book guardrail metrics (matches NS-5's block).
+
+    max_weight = the largest RISKY name (excludes the cash proxy, which is the
+    residual risk-off sleeve and legitimately exempt from the per-name cap).
+    """
+    risky = {k: v for k, v in weights.items() if k != config.CASH_PROXY}
     return {
         "n": len(weights),
-        "eff_n": round(effective_n(weights), 2),
-        "max_weight": round(max(weights.values(), default=0.0), 4),
+        "eff_n": round(effective_n(risky) if risky else 0.0, 2),
+        "max_weight": round(max(risky.values(), default=0.0), 4),
         "weights_sum": round(sum(weights.values()), 6),
         "min_eff_n": config.COMPOSED_MIN_EFF_N,
         "max_name_w": config.COMPOSED_MAX_NAME_W,

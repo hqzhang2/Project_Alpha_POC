@@ -114,24 +114,28 @@ RETURN_PRODUCERS = {
 
 
 def get_returns(strategy_id: str) -> List[float]:
-    """Live realized return series for a strategy (fail-open: [] on error)."""
+    """Live realized return series for a strategy (fail-open: [] on error).
+
+    Sourced from the strategy-data store (NS-DS) — REAL differentiated streams
+    per strategy, not the old SPY proxy. A missing/disabled strategy → [].
+    """
     reg = {s.id: s for s in build_registry()}
     s = reg.get(strategy_id)
     if s is None or not s.enabled:
         return []
-    prod = RETURN_PRODUCERS.get(s.return_stream)
-    if prod is None:
+    try:
+        import strategy_data
+        return strategy_data.get_stream(strategy_id)
+    except Exception:
         return []
-    return prod()
 
 
 def streams_differentiated() -> bool:
     """True if the enabled risky strategies return DIFFERENT live streams.
 
-    This is the honest check for the "allocator is a no-op" condition: while
-    NS-7/A_T/NS-8 all proxy to the same SPY series, every strategy gets identical
-    momentum and NS-X outputs equal weights — i.e. it isn't actually allocating.
-    Returns False until per-strategy live P&L is wired (the v4 data store).
+    With the strategy-data store wired, NS-8 (live daily), NS-7 (momentum WF)
+    and A_T (value blend) return genuinely different series, so this is True
+    and NS-X actually allocates. Returns False only if a stream is missing.
     """
     enabled = [s for s in enabled_registry() if s.role != "riskoff"]
     streams = [get_returns(s.id) for s in enabled]

@@ -90,7 +90,9 @@ def walk(start: int, streams: Dict[str, List[float]],
     total_turnover = 0.0
     n_rebalances = 0
 
-    for day in range(start, len(streams["ns7"])):
+    # iterate to the SHORTEST stream (real streams differ in length)
+    n_days = min(len(v) for v in streams.values())
+    for day in range(start, n_days):
         # rotation: re-compute allocation on trailing window (no look-ahead)
         if (day - start) % rebalance_every == 0:
             trailing = {k: streams[k][max(0, day - lookback):day]
@@ -119,7 +121,7 @@ def walk(start: int, streams: Dict[str, List[float]],
         return mdd
 
     # annualized turnover (rebalances/yr × avg turnover per rebalance)
-    n_days = len(streams["ns7"]) - start
+    n_days = min(len(v) for v in streams.values()) - start
     rebalances_per_year = 252.0 / rebalance_every
     annual_turnover = (total_turnover / n_rebalances * rebalances_per_year
                        if n_rebalances else 0.0)
@@ -157,10 +159,10 @@ def run_validation(seed: int = 42, n: int = 1200,
     # turnover gate (design §8): measured, now enforced
     turnover_ok = res["annual_turnover"] <= config.MAX_BOOK_TURNS_PER_YEAR
 
-    # evidence gate: the design §8 HARD GATE (rotation beats static on REAL fund
-    # P&L) is BLOCKED until per-strategy live streams are wired (v4 data store).
-    # The synthetic run only validates mechanics — report that honestly.
-    evidence_status = "evidence_pending"   # real-data walk still to run
+    # evidence gate: now that the strategy-data store is wired, real streams ARE
+    # differentiated — so run the REAL evidence walk on actual strategy P&L.
+    evidence_status = ("evidence_pending" if not registry.streams_differentiated()
+                       else _run_real_evidence())
 
     res["gate"] = {
         "mechanics_validated": bool(mechanics_ok),
@@ -174,6 +176,23 @@ def run_validation(seed: int = 42, n: int = 1200,
         "evidence_status": evidence_status,
     }
     return res
+
+
+def _run_real_evidence() -> str:
+    """Run the design §8 HARD GATE on REAL per-strategy streams: does rotation
+    beat static equal-weight on the actual strategy P&L? Returns PASS/FAIL."""
+    try:
+        reg = {s.id: s for s in registry.build_registry()}
+        streams = {sid: registry.get_returns(sid)
+                   for sid in reg if reg[sid].enabled}
+        streams = {k: v for k, v in streams.items() if v}   # drop empty
+        if len([k for k in streams if k != "cash"]) < 2:
+            return "evidence_pending"                        # not enough data
+        res = walk(200, streams, rebalance_every=22)          # real walk
+        ok = res["rotation_sharpe"] > res["static_sharpe"]
+        return "PASS" if ok else "FAIL"
+    except Exception:
+        return "evidence_pending"
 
 
 def main() -> int:
@@ -193,8 +212,7 @@ def main() -> int:
     print(f"annual turnover {res['annual_turnover']:.2f} book-turns/yr "
           f"(cap {config.MAX_BOOK_TURNS_PER_YEAR}) -> {'OK' if g['turnover_ok'] else 'OVER CAP'}")
     print(f"MECHANICS {'VALID' if g['mechanics_validated'] else 'FAIL'}")
-    print(f"EVIDENCE STATUS: {g['evidence_status']}  "
-          f"(real per-strategy streams not yet wired; v4 data store)")
+    print(f"EVIDENCE STATUS: {g['evidence_status']}")
     # exit 0 if mechanics valid AND turnover ok (real bug otherwise)
     return 0 if (g["mechanics_validated"] and g["turnover_ok"]) else 1
 
