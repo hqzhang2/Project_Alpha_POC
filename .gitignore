@@ -100,3 +100,5 @@ Project_Nine_Street/NS-2_PROD/ns2_watchlist.json
 Project_Nine_Street/NS-5_QA/data/sleeve_blend.json
 Project_Nine_Street/NS-7_PROD/data/
 Project_Nine_Street/NS-5_PROD/data/sleeve_blend.json
+# NS-PC writes this live book daily (18:00 schedule) - runtime state, never commit
+Project_Nine_Street/scripts/paper_portfolio.json
