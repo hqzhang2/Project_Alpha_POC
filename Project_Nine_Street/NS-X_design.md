@@ -168,6 +168,38 @@ strategies, easy to backfill history — but it is an **infrastructure change
 The `store.get_returns()` / `store.get_target_book()` interface is **designed
 now** so the v4 DB swap is an implementation detail, not a redesign.
 
+### 4.4 Registry eligibility — which strategies rotate  `← ADDED (frontier review)`
+
+Not every service belongs in the rotation universe. Inclusion must be **earned**,
+not automatic. The v3 review flags two current registry entries as questionable:
+
+- **NS-1 (ETF cap-preservation)** — v3 calls it *superseded/legacy*: its VIX-smile
+  rotation pattern was folded into NS-6's fast de-risk. It is a **design
+  precedent**, not an independent live alpha source.
+- **NS-3 (sector rotation)** — v3 notes its absolute gate *"destroys value"* in
+  walk-forward (Tier 1 at base rate; the absolute gate is net-negative).
+
+**Policy:** a strategy enters the rotation universe only if it clears the SAME
+evidence bar as NS-7 (G1) and NS-8 (§6) — a walk-forward OOS gate proving positive
+contribution. Until then it is **registry-declared but `enabled=False`** (present
+for the NS-9/10 pattern, excluded from rotation, weight 0).
+
+| Strategy | role | In rotation? | Evidence gate |
+|---|---|---|---|
+| ns7 | return | ✅ enabled | G1 pass (8/11 excess yrs) |
+| at_val | defensive | ✅ enabled | +4.85pp/yr vs value base |
+| ns8 | diversifier | ✅ enabled | Sharpe ≥0.60, MaxDD ≤15% (post-R8) |
+| **ns1** | defensive | ⚠️ **enabled=False** until it proves a live edge (currently superseded by NS-6) | — |
+| **ns3** | supplemental | ⚠️ **enabled=False** until its gate is fixed (absolute gate currently destroys value) | — |
+| cash | riskoff | ✅ enabled | reference point (0) |
+
+**Effect:** the default rotation universe at launch is **{ns7, at_val, ns8,
+cash}** — the three validated strategies plus the risk-off sleeve. NS-1/NS-3 are
+declared in the registry (so the NS-9/10 pattern is exercised) but do not move
+capital until each clears its own walk-forward gate. This keeps the allocator
+honest: **a strategy with a negative/absent edge must not compete for capital
+just because it exists.**
+
 ---
 
 ## 5. Rotation Signal: Relative Momentum Across Strategies (RISK-ADJUSTED)
@@ -266,7 +298,35 @@ where `w_i` is NS-X's strategy weight and `target_book` is each strategy's own
 output (NS-7 selection, A_T screener, NS-8 signals, etc.). Overlap sums; weights
 renormalized to 1.0.
 
-### 6.3 Precedence (unchanged, extends NS-8 §7.1)
+### 6.3 Security-level concentration guard after composition  `← ADDED (frontier review)`
+
+The 0.40 cap in §5.2 is a **strategy-level** cap. It does NOT bound the
+**security-level** concentration that arises *after* composition — and overlap
+can hide real risk:
+
+- **NS-7 momentum and A_T value can hold the same stock** (overlap sums, doubling
+  that name's weight).
+- **NS-8 holds SPY**, which contains many NS-7/A_T names — a *sector/β* overlap,
+  not just a name overlap.
+
+So the composed `fund_book` can have hidden concentration the strategy-level cap
+misses. **NS-5 must re-apply a security-level guard on the composed book, after
+composition, before NS-6 sees it.** Reuse the existing NS-5 concentration
+guardrails (effective-N, per-name cap, sector cap — already implemented in the
+NS-5 grading/`concentration` machinery):
+
+| Guard | Threshold | Why |
+|---|---|---|
+| Per-name cap (composed book) | ≤ ~8% (config `COMPOSED_MAX_NAME_W`) | No single stock dominates after overlap |
+| Sector cap (composed book) | ≤ 40% | NS-8's SPY exposes the whole equity sleeve to one β bucket |
+| Effective-N floor (composed book) | ≥ ~15 | Baseball-book shape preserved post-composition |
+
+This is **not optional**: without it, two strategies holding the same leader
+(NS-7 momentum + A_T value both long the same high-β name) can combine to a
+position NS-X's strategy-level logic never intended. The strategy-level cap and
+the security-level cap are **complementary layers** — both required.
+
+### 6.4 Precedence (unchanged, extends NS-8 §7.1)
 
 **NS-6 > NS-X > NS-5 > individual strategies.** NS-6 drawdown enforcement
 overrides NS-X's allocation; NS-X overrides within-strategy sizing; a single
@@ -302,6 +362,11 @@ RISK_ADJUST = True              # vol-normalize returns before momentum (mandato
 VOL_DELTA = 60 / 61             # EWMA center-of-mass (reuse NS-8 vol.py convention)
 CASH_STRATEGY_ID = "cash"       # residual risk-off sleeve
 MAX_BOOK_TURNS_PER_YEAR = 2.0   # strategy-level rotation turnover cap
+
+# Security-level guards on the COMPOSED fund book (§6.3) — applied by NS-5.
+COMPOSED_MAX_NAME_W = 0.08      # per-name cap after overlap
+COMPOSED_MAX_SECTOR_W = 0.40    # sector/β cap (NS-8's SPY exposes one β bucket)
+COMPOSED_MIN_EFF_N = 15         # baseball effective-N floor post-composition
 ```
 
 ### 7.3 Outputs / Endpoints
