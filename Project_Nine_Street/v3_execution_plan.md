@@ -178,7 +178,7 @@ UI/tests/docs/plumbing, never touches signal/backtest functions.**
 | R3 | 2 | ✅ **DONE** — sleeve streams unified (both sleeves emit common return rows; R1 combines them via subprocess to avoid the config-name collision) | feature/v4.0 (unreleased) | 2026-08-16 |
 | R1 | 3 | ✅ **DONE** — combined-fund walk-forward (first assembly); DD gate PASS (0.72× SPY), Return gate FAIL (3/11 vs SPY) | feature/v4.0 (unreleased) | 2026-08-16 |
 | R2 | 4 | ✅ **DONE** (Phase 4) — frontier sizer built (`NS-5_QA/frontier_sizing.py`), validated on real data, NOT wired into live blend (per PM: feeds revamped R1) | feature/v4.0 (unreleased) | 2026-08-16 |
-| R5 | 5 | ⏳ NOT STARTED | — | — |
+| R5 | 5 | ⏳ **SCOPED TO NS-X** — migrate paper book to `Σ(NS-X strategy weight × strategy book)`, paper-trade only; centralized strategy-data DB deferred to v4 | — | — |
 
 **Phase 0 result (2026-08-16):** R6, R4, R7 all complete. **Phase 1 (R8):**
 complete — inverse-vol sizing cuts NS-8 MaxDD below the 15% hard gate (11.8%)
