@@ -46,6 +46,7 @@ STRATEGIES = {
     'ns7':   {'name': 'NS-7 (Growth/Momentum)', 'path': 'ns7_dashboard.html', 'prod': 9270, 'qa': 9271},
     'ns8':   {'name': 'NS-8 (Tactical Alloc)', 'path': 'dashboard', 'prod': 9280, 'qa': 9281},
     'nsx':   {'name': 'NS-X (Strategy Alloc)', 'path': 'nsx_dashboard.html', 'prod': 9290, 'qa': 9291},
+    'nspc':  {'name': 'NS-PC (Portfolio Ctor)', 'path': 'nspc_dashboard.html', 'prod': 9300, 'qa': 9301},
 }
 
 # HTML Template with all braces escaped for Python .format()
@@ -195,6 +196,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <button class="nav-tab" data-strategy="ns7" onclick="switchStrategy('ns7')"><span class="status-indicator" id="status-ns7"></span>NS-7</button>
               <button class="nav-tab" data-strategy="ns8" onclick="switchStrategy('ns8')"><span class="status-indicator" id="status-ns8"></span>NS-8</button>
               <button class="nav-tab" data-strategy="nsx" onclick="switchStrategy('nsx')"><span class="status-indicator" id="status-nsx"></span>NS-X</button>
+              <button class="nav-tab" data-strategy="nspc" onclick="switchStrategy('nspc')"><span class="status-indicator" id="status-nspc"></span>NS-PC</button>
             </div>
     </div>
     <div class="env-toggle">
@@ -262,7 +264,8 @@ const SERVICE_ENDPOINTS = {
   'ns6': '/health',
   'ns7': '/health',
   'ns8': '/health',
-  'nsx': '/health'
+  'nsx': '/health',
+  'nspc': '/health'
 };
 
 async function checkServiceHealth(key, port, path) {
