@@ -159,8 +159,8 @@ UI/tests/docs/plumbing, never touches signal/backtest functions.**
 
 | Blocker | Impact | Notes |
 |---|---|---|
-| R4 harness fix is harder than it looks | Delays the entire critical path | The "implausible Sharpe 1.19 / 3.1% CAGR / ~zero cost drag" triad suggests the return-series construction itself is wrong, not just a bad annualization |
-| R7 benchmark undecided when R1 lands | R1's result can be *built* but not *judged* | Push to settle R7 in Phase 0/1 so the benchmark exists before the combined curve |
+| R4 harness fix is harder than it looks | Delays the entire critical path | The "implausible Sharpe 1.19 / 3.1% CAGR / ~zero cost drag" triad suggested the return-series construction was wrong, not just a bad annualization — confirmed and fixed (R4) |
+| R7 benchmark undecided when R1 lands | R1's result can be *built* but not *judged* | ✅ Resolved 2026-08-16 — benchmark decided ("outperform held universe, ≤0.5× SPY DD"); R1 can now be judged on arrival |
 | R3 is a large cross-cutting change | Could balloon scope | Scope it as *one common harness + one gate schema*, not a rewrite of every strategy's internals |
 | Short-leg crisis alpha (MOP 2012) stays off the table | The fund forgoes the paper's biggest alpha | Deliberate — DD-first forbids shorts; NS-6's put overlay is the only sanctioned path |
 | Sibling-session working-tree clobber | Uncommitted edits lost | Never `reset --hard` without verifying; re-verify commits land on the *active* branch (may switch mid-session) |
@@ -171,14 +171,22 @@ UI/tests/docs/plumbing, never touches signal/backtest functions.**
 
 | Rec | Phase | Status | Release tag | Date |
 |---|---|---|---|---|
-| R6 | 0 | 🔴 REGRESSED (pending fix) | — | — |
-| R4 | 0 | 🔴 BROKEN (pending fix) | — | — |
-| R7 | 0 | ⏳ PENDING (PM decision) | — | — |
-| R8 | 1 | ⏳ SPEC DRAFTED (`NS-8_enhancement.md`) | — | 2026-08-15 |
+| R6 | 0 | ✅ **DONE** — env self-check live (QA+PROD); PROD DD now reads −0.0276 | feature/v4.0 (unreleased) | 2026-08-16 |
+| R4 | 0 | ✅ **DONE** — real-data harness, tranching, cost/Sharpe fix (QA+PROD) | feature/v4.0 (unreleased) | 2026-08-16 |
+| R7 | 0 | ✅ **DONE** — benchmark decided: "outperform held universe, ≤0.5× SPY DD, SPY calibration" | — (PM decision) | 2026-08-16 |
+| R8 | 1 | ✅ **DONE** — inverse-vol sizing + sign12m (QA+PROD); MaxDD 17.6%→11.8%, Sharpe→0.708 | feature/v4.0 (unreleased) | 2026-08-16 |
 | R3 | 2 | ⏳ NOT STARTED | — | — |
 | R1 | 3 | ⏳ NOT STARTED | — | — |
 | R2 | 4 | ⏳ DEFERRED | — | — |
 | R5 | 5 | ⏳ NOT STARTED | — | — |
+
+**Phase 0 result (2026-08-16):** R6, R4, R7 all complete. **Phase 1 (R8):**
+complete — inverse-vol sizing cuts NS-8 MaxDD below the 15% hard gate (11.8%)
+and raises Sharpe to 0.708 on real data; NS-8 gate re-spec'd
+(`NS-8_gate_respec.md`) — turnover is now a reported diagnostic (the control is
+cost drag at 2bp/side), MaxDD ≤15% is the single hard gate. All committed on
+`feature/v4.0`. Next: R3 (unify evaluation) → R1 (combined-fund walk-forward),
+now with the benchmark decided.
 
 ---
 
