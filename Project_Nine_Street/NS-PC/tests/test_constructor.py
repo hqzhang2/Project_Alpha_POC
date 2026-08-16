@@ -120,17 +120,26 @@ def test_build_portfolio_schema():
 
 
 def test_fail_open_missing_input():
-    # stale/missing input → read_inputs returns None
-    # (run_construct raises; tested indirectly via read_inputs None)
-    import tempfile, os
-    # monkeypatch a missing path
-    old = config.NSX_ALLOC
+    # fail-open: when BOTH the DB and the file are unavailable, read_inputs
+    # returns None (no write). The DB is authoritative (NS-DB); the file is the
+    # phase-3 fallback. Simulate DB-down by forcing the accessors to None and a
+    # missing file.
+    import sys, tempfile, os
+    # force DB accessors to return None (as if DB down)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+    import common.db as _db
+    orig = (_db.latest_strategy_output, _db.write_strategy_output)
+    _db.latest_strategy_output = lambda *a, **k: None  # type: ignore
+    old = (config.NSX_ALLOC, config.NS5_BLEND, config.NS8_SIGNALS)
     config.NSX_ALLOC = Path("/nonexistent/alloc.json")
+    config.NS5_BLEND = Path("/nonexistent/blend.json")
+    config.NS8_SIGNALS = Path("/nonexistent/signals.json")
     try:
         alloc, blend, signals = constructor.read_inputs()
-        assert alloc is None
+        assert alloc is None and blend is None and signals is None
     finally:
-        config.NSX_ALLOC = old
+        _db.latest_strategy_output = orig[0]  # type: ignore
+        config.NSX_ALLOC, config.NS5_BLEND, config.NS8_SIGNALS = old
 
 
 if __name__ == "__main__":

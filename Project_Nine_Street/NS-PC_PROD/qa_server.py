@@ -22,6 +22,12 @@ from pathlib import Path
 import config
 import constructor
 
+# repo root on sys.path so `import common.db` resolves (this service runs with
+# NS-PC/ as cwd; common/ lives at the repo root)
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 PORT = int(os.environ.get("PORT", 9301))
 ENV = os.environ.get("ENV", "QA")
 
@@ -102,6 +108,13 @@ class NSPCHandler(BaseHTTPRequestHandler):
         self._json({"error": f"not found: {path}"}, 404)
 
     def _portfolio(self):
+        try:
+            import common.db as db
+            doc = db.get_portfolio(config.PORTFOLIO_NAME)
+            if doc:
+                return self._json(doc)
+        except Exception:
+            pass
         if not config.PORTFOLIO_PATH.exists():
             return self._json({"error": "No portfolio yet. POST /construct first."}, 404)
         with open(config.PORTFOLIO_PATH) as fh:
