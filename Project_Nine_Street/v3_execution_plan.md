@@ -175,8 +175,8 @@ UI/tests/docs/plumbing, never touches signal/backtest functions.**
 | R4 | 0 | ✅ **DONE** — real-data harness, tranching, cost/Sharpe fix (QA+PROD) | feature/v4.0 (unreleased) | 2026-08-16 |
 | R7 | 0 | ✅ **DONE** — benchmark decided (revised 2026-08-16): "outperform cap-weighted SPY, ≤0.75× SPY DD, SPY is the benchmark" | — (PM decision) | 2026-08-16 |
 | R8 | 1 | ✅ **DONE** — inverse-vol sizing + sign12m (QA+PROD); MaxDD 17.6%→11.8%, Sharpe→0.708 | feature/v4.0 (unreleased) | 2026-08-16 |
-| R3 | 2 | ⏳ NOT STARTED | — | — |
-| R1 | 3 | ⏳ NOT STARTED | — | — |
+| R3 | 2 | ✅ **DONE** — sleeve streams unified (both sleeves emit common return rows; R1 combines them via subprocess to avoid the config-name collision) | feature/v4.0 (unreleased) | 2026-08-16 |
+| R1 | 3 | ✅ **DONE** — combined-fund walk-forward (first assembly); DD gate PASS (0.72× SPY), Return gate FAIL (3/11 vs SPY) | feature/v4.0 (unreleased) | 2026-08-16 |
 | R2 | 4 | ⏳ DEFERRED | — | — |
 | R5 | 5 | ⏳ NOT STARTED | — | — |
 
