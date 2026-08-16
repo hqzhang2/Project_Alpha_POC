@@ -27,6 +27,12 @@ def test_normalized_returns_zero_vol_flat():
     assert all(v == 0.0 for v in norm)
 
 
+def test_normalized_returns_near_zero_vol_no_explosion():
+    # near-zero-vol constant series (float residue ~1e-17) must NOT divide-by-tiny
+    norm = rotation.normalized_returns([0.01] * 200)
+    assert all(v == 0.0 for v in norm)   # epsilon guard kicks in
+
+
 def test_momentum_sums_window_not_product():
     up = _mk(0.002, 0.001)
     m = rotation.strategy_momentum(up)

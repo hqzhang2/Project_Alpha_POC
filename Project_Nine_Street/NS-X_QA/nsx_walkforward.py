@@ -1,26 +1,27 @@
-"""nsx_walkforward.py — NS-X walk-forward validation (HARD GATE, design §8).
+"""nsx_walkforward.py — NS-X walk-forward validation.
 
-Proves the rotation signal ADDS VALUE before any capital moves: over a
-point-in-time OOS walk, does relative-momentum rotation beat a STATIC
-equal-weight strategy split on the combined fund (Sharpe and/or DD ratio)?
+TWO distinct things, now honestly separated:
 
-Method (faithful to the allocator, but on synthetic-but-realistic strategy
-return streams so the signal is exercised on differentiated P&L — live streams
-are wired in production):
-  - 4 strategies: ns7 (equity, trending-up in some regimes), at_val (defensive,
-    lower-vol), ns8 (diversifier, low-correlation), cash.
-  - Each regime has a DIFFERENT winning strategy, so rotation has something to
-    exploit and we can verify it actually finds it.
-  - Walk-forward: rebalance monthly, compute risk-adjusted momentum on a trailing
-    window, allocate via weight_strategies, apply to the next month's returns.
-  - Compare rotation vs static equal-weight (and vs a buy-and-hold of the best
-    single strategy) on Sharpe, CAGR, max DD.
+1. MECHANICS VALIDATION (this file): runs the allocator's rotation over time on
+   synthetic-but-realistic, DIFFERENTIATED strategy streams to prove the rotation
+   MECHANICS are correct — rotation finds the winning strategy, respects floors/
+   caps, sums to 1.0, no look-ahead. Synthetic streams are the right tool here
+   precisely because they exercise the mechanics reproducibly. THIS DOES NOT
+   PROVE ROTATION BEATS STATIC ON REAL FUND P&L.
 
-Exit code: 0 = rotation beats static (gate PASS), 1 = gate FAIL, 2 = run error.
+2. EVIDENCE GATE (production, blocked on data): the design §8 HARD GATE requires
+   rotation to beat static allocation OOS on the REAL combined fund. That requires
+   per-strategy LIVE realized P&L streams, which do not exist yet (NS-7/A_T/NS-8
+   all proxy to SPY — see registry.streams_differentiated()). Until they do,
+   the evidence gate is EVIDENCE-PENDING, not PASS.
 
-Note: this is an EVIDENCE harness, not the production allocator. It uses
-synthetic streams precisely because they exercise the rotation mechanics and
-are reproducible; the production allocator reads live per-strategy P&L (§4.5).
+The gate result therefore reports `evidence_status`:
+  - "mechanics_validated"  — rotation mechanics correct (synthetic, this file)
+  - "evidence_pending"     — real per-strategy streams not yet wired (v4 data store)
+
+Exit code: 0 = mechanics valid, 1 = mechanics FAIL (real bug), 2 = run error.
+The exit code does NOT assert the design §8 evidence gate — that gate is
+explicitly reported as evidence_pending until real streams exist.
 """
 from __future__ import annotations
 
@@ -67,10 +68,10 @@ def _port_return(streams: Dict[str, List[float]], weights: Dict[str, float],
 
 def walk(start: int, streams: Dict[str, List[float]],
          rebalance_every: int = 22) -> Dict[str, float]:
-    """Run the allocator's rotation over time on synthetic streams.
+    """Run the allocator's rotation over time on synthetic streams (MECHANICS).
 
     Returns {rotation_sharpe, static_sharpe, rotation_cagr, static_cagr,
-             rotation_mdd, static_mdd, ...}.
+             rotation_mdd, static_mdd, annual_turnover, ...}.
     """
     roles = {s.id: s.role for s in registry.enabled_registry()
              if s.id in streams}
@@ -85,6 +86,9 @@ def walk(start: int, streams: Dict[str, List[float]],
     rot_eq, static_eq = 1.0, 1.0
     rot_curve, static_curve = [1.0], [1.0]
     weights = dict(static_w)                 # start equal
+    prev_weights = dict(weights)
+    total_turnover = 0.0
+    n_rebalances = 0
 
     for day in range(start, len(streams["ns7"])):
         # rotation: re-compute allocation on trailing window (no look-ahead)
@@ -93,6 +97,9 @@ def walk(start: int, streams: Dict[str, List[float]],
                         for k in streams}
             scores = {k: rotation.strategy_momentum(v) for k, v in trailing.items()}
             weights = rotation.weight_strategies(scores, roles)
+            total_turnover += rotation.strategy_turnover(prev_weights, weights)
+            n_rebalances += 1
+            prev_weights = dict(weights)
         r_ret = _port_return(streams, weights, day)
         s_ret = _port_return(streams, static_w, day)
         rot_eq *= (1 + r_ret)
@@ -111,6 +118,12 @@ def walk(start: int, streams: Dict[str, List[float]],
             mdd = min(mdd, v / peak - 1.0 if peak else 0.0)
         return mdd
 
+    # annualized turnover (rebalances/yr × avg turnover per rebalance)
+    n_days = len(streams["ns7"]) - start
+    rebalances_per_year = 252.0 / rebalance_every
+    annual_turnover = (total_turnover / n_rebalances * rebalances_per_year
+                       if n_rebalances else 0.0)
+
     return {
         "rotation_sharpe": round(float(_sharpe(rot_curve)), 3),
         "static_sharpe": round(float(_sharpe(static_curve)), 3),
@@ -120,21 +133,45 @@ def walk(start: int, streams: Dict[str, List[float]],
         "static_mdd": round(float(_mdd(static_curve)), 4),
         "final_rotation": round(float(rot_curve[-1]), 4),
         "final_static": round(float(static_curve[-1]), 4),
+        "annual_turnover": round(float(annual_turnover), 4),
     }
 
 
 def run_validation(seed: int = 42, n: int = 1200,
                    rebalance_every: int = 22) -> Dict:
+    """Run MECHANICS validation (synthetic) + report evidence status honestly.
+
+    - mechanics: rotation must respect floors/caps, sum to 1.0, and find the
+      winning strategy (rotation_sharpe > static_sharpe on differentiated synth).
+    - evidence_status: "evidence_pending" while real per-strategy streams are
+      not wired (registry.streams_differentiated() == False).
+    - turnover gate: annual turnover vs config.MAX_BOOK_TURNS_PER_YEAR.
+    """
     streams = _synth_strategies(seed, n)
-    res = walk(200, streams, rebalance_every)   # warmup then walk
-    # HARD GATE: rotation Sharpe > static Sharpe (and/or DD ratio ≤ static)
-    gate = res["rotation_sharpe"] > res["static_sharpe"]
+    res: Dict = walk(200, streams, rebalance_every)   # warmup then walk
+
+    # mechanics check: on differentiated synthetic streams, rotation should beat
+    # static (this is the MECHANICS gate, NOT the design §8 real-data gate).
+    mechanics_ok = res["rotation_sharpe"] > res["static_sharpe"]
+
+    # turnover gate (design §8): measured, now enforced
+    turnover_ok = res["annual_turnover"] <= config.MAX_BOOK_TURNS_PER_YEAR
+
+    # evidence gate: the design §8 HARD GATE (rotation beats static on REAL fund
+    # P&L) is BLOCKED until per-strategy live streams are wired (v4 data store).
+    # The synthetic run only validates mechanics — report that honestly.
+    evidence_status = "evidence_pending"   # real-data walk still to run
+
     res["gate"] = {
-        "pass": bool(gate),
+        "mechanics_validated": bool(mechanics_ok),
         "rotation_sharpe": float(res["rotation_sharpe"]),
         "static_sharpe": float(res["static_sharpe"]),
-        "rotation_beat_static": bool(gate),
+        "rotation_beat_static": bool(mechanics_ok),
         "rotation_cagr_vs_static": float(res["rotation_cagr"] - res["static_cagr"]),
+        "annual_turnover": float(res["annual_turnover"]),
+        "turnover_cap": float(config.MAX_BOOK_TURNS_PER_YEAR),
+        "turnover_ok": bool(turnover_ok),
+        "evidence_status": evidence_status,
     }
     return res
 
@@ -148,14 +185,18 @@ def main() -> int:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(res, indent=2))
     g = res["gate"]
-    print("\n=== NS-X WALK-FORWARD (rotation vs static) ===")
+    print("\n=== NS-X WALK-FORWARD (mechanics validation) ===")
     print(f"rotation: Sharpe {res['rotation_sharpe']:.3f}  CAGR {res['rotation_cagr']:.1%}  "
           f"MDD {res['rotation_mdd']:.1%}")
     print(f"static  : Sharpe {res['static_sharpe']:.3f}  CAGR {res['static_cagr']:.1%}  "
           f"MDD {res['static_mdd']:.1%}")
-    print(f"GATE (rotation Sharpe > static Sharpe): "
-          f"{'PASS' if g['pass'] else 'FAIL'}")
-    return 0 if g["pass"] else 1
+    print(f"annual turnover {res['annual_turnover']:.2f} book-turns/yr "
+          f"(cap {config.MAX_BOOK_TURNS_PER_YEAR}) -> {'OK' if g['turnover_ok'] else 'OVER CAP'}")
+    print(f"MECHANICS {'VALID' if g['mechanics_validated'] else 'FAIL'}")
+    print(f"EVIDENCE STATUS: {g['evidence_status']}  "
+          f"(real per-strategy streams not yet wired; v4 data store)")
+    # exit 0 if mechanics valid AND turnover ok (real bug otherwise)
+    return 0 if (g["mechanics_validated"] and g["turnover_ok"]) else 1
 
 
 if __name__ == "__main__":

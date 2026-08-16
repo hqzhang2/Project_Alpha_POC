@@ -52,9 +52,25 @@ def build_allocation(as_of: Optional[str] = None) -> Dict:
                             for k, v in momentum_scores.items()},
         "return_sources": sources,
         "weights_sum": round(sum(weights.values()), 12),
+        # honesty flags (NS-5 consumes these)
+        "streams_differentiated": registry.streams_differentiated(),
+        "stale_after_days": config.NSX_STALE_DAYS,
         "version": 1,
     }
     return doc
+
+
+def _is_stale(path: Path, now: Optional[datetime] = None) -> bool:
+    """True if the on-disk allocation is older than NSX_STALE_DAYS."""
+    if not path.exists():
+        return True
+    now = now or datetime.now()
+    try:
+        doc = json.loads(path.read_text())
+        gen = datetime.fromisoformat(doc.get("generated_at", ""))
+        return (now - gen).days > config.NSX_STALE_DAYS
+    except Exception:
+        return True
 
 
 def write_allocation(doc: Dict, path: Optional[Path] = None) -> Path:

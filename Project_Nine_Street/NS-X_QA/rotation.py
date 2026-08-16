@@ -22,11 +22,14 @@ import vol
 
 
 # ── Vol-normalized momentum ──────────────────────────────────────────────
+_EPS_SIGMA = 1e-12   # treat ex-ante vol below this as zero (float residue guard)
+
+
 def normalized_returns(daily_returns: List[float]) -> List[float]:
     """Daily returns scaled by ex-ante vol (return/σ). Zero-vol → flat (momentum 0)."""
     sigma = vol.exante_vol(daily_returns)
-    if sigma is None or sigma <= 0:
-        return [0.0] * len(daily_returns)   # zero-vol series → flat (momentum 0)
+    if sigma is None or sigma <= _EPS_SIGMA:
+        return [0.0] * len(daily_returns)   # zero/near-zero-vol → flat (momentum 0)
     return [r / sigma for r in daily_returns]
 
 
@@ -76,6 +79,8 @@ def weight_strategies(scores: Dict[str, Optional[float]],
       P1  ABSOLUTE quality floor: momentum < 0 or None → weight 0.
           (A strategy must have POSITIVE risk-adjusted momentum to earn weight.)
       P2  RELATIVE tilt among survivors (mom ≥ 0): w ∝ max(mom − median, 0).
+      P2.5 MIN-SLEEVE floor: any positive-momentum strategy keeps ≥ NSX_MIN_SLEEVE
+          (so a valid signal never gets a de-minimis allocation).
       P3  DEFENSIVE floor (anti-procyclical): every "defensive" strategy keeps
           ≥ NSX_DEFENSIVE_FLOOR even when its momentum is negative (overrides P1).
       P4  Concentration cap: risky weight ≤ NSX_MAX_STRATEGY_W.
@@ -114,6 +119,11 @@ def weight_strategies(scores: Dict[str, Optional[float]],
         if k not in weights and _role(k) != "defensive":
             weights[k] = 0.0
 
+    # P2.5: min-sleeve floor — a valid positive-momentum strategy is never de-minimis
+    for k in pos:
+        if weights[k] < config.NSX_MIN_SLEEVE:
+            weights[k] = config.NSX_MIN_SLEEVE
+
     # P3: defensive floor — never zero a defensive strategy
     for k in risky:
         if _role(k) == "defensive":
@@ -133,6 +143,12 @@ def weight_strategies(scores: Dict[str, Optional[float]],
     for k in risky:
         weights[k] = round(weights.get(k, 0.0), 12)
     return weights
+
+
+def strategy_turnover(prev: Dict[str, float], curr: Dict[str, float]) -> float:
+    """Half the L1 distance between two weight vectors (fraction of book traded)."""
+    keys = set(prev) | set(curr)
+    return 0.5 * sum(abs(prev.get(k, 0.0) - curr.get(k, 0.0)) for k in keys)
 
 
 def compute_allocation(return_streams: Dict[str, List[float]],

@@ -27,11 +27,25 @@ def test_registry_has_cash_and_enabled_universe():
     assert enabled == {"ns7", "at_val", "ns8", "cash"}   # ns1/ns3 disabled (§4.4)
 
 
-def test_walkforward_gate_passes():
-    """HARD GATE: rotation must beat static allocation OOS."""
+def test_walkforward_mechanics_valid():
+    """Mechanics gate: rotation finds the winning strategy on differentiated synth."""
     res = wf.run_validation(seed=42)
-    assert res["gate"]["pass"] is True
+    assert res["gate"]["mechanics_validated"] is True
     assert res["rotation_sharpe"] > res["static_sharpe"]
+
+
+def test_walkforward_evidence_status_honest():
+    """Evidence status must be 'evidence_pending' (real streams not wired)."""
+    res = wf.run_validation(seed=42)
+    assert res["gate"]["evidence_status"] == "evidence_pending"
+
+
+def test_walkforward_turnover_reported():
+    """Turnover gate is measured and reported."""
+    res = wf.run_validation(seed=42)
+    assert "annual_turnover" in res
+    assert "turnover_ok" in res["gate"]
+    assert res["gate"]["turnover_ok"] is True   # synth streams are low-turnover
 
 
 def test_walkforward_json_serializable():

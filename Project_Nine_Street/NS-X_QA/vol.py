@@ -1,34 +1,30 @@
-"""vol.py — NS-X ex-ante volatility (mirrors NS-8 vol.py, MOP 2012 §2.4).
+"""vol.py — NS-X ex-ante volatility (re-exports common.risk.vol).
 
-EWMA variance with center-of-mass 60 trading days, annualized to 261 days.
-Pure, stdlib-only, no look-ahead (applied at t-1 to position at t). Used to
-vol-normalize each strategy's return stream before momentum ranking, so scores
-are comparable across strategies of very different volatility.
+The EWMA math lives in `common.risk.vol` (single source of truth, shared with
+NS-8). This module keeps the NS-X-facing names (`ewma_var`, `exante_vol`,
+`DELTA`, `ANN`) wired to NS-X's config thresholds so downstream imports are
+unchanged.
 """
-from typing import List, Optional
+import sys
+from pathlib import Path
 
 import config
+
+# make the repo root importable so `common.risk.vol` resolves (decoupled read;
+# mirrors the NS-5 sys.path pattern, no cross-service module import of config).
+_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from common.risk import vol as _vol  # noqa: E402
 
 DELTA = config.VOL_DELTA        # δ/(1-δ) = 60 trading days center of mass
 ANN = config.VOL_ANN            # trading days/year
 
 
-def ewma_var(daily_returns: List[float], delta: Optional[float] = None) -> Optional[float]:
-    """Ex-ante annualized variance (MOP eq. 1) from oldest-first daily returns."""
-    delta = delta or DELTA
-    if not daily_returns:
-        return None
-    n = len(daily_returns)
-    if n < 3:
-        return None
-    w = [(1 - delta) * (delta ** (n - 1 - i)) for i in range(n)]
-    wsum = sum(w)
-    mean_r = sum(wi * ri for wi, ri in zip(w, daily_returns)) / wsum
-    var = sum(wi * (ri - mean_r) ** 2 for wi, ri in zip(w, daily_returns)) / wsum
-    return ANN * var
+def ewma_var(daily_returns, delta=None):
+    return _vol.ewma_var(daily_returns, delta if delta is not None else DELTA, ANN)
 
 
-def exante_vol(daily_returns: List[float], delta: Optional[float] = None) -> Optional[float]:
-    """Annualized ex-ante volatility (sqrt of EWMA var), or None if no estimate."""
-    v = ewma_var(daily_returns, delta)
-    return v ** 0.5 if v is not None and v >= 0 else None
+def exante_vol(daily_returns, delta=None):
+    return _vol.exante_vol(daily_returns, delta if delta is not None else DELTA, ANN)

@@ -20,7 +20,7 @@ excluded from rotation until they clear a walk-forward gate (§4.4).
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -36,7 +36,6 @@ class Strategy:
     return_stream: str         # producer id → LIVE realized NAV (trajectory, §4.5)
     cadence: str               # "daily" | "monthly" | "quarterly"
     enabled: bool = True
-    producers: Dict[str, str] = field(default_factory=dict)
 
 
 def build_registry() -> List[Strategy]:
@@ -124,3 +123,23 @@ def get_returns(strategy_id: str) -> List[float]:
     if prod is None:
         return []
     return prod()
+
+
+def streams_differentiated() -> bool:
+    """True if the enabled risky strategies return DIFFERENT live streams.
+
+    This is the honest check for the "allocator is a no-op" condition: while
+    NS-7/A_T/NS-8 all proxy to the same SPY series, every strategy gets identical
+    momentum and NS-X outputs equal weights — i.e. it isn't actually allocating.
+    Returns False until per-strategy live P&L is wired (the v4 data store).
+    """
+    enabled = [s for s in enabled_registry() if s.role != "riskoff"]
+    streams = [get_returns(s.id) for s in enabled]
+    streams = [s for s in streams if s]                 # drop empty (fail-open)
+    if len(streams) < 2:
+        return False
+    first = streams[0]
+    for other in streams[1:]:
+        if len(other) != len(first) or other != first:
+            return True
+    return False
