@@ -171,14 +171,21 @@ UI/tests/docs/plumbing, never touches signal/backtest functions.**
 
 | Rec | Phase | Status | Release tag | Date |
 |---|---|---|---|---|
-| R6 | 0 | ✅ **DONE** — env self-check live (QA+PROD); PROD DD now reads −0.0276 | feature/v4.0 (unreleased) | 2026-08-16 |
-| R4 | 0 | ✅ **DONE** — real-data harness, tranching, cost/Sharpe fix (QA+PROD) | feature/v4.0 (unreleased) | 2026-08-16 |
+| R6 | 0 | ✅ **DONE** — env self-check live (QA+PROD); PROD DD now reads −0.0276 | **v4.0.0** | 2026-08-16 |
+| R4 | 0 | ✅ **DONE** — real-data harness, tranching, cost/Sharpe fix (QA+PROD) | **v4.0.0** | 2026-08-16 |
 | R7 | 0 | ✅ **DONE** — benchmark decided (revised 2026-08-16): "outperform cap-weighted SPY, ≤0.75× SPY DD, SPY is the benchmark" | — (PM decision) | 2026-08-16 |
-| R8 | 1 | ✅ **DONE** — inverse-vol sizing + sign12m (QA+PROD); MaxDD 17.6%→11.8%, Sharpe→0.708 | feature/v4.0 (unreleased) | 2026-08-16 |
-| R3 | 2 | ✅ **DONE** — sleeve streams unified (both sleeves emit common return rows; R1 combines them via subprocess to avoid the config-name collision) | feature/v4.0 (unreleased) | 2026-08-16 |
-| R1 | 3 | ✅ **DONE** — combined-fund walk-forward (first assembly); DD gate PASS (0.72× SPY), Return gate FAIL (3/11 vs SPY) | feature/v4.0 (unreleased) | 2026-08-16 |
-| R2 | 4 | ✅ **DONE** (Phase 4) — frontier sizer built (`NS-5_QA/frontier_sizing.py`), validated on real data, NOT wired into live blend (per PM: feeds revamped R1) | feature/v4.0 (unreleased) | 2026-08-16 |
-| R5 | 5 | ✅ **NS-X BUILT (Phase 5)** — strategy-allocation service (registry + risk-adjusted momentum rotation), HARD GATE PASS (rotation Sharpe 3.06 vs static 1.91), server :9291, 18 tests | feature/v4.0 (unreleased) | 2026-08-16 |
+| R8 | 1 | ✅ **DONE** — inverse-vol sizing + sign12m (QA+PROD); MaxDD 17.6%→11.8%, Sharpe→0.708 | **v4.0.0** | 2026-08-16 |
+| R3 | 2 | ✅ **DONE** — sleeve streams unified (common return rows; subprocess isolation avoids config-name collision) | **v4.0.0** | 2026-08-16 |
+| R1 | 3 | ✅ **DONE** — combined-fund walk-forward (first assembly); DD gate PASS (0.72× SPY), Return gate FAIL (3/11 vs SPY) — R1 revamp is a separate project (PM) | **v4.0.0** | 2026-08-16 |
+| R2 | 4 | ✅ **DONE** (Phase 4) — frontier sizer (`NS-5_QA/frontier_sizing.py`), validated on real data, NOT wired into live blend (per PM: feeds revamped R1) | **v4.0.0** | 2026-08-16 |
+| R5 | 5 | ✅ **DONE** (Phase 5/6) — strategy-allocation layer: **NS-X** (registry + risk-adjusted momentum rotation, evidence gate PASS on real streams, :9291) + **NS-PC** (portfolio constructor, the write path, :9301) + **NS-DS** (`strategy_data.py` real differentiated streams) + daily schedule | **v4.0.0** | 2026-08-16 |
+
+**v4.0.0 — RELEASED (2026-08-16).** All R1–R8 + the NS-X/NS-PC/NS-DS work shipped. All 11 PROD ports green (9098…9280 + **9290 NS-X** + **9300 NS-PC**), portal at v4.0.0, trunk-sync PR merged, master FF-synced. New services on PROD ports 9290/9300; PROD plists `com.ninestreet.nsx.prod` / `com.ninestreet.nspc.prod`.
+
+**Forward items (deferred, not part of v4.0.0):**
+1. **R1 revamp** (separate project, PM) — the combined-fund walk-forward return gate FAIL (3/11 vs SPY) is an R1 algo/objective issue.
+2. **v4 centralized strategy-data DB** — replace the file reads in `strategy_data.py` (currently NS-X_PROD reads QA-generated NS-7 walkforward/blend JSONs seeded at deploy; a tracked/scheduled store removes this seam).
+3. **NS-PC guardrails** — eff-N reported (not force-flattened); baseball constraints for the R2 frontier (max-Sharpe concentrates too much).
 
 **Phase 0 result (2026-08-16):** R6, R4, R7 all complete. **Phase 1 (R8):**
 complete — inverse-vol sizing cuts NS-8 MaxDD below the 15% hard gate (11.8%)
