@@ -118,9 +118,19 @@ service is modified.**
 class Strategy:
     id: str                 # "ns7", "at_val", "ns8", "ns1", "ns3", "ns9", ...
     name: str               # human label
-    role: str               # "return" | "diversifier" | "defensive" | "supplemental"
-    target_book: str        # producer id (resolved by the data backend)
-    return_stream: str      # producer id (resolved by the data backend)
+    role: str               # "return" | "diversifier" | "defensive" | "supplemental" | "riskoff"
+                            #   FUNCTIONAL (§5.2) — not decorative. role gates how
+                            #   a strategy is treated in risk-on vs risk-off regimes:
+                            #     - "return"/"diversifier"  → momentum-ranked, can go to 0
+                            #     - "defensive"             → gets a FLOOR (never 0) in
+                            #                                risk-off regimes (anti-procyclical)
+                            #     - "riskoff" (cash)        → always 0 momentum, residual sleeve
+                            #     - "supplemental"          → momentum-ranked, no floor
+    target_book: str        # producer id (resolved by the data backend) → the strategy's
+                            # CURRENT HOLDINGS (the actual book to hold), NOT its return history
+    return_stream: str      # producer id (resolved by the data backend) → the strategy's
+                            # LIVE realized NAV series (forward P&L of its current book),
+                            # NOT backtest P&L (§4.5)
     cadence: str            # "daily" | "monthly" | "quarterly"
     enabled: bool
 
@@ -138,6 +148,11 @@ REGISTRY: List[Strategy] = [
 > **`cash` is mandatory**, not optional — it is the residual risk-off sleeve that
 > preserves the DD-first mandate when all risky strategies hit the quality floor
 > (§5.2). Its `role` is `riskoff` and it always scores 0 momentum (reference point).
+
+> **`role` is functional, not decorative** (§4.4/§5.2): it gates anti-procyclical
+> treatment. Defensive strategies (A_T, NS-1) get a floor so a risk-off tilt does
+> not zero the fund's defensive ballast; return/diversifier/supplemental
+> strategies are momentum-ranked and may go to 0.
 
 ### 4.2 Adding NS-9/10 later
 
@@ -200,6 +215,30 @@ capital until each clears its own walk-forward gate. This keeps the allocator
 honest: **a strategy with a negative/absent edge must not compete for capital
 just because it exists.**
 
+### 4.5 Return stream vs target book — what the momentum is computed on  `← ADDED (frontier review)`
+
+The design previously abstracted `return_stream` without defining what it is.
+This matters for correctness: **live allocation must not rotate on backtest P&L.**
+Two distinct quantities, now explicitly separated:
+
+| Field | What it is | Used for |
+|---|---|---|
+| **`target_book`** | The strategy's **current holdings** (the actual book to hold) — e.g. NS-7's `selection.json`, NS-8's `signals.json`. A *state*, not a return series. | Composing the fund book (§6.2) |
+| **`return_stream`** | The strategy's **live realized NAV series** — the forward P&L of its *current* book as it has actually traded in production, updated on the strategy's cadence. A *trajectory*. | The momentum score (§5.1) |
+
+**The rule: `return_stream` is LIVE realized P&L, not backtest P&L.** Rotating
+capital on a walk-forward backtest curve would be look-ahead — it allocates to
+strategies that *would have* worked, not the ones *currently* working. The
+momentum signal must be computed on the strategy's **actual live equity curve**
+(what it has returned holding its real positions in real time).
+
+**Pragmatic start (v3):** at launch, only strategies with a live or
+close-to-live realized series (NS-7/NS-8, whose walk-forward mirrors the live
+book) are enabled. Strategies whose `return_stream` is still only backtest are
+`enabled=False` until their live series has enough history to be a meaningful
+momentum input — same `enabled` discipline as §4.4. This is not a shortcut: it is
+the difference between rotating on *reality* and rotating on *simulation*.
+
 ---
 
 ## 5. Rotation Signal: Relative Momentum Across Strategies (RISK-ADJUSTED)
@@ -247,6 +286,7 @@ correct:
 | **Relative-momentum tilt** | `w_i ∝ max(mom_i − mom_median, 0)` — overweight only strategies above the cross-sectional median |
 | **Quality floor** | a strategy with negative *risk-adjusted* momentum, or an unavailable stream → weight 0 |
 | **Concentration cap** | max single-strategy weight ≤ `NSX_MAX_STRATEGY_W` (default 0.40) |
+| **Defensive floor (role-gated, anti-procyclical)** | `role == "defensive"` strategies are **never zeroed**: `w_defensive ≥ NSX_DEFENSIVE_FLOOR` (default 0.10) even when their momentum is negative — the fund keeps its defensive ballast through a risk-off tilt instead of selling it at the bottom (addresses the procyclical-tilt concern; `role` is functional, §4.1) |
 | **Min sleeve** | default 0.03 floor on any enabled strategy with a valid positive-momentum score (optional) |
 | **Cash / risk-off** | `w_cash = 1 − Σ_i w_i` — SHV absorbs the residual; **when all risky strategies hit the floor, w_cash = 1.0** (full risk-off, DD-first preserved) |
 | **Regime override** | (advisory) the NS-5 regime axis scales the whole risky bucket (risk-on vs risk-off), but the *relative* ranking is momentum-driven |
@@ -362,6 +402,7 @@ RISK_ADJUST = True              # vol-normalize returns before momentum (mandato
 VOL_DELTA = 60 / 61             # EWMA center-of-mass (reuse NS-8 vol.py convention)
 CASH_STRATEGY_ID = "cash"       # residual risk-off sleeve
 MAX_BOOK_TURNS_PER_YEAR = 2.0   # strategy-level rotation turnover cap
+NSX_DEFENSIVE_FLOOR = 0.10      # defensive-role strategies never go below this (anti-procyclical)
 
 # Security-level guards on the COMPOSED fund book (§6.3) — applied by NS-5.
 COMPOSED_MAX_NAME_W = 0.08      # per-name cap after overlap
@@ -395,6 +436,8 @@ QA **9291** · PROD **9290** (next free pair after NS-8's 9281/9280).
 | Fail-open | missing return stream → weight 0, no crash | House rule |
 | Deterministic | same inputs → same weights | Reproducible rotation |
 | Risk-adjusted | momentum scores are vol-normalized (comparable across strategies) | Correctness (§5.0 #1) |
+| **Defensive floor** | every `role == "defensive"` strategy keeps `w ≥ NSX_DEFENSIVE_FLOOR` in a risk-off tilt (never zeroed) | Anti-procyclical (§5.2) |
+| **Live P&L** | `return_stream` is the strategy's LIVE realized NAV, not backtest P&L | No look-ahead rotation (§4.5) |
 | **Walk-forward evidence (HARD GATE)** | rotation beats static/equal-weight split on the combined fund OOS (Sharpe and/or DD ratio ≥ static) | The signal must *prove* it adds value before moving capital (§5.0 #3) |
 | **Turnover gate** | strategy-level rotation turnover ≤ threshold (e.g. ≤ 2 full book-turns/yr) at a stated cost model | Rotation costs money; measure and gate it |
 | Cadence | momentum computed on a shared grid (slowest-enabled-strategy cadence) | Scores must be contemporaneous (§5.0 #4) |
