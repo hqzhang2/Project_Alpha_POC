@@ -76,7 +76,7 @@ def _load_vix() -> dict:
 
 
 # ── Sleeve subprocess helpers ────────────────────────────────────────────
-def _run_equity_sleeve(start: str, end: str) -> list:
+def _run_equity_sleeve(start: str, end: str, out_json) -> list:
     """Run the 2a regime blend in NS-7_QA, return its per-rebalance rows."""
     script = (
         "import sys, json; sys.path.insert(0, '.'); "
@@ -87,36 +87,45 @@ def _run_equity_sleeve(start: str, end: str) -> list:
         "s=b.wf.load_spy(config.DATA_DIR/'spy_closes.json'); "
         "mac=b._load_macro(); "
         f"res=b.run_blend('{start}','{end}',f,mac,s,rebalance_months=3,tilt_mode='regime'); "
-        "json.dump(res.get('rows',[]), open('" + str(TMP) + "_eq.json','w'), default=str)"
+        "json.dump(res.get('rows',[]), open('" + str(out_json) + "','w'), default=str)"
     )
     r = subprocess.run([VENV_PY, "-c", script],
                        cwd=str(HERE / "NS-7_QA"), capture_output=True, text=True,
                        timeout=900)
     if r.returncode != 0:
         raise RuntimeError(f"equity sleeve failed:\n{r.stderr[-2000:]}")
-    return json.loads((TMP.with_name(TMP.name + "_eq.json")).read_text())
+    return json.loads(out_json.read_text())
 
 
-def _run_tactical(start: str, end: str) -> dict:
+def _run_tactical(start: str, end: str, out_json) -> dict:
     """Run NS-8 tactical in NS-8_QA, return {ym: mean monthly return}."""
-    out_file = str(TMP) + "_t8.json"
     helper = str(HERE / "NS-8_QA" / "_r1_tactical.py")
-    r = subprocess.run([VENV_PY, helper, out_file, start, end],
+    r = subprocess.run([VENV_PY, helper, str(out_json), start, end],
                        cwd=str(HERE / "NS-8_QA"), capture_output=True, text=True,
                        timeout=600)
     if r.returncode != 0:
         raise RuntimeError(f"tactical sleeve failed:\n{r.stderr[-2000:]}")
-    return json.loads(Path(out_file).read_text())
+    return json.loads(out_json.read_text())
 
 
 # ── Combination ──────────────────────────────────────────────────────────
 def run_combined(start: str = "2016-01-01", end: str = "2026-07-31") -> dict:
+    eq_json = TMP.with_name(TMP.name + "_eq.json")
+    t8_json = TMP.with_name(TMP.name + "_t8.json")
+    try:
+        return _run_combined_inner(start, end, eq_json, t8_json)
+    finally:
+        for p in (eq_json, t8_json):
+            p.unlink(missing_ok=True)   # clean temp JSON regardless of call path
+
+
+def _run_combined_inner(start, end, eq_json, t8_json) -> dict:
     print("running equity sleeve (2a regime blend) in NS-7_QA ...")
-    eq_rows = _run_equity_sleeve(start, end)
+    eq_rows = _run_equity_sleeve(start, end, eq_json)
     print(f"  -> {len(eq_rows)} rebalance intervals")
 
     print("running NS-8 tactical in NS-8_QA ...")
-    t8_monthly = _run_tactical(start, end)
+    t8_monthly = _run_tactical(start, end, t8_json)
     print(f"  -> {len(t8_monthly)} months")
 
     vix = _load_vix()
@@ -235,12 +244,7 @@ if __name__ == "__main__":
     ap.add_argument("--start", default="2016-01-01")
     ap.add_argument("--end", default="2026-07-31")
     args = ap.parse_args()
-    try:
-        res = run_combined(args.start, args.end)
-    finally:
-        for p in (TMP.with_name(TMP.name + "_eq.json"), TMP.with_name(TMP.name + "_t8.json")):
-            if p.exists():
-                p.unlink(missing_ok=True)
+    res = run_combined(args.start, args.end)   # run_combined cleans its own temp
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(res, indent=2, default=str))
     write_findings(res)
