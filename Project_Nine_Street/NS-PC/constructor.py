@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -47,10 +48,28 @@ def _is_stale(path: Path) -> bool:
 
 
 def read_inputs() -> Tuple[Optional[Dict], Optional[Dict], Optional[Dict]]:
-    """Return (nsx_alloc, ns5_blend, ns8_signals) — each None if missing/stale."""
-    alloc = _load_json(config.NSX_ALLOC) if not _is_stale(config.NSX_ALLOC) else None
-    blend = _load_json(config.NS5_BLEND) if not _is_stale(config.NS5_BLEND) else None
-    signals = _load_json(config.NS8_SIGNALS) if not _is_stale(config.NS8_SIGNALS) else None
+    """Return (nsx_alloc, ns5_blend, ns8_signals) — each None if missing/stale.
+
+    Source: PostgreSQL strategy_output (the NS-DB centralized store), falling
+    back to the JSON files if the DB is unreachable (fail-open).
+    """
+    alloc, blend, signals = None, None, None
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+        import common.db as db
+        alloc = db.latest_strategy_output("nsx", "alloc")
+        blend = db.latest_strategy_output("ns5", "blend")
+        signals = db.latest_strategy_output("ns8", "signals")
+    except Exception:
+        alloc, blend, signals = None, None, None
+
+    # file fallback (phase-3 compat; DB authoritative once PROD verified)
+    if alloc is None:
+        alloc = _load_json(config.NSX_ALLOC) if not _is_stale(config.NSX_ALLOC) else None
+    if blend is None:
+        blend = _load_json(config.NS5_BLEND) if not _is_stale(config.NS5_BLEND) else None
+    if signals is None:
+        signals = _load_json(config.NS8_SIGNALS) if not _is_stale(config.NS8_SIGNALS) else None
     return alloc, blend, signals
 
 
@@ -213,8 +232,12 @@ def build_portfolio(alloc: Dict, blend: Dict, signals: Dict,
     cash_w = weights.get(config.CASH_PROXY, 0.0)   # fund-level cash (BIL)
     note = (f"{regime} regime; equity {equity_w:.0%} "
             f"tactical {tactical_w:.0%} cash {cash_w:.0%}")
-    history.append({"date": datetime.now().strftime("%Y-%m-%d"),
-                    "nav": round(nav, 2), "note": note})
+    # E.3: upsert by date, not blind append — a same-day re-construct must
+    # overwrite that day's NAV point, never accumulate duplicates.
+    today = datetime.now().strftime("%Y-%m-%d")
+    nav_point = {"date": today, "nav": round(nav, 2), "note": note}
+    history = [h for h in history if h.get("date") != today]
+    history.append(nav_point)
 
     return {
         "account": {
@@ -236,13 +259,35 @@ def run_construct(prices: Dict[str, float]) -> Dict:
     if alloc is None or blend is None or signals is None:
         raise RuntimeError("NS-PC: missing/stale input (NS-X/NS-5/NS-8) — no write")
 
-    prior = _load_json(config.PORTFOLIO_PATH)
+    prior = None
+    try:  # prefer DB (authoritative, E.3-deduped history); fall back to file
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+        import common.db as db
+        prior = db.get_portfolio(config.PORTFOLIO_NAME) or _load_json(config.PORTFOLIO_PATH)
+    except Exception:
+        prior = _load_json(config.PORTFOLIO_PATH)
     doc = build_portfolio(alloc, blend, signals, prices, prior=prior)
     write_portfolio(doc)
     return doc
 
 
 def write_portfolio(doc: Dict, path: Optional[Path] = None) -> Path:
+    """Write the portfolio doc. Primary: PostgreSQL (portfolios/positions/nav/
+    guardrails tables via common.db). Secondary: write-through to the JSON file
+    as a compatibility artifact for any reader still on the file (NS-1 legacy).
+
+    The DB is authoritative; the file is a write-through mirror. If Postgres is
+    unreachable (fail-open), we still write the file so the legacy readers work.
+    """
+    # Primary: DB (fail-open — never raises on a down DB)
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+        import common.db as db
+        db.write_portfolio(config.PORTFOLIO_NAME, doc, kind="live")
+    except Exception:  # noqa: BLE001
+        log.warning("Postgres write failed (fail-open) — file mirror only")
+
+    # Secondary: file write-through (legacy readers)
     path = path or config.PORTFOLIO_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=2))

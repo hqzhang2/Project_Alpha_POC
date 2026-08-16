@@ -53,7 +53,13 @@ def main() -> int:
 
     # fallback: prior current_price for any ticker still missing
     prior = None
-    if config.PORTFOLIO_PATH.exists():
+    try:  # prefer DB (authoritative); fall back to file
+        sys.path.insert(0, "/Users/chuck/Project_Alpha_POC")
+        import common.db as db
+        prior = db.get_portfolio(config.PORTFOLIO_NAME)
+    except Exception:
+        prior = None
+    if prior is None and config.PORTFOLIO_PATH.exists():
         try:
             prior = json.loads(config.PORTFOLIO_PATH.read_text())
             for t, p in prior.get("positions", {}).get("equities", {}).items():
@@ -61,6 +67,10 @@ def main() -> int:
                     prices[t] = p.get("current_price")
         except Exception:
             prior = None
+    elif prior is not None:
+        for t, p in prior.get("positions", {}).get("equities", {}).items():
+            if t not in prices:
+                prices[t] = p.get("current_price")
 
     # sanity: require prices for the majority of the book, else fail-open
     if not prices or len(prices) < max(3, len(tickers) // 2):

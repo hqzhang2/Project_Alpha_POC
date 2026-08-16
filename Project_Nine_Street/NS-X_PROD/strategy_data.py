@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -157,7 +158,20 @@ def load_streams() -> Dict[str, Dict]:
 
 
 def get_stream(strategy_id: str) -> List[float]:
-    """The daily return stream for a strategy (fail-open: [] on missing)."""
+    """The daily return stream for a strategy (fail-open: [] on missing).
+
+    Source: PostgreSQL strategy_returns (the NS-DB centralized store), falling
+    back to the cached JSON file if the DB is unreachable (fail-open).
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+        import common.db as db
+        rows = db.strategy_returns(strategy_id)
+        if rows:
+            return rows
+    except Exception:
+        pass
+    # fallback: cached JSON (phase-3 compat until DB is authoritative in PROD)
     streams = load_streams()
     return streams.get(strategy_id, {}).get("returns", [])
 

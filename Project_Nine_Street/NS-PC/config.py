@@ -30,6 +30,7 @@ NSX_ALLOC = _DIR.parent / "NS-X_QA" / "data" / "strategy_alloc.json"
 NS5_BLEND = _DIR.parent / "NS-5_QA" / "data" / "sleeve_blend.json"
 NS8_SIGNALS = _DIR.parent / "NS-8_QA" / "data" / "signals.json"
 PORTFOLIO_PATH = _DIR.parent / "scripts" / "paper_portfolio.json"
+PORTFOLIO_NAME = "paper"            # the 'paper' row in common.db portfolios
 DATA_DIR = _DIR / "data"
 
 # ── Staleness ────────────────────────────────────────────────────────────
