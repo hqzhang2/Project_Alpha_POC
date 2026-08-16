@@ -253,6 +253,7 @@ def run_blend(start: str, end: str, facts: wf.Facts, macro: dict,
     excess_ok = sum(1 for y in yearly if y["excess_vs_universe"] > 0)
     return {"window": {"start": start, "end": end, "rebalances": len(rows)},
             "yearly": yearly, "excess_years": excess_ok,
+            "rows": rows,   # per-rebalance-interval rows (R1 combined harness)
             "drawdown": {"strategy": dd_strat, "spy": dd_spy,
                          "ratio": abs(dd_strat / dd_spy) if dd_spy else None},
             "turnover": {"fraction_per_rebalance": book_turns / len(rows) if rows else 0,
