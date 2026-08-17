@@ -40,6 +40,8 @@ SERVICES=(
   "com.ninestreet.ns4.prod|/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-4_PROD/backend/main.py|0"
   "com.ninestreet.ns5.qa|/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-5_QA/qa_server.py|1"
   "com.ninestreet.ns5.prod|/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-5_PROD/qa_server.py|1"
+  "com.ninestreet.ns7.qa|/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_QA/qa_server.py|1"
+  "com.ninestreet.ns7.prod|/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_PROD/qa_server.py|1"
   "com.ninestreet.portal.qa|/Users/chuck/Project_Alpha_POC/Project_Nine_Street/portal.py|0"
 )
 
