@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -21,6 +22,23 @@ log = logging.getLogger("ns6.store")
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DB_PATH = DATA_DIR / "ns6.db"
+DEFAULT_DB_PATH = DB_PATH                       # the un-monkeypatched prod path
+
+# Repo root so `import common.db` resolves (this service runs with NS-6_QA/ cwd).
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _use_pg() -> bool:
+    """True when DB_PATH is the prod default (→ delegate to PostgreSQL common.db).
+
+    Tests monkeypatch store.DB_PATH to a temp sqlite file; that makes this False,
+    so the sqlite implementation below remains the hermetic test seam. In prod
+    the DB_PATH is untouched → we centralize on Postgres. Fail-open: if common.db
+    is unreachable we fall back to sqlite so NS-6 never loses enforcement state.
+    """
+    return DB_PATH == DEFAULT_DB_PATH
 
 
 def _connect() -> sqlite3.Connection:
@@ -31,7 +49,14 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create tables if absent. Idempotent."""
+    """Create tables if absent. Idempotent. Prod: ensure Postgres schema."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.ensure_schema()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("ensure_schema failed: %s", exc)
+        return
     try:
         with _connect() as conn:
             conn.execute(
@@ -99,13 +124,27 @@ def init_db() -> None:
 def upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining, multiplier,
                     vix_level=None, position_drawdowns=None,
                     cross_sectional_corr=None) -> None:
-    """Upsert one drawdown snapshot row (idempotent on date).
+    """Upsert one drawdown snapshot row (idempotent on date). Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.upsert_drawdown(date, spy_dd, portfolio_dd, budget, remaining,
+                                      multiplier, vix_level, position_drawdowns,
+                                      cross_sectional_corr)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg upsert_drawdown failed (fallback sqlite): %s", exc)
+            return _sqlite_upsert_drawdown(date, spy_dd, portfolio_dd, budget,
+                                           remaining, multiplier, vix_level,
+                                           position_drawdowns, cross_sectional_corr)
+        return
+    return _sqlite_upsert_drawdown(date, spy_dd, portfolio_dd, budget, remaining,
+                                   multiplier, vix_level, position_drawdowns,
+                                   cross_sectional_corr)
 
-    vix_level (R3): the EOD VIX close the snapshot was computed under — feeds
-    the fast-de-risk smile in the enforcement loop.
-    position_drawdowns (G1): {ticker: dd} JSON string (or a dict, serialized).
-    cross_sectional_corr (G1): mean off-diagonal trailing correlation.
-    """
+
+def _sqlite_upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining,
+                            multiplier, vix_level=None, position_drawdowns=None,
+                            cross_sectional_corr=None) -> None:
     if isinstance(position_drawdowns, dict):
         position_drawdowns = json.dumps(position_drawdowns)
     try:
@@ -126,7 +165,14 @@ def upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining, multipli
 
 
 def query_window(days: int = 30) -> List[Dict]:
-    """Return the last N days of drawdown history (newest first)."""
+    """Return the last N days of drawdown history (newest first). Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            rows = common.db.query_drawdown(days)
+            return [dict(r) for r in rows]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg query_drawdown failed (fallback sqlite): %s", exc)
     try:
         with _connect() as conn:
             rows = conn.execute(
@@ -139,7 +185,14 @@ def query_window(days: int = 30) -> List[Dict]:
 
 
 def latest() -> Optional[Dict]:
-    """Most recent drawdown row, or None."""
+    """Most recent drawdown row, or None. Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            row = common.db.latest_drawdown()
+            return dict(row) if row else None
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg latest_drawdown failed (fallback sqlite): %s", exc)
     try:
         with _connect() as conn:
             row = conn.execute(
@@ -152,7 +205,19 @@ def latest() -> Optional[Dict]:
 
 
 def log_circuit_breaker(breaker_type: str, ticker: Optional[str], detail: str) -> None:
-    """Append a circuit-breaker event to the log."""
+    """Append a circuit-breaker event to the log. Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.log_circuit_breaker(breaker_type, ticker, detail)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg log_circuit_breaker failed (fallback sqlite): %s", exc)
+            return _sqlite_log_circuit_breaker(breaker_type, ticker, detail)
+        return
+    return _sqlite_log_circuit_breaker(breaker_type, ticker, detail)
+
+
+def _sqlite_log_circuit_breaker(breaker_type: str, ticker: Optional[str], detail: str) -> None:
     try:
         with _connect() as conn:
             conn.execute(
@@ -165,7 +230,13 @@ def log_circuit_breaker(breaker_type: str, ticker: Optional[str], detail: str) -
 
 
 def query_breakers(limit: int = 50) -> List[Dict]:
-    """Most recent circuit-breaker events (newest first)."""
+    """Most recent circuit-breaker events (newest first). Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            return [dict(r) for r in common.db.query_breakers(limit)]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg query_breakers failed (fallback sqlite): %s", exc)
     try:
         with _connect() as conn:
             rows = conn.execute(
@@ -207,14 +278,23 @@ def last_stop_times() -> Dict[str, str]:
 # ── Performance log (G2 scoreboard) ─────────────────────────────────────
 def upsert_performance(date: str, nav, ret, spy_ret=None, universe_ret=None,
                        contributions=None) -> None:
-    """Upsert one daily performance row (idempotent on date).
+    """Upsert one daily performance row (idempotent on date). Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.upsert_performance(date, nav, ret, spy_ret, universe_ret,
+                                         contributions)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg upsert_performance failed (fallback sqlite): %s", exc)
+            return _sqlite_upsert_performance(date, nav, ret, spy_ret, universe_ret,
+                                              contributions)
+        return
+    return _sqlite_upsert_performance(date, nav, ret, spy_ret, universe_ret,
+                                      contributions)
 
-    nav: portfolio NAV (shares path = $ value; model path = 1.0-based).
-    ret: daily return fraction (nav_t/nav_{t-1} - 1).
-    spy_ret / universe_ret: same-day benchmark daily returns (SPY calibration
-        + held-universe equal-weight) for the excess math.
-    contributions: {ticker: w_i*r_i} JSON (or dict, serialized) for attribution.
-    """
+
+def _sqlite_upsert_performance(date: str, nav, ret, spy_ret=None, universe_ret=None,
+                               contributions=None) -> None:
     if isinstance(contributions, dict):
         contributions = json.dumps(contributions)
     try:
@@ -232,8 +312,13 @@ def upsert_performance(date: str, nav, ret, spy_ret=None, universe_ret=None,
 
 
 def query_performance(limit: int = 1000) -> List[Dict]:
-    """Most recent performance rows (NEWEST first), each with contributions
-    parsed from JSON. Fail-open: [] on error."""
+    """Most recent performance rows (NEWEST first). Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            return [dict(r) for r in common.db.query_performance(limit)]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg query_performance failed (fallback sqlite): %s", exc)
     try:
         with _connect() as conn:
             rows = conn.execute(
@@ -287,7 +372,13 @@ DEFAULT_PROFILE = "balanced"
 
 
 def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
-    """Read a settings row, or None/default if absent. Fail-open."""
+    """Read a settings row, or None/default if absent. Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.get_setting(key, default)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg get_setting failed (fallback sqlite): %s", exc)
     try:
         with _connect() as conn:
             row = conn.execute(
@@ -300,7 +391,19 @@ def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def set_setting(key: str, value: str) -> None:
-    """Upsert a settings row. Fail-open (log, don't raise)."""
+    """Upsert a settings row. Prod: Postgres."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.set_setting(key, value)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pg set_setting failed (fallback sqlite): %s", exc)
+            return _sqlite_set_setting(key, value)
+        return
+    return _sqlite_set_setting(key, value)
+
+
+def _sqlite_set_setting(key: str, value: str) -> None:
     try:
         with _connect() as conn:
             conn.execute(

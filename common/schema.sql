@@ -88,21 +88,84 @@ CREATE TABLE IF NOT EXISTS regime_history (
 );
 
 -- ── NS-6 enforcement logs (from ns6.db) ─────────────────────────────────
+-- Schema mirrors NS-6_QA/store.py exactly (source of truth). position_drawdowns
+-- and contributions are JSON strings/dicts; keep as JSONB for queryability.
 CREATE TABLE IF NOT EXISTS drawdown_log (
-    id         SERIAL PRIMARY KEY,
-    date       DATE,
-    current_dd NUMERIC(8,6),
-    note       TEXT
+    date                  DATE PRIMARY KEY,
+    spy_dd_pct            DOUBLE PRECISION,
+    portfolio_dd_pct      DOUBLE PRECISION,
+    budget_pct            DOUBLE PRECISION,
+    budget_remaining_pct  DOUBLE PRECISION,
+    multiplier            DOUBLE PRECISION,
+    vix_level             DOUBLE PRECISION,
+    position_drawdowns    JSONB,
+    cross_sectional_corr  DOUBLE PRECISION
 );
 CREATE TABLE IF NOT EXISTS circuit_breaker_log (
-    id      SERIAL PRIMARY KEY,
-    date    DATE,
-    tripped BOOLEAN,
-    reason  TEXT
+    id           SERIAL PRIMARY KEY,
+    timestamp    TEXT,
+    breaker_type TEXT,
+    ticker       TEXT,
+    detail       TEXT
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
 );
 CREATE TABLE IF NOT EXISTS performance_log (
-    id     SERIAL PRIMARY KEY,
-    date   DATE,
-    nav    NUMERIC(14,2),
-    return DOUBLE PRECISION
+    date          DATE PRIMARY KEY,
+    nav           DOUBLE PRECISION,
+    ret           DOUBLE PRECISION,
+    spy_ret       DOUBLE PRECISION,
+    universe_ret  DOUBLE PRECISION,
+    contributions JSONB
+);
+
+-- ── NS-7 (from ns7.db) ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ns7_league (
+    ticker                   VARCHAR(16) PRIMARY KEY,
+    league                   TEXT NOT NULL,
+    consecutive_compliant    INTEGER NOT NULL DEFAULT 0,
+    consecutive_noncompliant INTEGER NOT NULL DEFAULT 0,
+    first_seen               TEXT NOT NULL,
+    last_seen                TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ns7_volume (
+    ticker VARCHAR(16) NOT NULL,
+    date   DATE NOT NULL,
+    volume DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (ticker, date)
+);
+CREATE TABLE IF NOT EXISTS ns7_selection (
+    id           SERIAL PRIMARY KEY,
+    generated_at TEXT NOT NULL,
+    as_of        TEXT NOT NULL,
+    payload      JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ns7_refresh_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- ── NS-8 (from ns8.db) ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ns8_signals (
+    as_of        TEXT PRIMARY KEY,
+    signals_json JSONB NOT NULL,
+    weights_json JSONB NOT NULL,
+    version      INTEGER NOT NULL,
+    generated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ns8_tranche_state (
+    tranche_idx    INTEGER PRIMARY KEY,
+    next_rebalance TEXT,
+    last_rebalance TEXT
+);
+CREATE TABLE IF NOT EXISTS ns8_audit_log (
+    id          SERIAL PRIMARY KEY,
+    timestamp   TEXT NOT NULL,
+    tranche_idx INTEGER NOT NULL,
+    symbol      TEXT NOT NULL,
+    side        TEXT NOT NULL,
+    qty         DOUBLE PRECISION NOT NULL,
+    order_id    TEXT
 );
