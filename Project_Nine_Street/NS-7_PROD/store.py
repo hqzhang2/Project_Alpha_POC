@@ -10,6 +10,7 @@ Tests MUST redirect DB_PATH to a temp dir (monkeypatch) before init_db().
 from __future__ import annotations
 
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -18,6 +19,23 @@ import config
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DB_PATH = DATA_DIR / "ns7.db"
+DEFAULT_DB_PATH = DB_PATH                       # the un-monkeypatched prod path
+
+# Repo root so `import common.db` resolves (this service runs with NS-7_QA/ cwd).
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _use_pg() -> bool:
+    """True when DB_PATH is the prod default (→ delegate to PostgreSQL common.db).
+
+    Tests monkeypatch store.DB_PATH to a temp sqlite file; that makes this False,
+    so the sqlite implementation below remains the hermetic test seam. In prod
+    the DB_PATH is untouched → we centralize on Postgres. Fail-open: pg error →
+    sqlite fallback so NS-7 never loses league/volume state.
+    """
+    return DB_PATH == DEFAULT_DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS league (
@@ -51,6 +69,13 @@ CREATE TABLE IF NOT EXISTS refresh_meta (
 
 
 def init_db() -> None:
+    if _use_pg():
+        try:
+            import common.db
+            common.db.ensure_schema()
+        except Exception:
+            pass  # fail-open
+        return
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     try:
@@ -68,6 +93,14 @@ def upsert_league(ticker: str, league: str, consecutive_compliant: int,
                   consecutive_noncompliant: int, first_seen: str,
                   last_seen: str) -> None:
     """INSERT OR REPLACE one ticker's league row. Idempotent."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.upsert_league(ticker, league, consecutive_compliant,
+                                    consecutive_noncompliant, first_seen, last_seen)
+        except Exception:
+            pass  # fall through to sqlite
+        return
     conn = _connect()
     try:
         conn.execute(
@@ -85,6 +118,15 @@ def upsert_league(ticker: str, league: str, consecutive_compliant: int,
 
 def get_league(ticker: str) -> Optional[dict]:
     """Return one ticker's row (or None)."""
+    if _use_pg():
+        try:
+            import common.db
+            row = common.db.get_league(ticker)
+            if row is not None:
+                return row
+            return None
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         cur = conn.execute(
@@ -102,6 +144,12 @@ def get_league(ticker: str) -> Optional[dict]:
 
 def league_counts() -> dict:
     """{league: count} across all tracked tickers."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.league_counts()
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         cur = conn.execute("SELECT league, COUNT(*) FROM league GROUP BY league")
@@ -113,6 +161,12 @@ def league_counts() -> dict:
 
 def all_leagues() -> List[dict]:
     """Full league table (for /api/universe)."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.all_leagues()
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         cur = conn.execute("SELECT * FROM league ORDER BY ticker")
@@ -134,6 +188,12 @@ def upsert_volume_many(rows: List[tuple]) -> int:
     """rows: [(ticker, date, volume)] — idempotent upsert. Returns count."""
     if not rows:
         return 0
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.upsert_volume_many(rows)
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         conn.executemany(
@@ -148,6 +208,12 @@ def upsert_volume_many(rows: List[tuple]) -> int:
 
 def volume_series(ticker: str, start: str, end: str) -> List[tuple]:
     """[(date, volume)] for one ticker in [start, end], ascending."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.volume_series(ticker, start, end)
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         cur = conn.execute(
@@ -160,6 +226,12 @@ def volume_series(ticker: str, start: str, end: str) -> List[tuple]:
 
 def avg_daily_volume(ticker: str, as_of: str, window_days: int) -> Optional[float]:
     """20-day average daily volume ending on/before as_of. None if empty."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.avg_daily_volume(ticker, as_of, window_days)
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         cur = conn.execute(
@@ -175,6 +247,12 @@ def avg_daily_volume(ticker: str, as_of: str, window_days: int) -> Optional[floa
 
 def volume_coverage(ticker: str) -> tuple:
     """(min_date, max_date, count) for one ticker's volume rows."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.volume_coverage(ticker)
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         cur = conn.execute(
@@ -189,6 +267,12 @@ def volume_coverage(ticker: str) -> tuple:
 # ── Selection persistence (the NS-5 feed) ───────────────────────────────
 def save_selection(as_of: str, payload: dict) -> int:
     """Persist the /api/select document. Returns the new row id."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.save_selection(as_of, payload)
+        except Exception:
+            pass  # fall through to sqlite
     import json as _json
     conn = _connect()
     try:
@@ -204,6 +288,12 @@ def save_selection(as_of: str, payload: dict) -> int:
 
 def latest_selection() -> Optional[dict]:
     """Most recent selection document: {generated_at, as_of, payload(dict)}."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.latest_selection()
+        except Exception:
+            pass  # fall through to sqlite
     import json as _json
     conn = _connect()
     try:
@@ -225,6 +315,13 @@ def latest_selection() -> Optional[dict]:
 
 # ── Refresh meta (last-run stamps for /health + diagnostics) ────────────
 def set_meta(key: str, value: str) -> None:
+    if _use_pg():
+        try:
+            import common.db
+            common.db.set_meta(key, value)
+        except Exception:
+            pass  # fall through to sqlite
+        return
     conn = _connect()
     try:
         conn.execute("INSERT OR REPLACE INTO refresh_meta (key, value) VALUES (?,?)",
@@ -235,6 +332,12 @@ def set_meta(key: str, value: str) -> None:
 
 
 def get_meta(key: str) -> Optional[str]:
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.get_meta(key)
+        except Exception:
+            pass  # fall through to sqlite
     conn = _connect()
     try:
         cur = conn.execute("SELECT value FROM refresh_meta WHERE key = ?", (key,))

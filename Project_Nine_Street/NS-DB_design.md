@@ -384,6 +384,128 @@ the orphaned sqlite/JSON files. This is intentionally out of this PR's scope.
 
 ---
 
-*Design + implementation doc. Phases 0–4 complete + Phase 5 (scoped) complete.
-Frontier: schema/accessors/backfill. Junior: NS-PC→PG, NS-X→PG, NS-6 store→PG.
-Full file deprecation deferred to a reader-rewire PR (Part G.3).*
+## PART H — G.3 design: reader-rewire of NS-7 / NS-8 / regime_store (FRONTIER, for review)
+
+### H.1 Scope & the three rewires
+
+Full file deprecation is gated on "every reader on Postgres." Three stores remain
+on sqlite. Each is rewired with the **same `_use_pg()` test-seam** proven on NS-6:
+prod (default `DB_PATH`) → `common.db`; tests (monkeypatched `DB_PATH`) → sqlite.
+
+| Store | Tables | New `common.db` accessors | New PG tables |
+|---|---|---|---|
+| **NS-7** `store.py` | `league`, `volume`, `selection`, `refresh_meta` | `upsert/get_league`, `league_counts`, `all_leagues`, `upsert_volume_many`, `volume_series`, `avg_daily_volume`, `volume_coverage`, `save_selection`, `latest_selection`, `set/get_meta` | `ns7_league`, `ns7_volume`, `ns7_selection`, `ns7_refresh_meta` |
+| **NS-8** `store.py` | `signals`, `tranche_state`, `audit_log` | `upsert_signal`, `get_latest_signal`, `get_signal`, `init_tranche_state`, `get_tranche_state`, `update_tranche_rebalance`, `log_audit`, `get_audit_log` | `ns8_signals`, `ns8_tranche_state`, `ns8_audit_log` |
+| **`common/regime_store.py`** | `regime_history` | `upsert_regime`, `query_regime_window`, `latest_regime` (regime CRUD — **not yet present in `common.db`**) | `regime_history` (already exists, Phase 1) |
+
+### H.2 Key design decision — `selection`/`signals` already overlap `strategy_output`
+
+NS-7's `save_selection` and NS-8's `upsert_signal` persist documents that are
+**already mirrored** in `strategy_output` (service/kind/as_of JSONB) from the
+Phase-1 backfill, and consumed cross-service (NS-PC reads `ns8/signals`, NS-X
+reads `ns7/selection` from the DB). This is a real fork:
+
+- **Option H1 (chosen): keep the local `selection`/`signals` tables** (full
+  history, `version`/`generated_at`/`tranche` semantics) as dedicated PG tables,
+  and treat `strategy_output` as the *projection* consumed cross-service. This
+  preserves each store's exact semantics (idempotent upsert by `as_of`, audit
+  history) without entangling the two concerns. **No semantic drift.**
+- *Option H2 (rejected):* collapse `selection`/`signals` into `strategy_output`.
+  Rejected because `strategy_output` is keyed `(service, kind, as_of)` and stores
+  a single JSONB payload — it can't cleanly hold NS-8's `signals`+`weights`+`version`
+  tuple or NS-7's `generated_at`/`id`-ordered history without lossy overloading.
+
+### H.3 Schema (additive to `common/schema.sql`)
+
+```sql
+-- NS-7
+CREATE TABLE IF NOT EXISTS ns7_league (
+    ticker VARCHAR(16) PRIMARY KEY, league TEXT NOT NULL,
+    consecutive_compliant INTEGER NOT NULL DEFAULT 0,
+    consecutive_noncompliant INTEGER NOT NULL DEFAULT 0,
+    first_seen TEXT NOT NULL, last_seen TEXT NOT NULL );
+CREATE TABLE IF NOT EXISTS ns7_volume (
+    ticker VARCHAR(16) NOT NULL, date DATE NOT NULL, volume DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (ticker, date) );
+CREATE TABLE IF NOT EXISTS ns7_selection (
+    id SERIAL PRIMARY KEY, generated_at TEXT NOT NULL, as_of TEXT NOT NULL,
+    payload JSONB NOT NULL );
+CREATE TABLE IF NOT EXISTS ns7_refresh_meta ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
+
+-- NS-8
+CREATE TABLE IF NOT EXISTS ns8_signals (
+    as_of TEXT PRIMARY KEY, signals_json JSONB NOT NULL, weights_json JSONB NOT NULL,
+    version INTEGER NOT NULL, generated_at TEXT NOT NULL );
+CREATE TABLE IF NOT EXISTS ns8_tranche_state (
+    tranche_idx INTEGER PRIMARY KEY, next_rebalance TEXT, last_rebalance TEXT );
+CREATE TABLE IF NOT EXISTS ns8_audit_log (
+    id SERIAL PRIMARY KEY, timestamp TEXT NOT NULL, tranche_idx INTEGER NOT NULL,
+    symbol TEXT NOT NULL, side TEXT NOT NULL, qty DOUBLE PRECISION NOT NULL,
+    order_id TEXT );
+```
+
+`regime_history` already exists (Phase 1) — no DDL change.
+
+### H.4 The `regime_store` risk (highest of the three)
+
+`common/regime_store.py` is read by the **live NS-5 sleeve-blend path**
+(`sleeve_blend.py`, `regime_checkers.py`, `run_regime_refresh.py`) + NS-6/NS-7.
+Unlike NS-7/NS-8 (leaf services), a bad regime rewire breaks the live blend.
+Mitigations:
+1. **Fail-open** exactly as NS-6: pg error → sqlite fallback (never lose regime state).
+2. **`regime_history` already backfilled** (753 rows, Phase 1) — no cold-start gap.
+3. Reuse the **`_use_pg()` seam** verbatim (`DB_PATH == DEFAULT_DB_PATH`); tests
+   monkeypatch `regime_store.DB_PATH` today, which flips the seam automatically.
+4. `regime_pipeline.py` (`query_window`/`upsert`) and `regime_checkers.py` (`latest`)
+   are the two caller surfaces — both go through `regime_store` accessors, so the
+   rewire is confined to the module boundary, not scattered call-sites.
+
+### H.5 Work split (frontier vs junior)
+
+| Task | Owner | Why |
+|---|---|---|
+| H.3 schema DDL + `common.db` accessors (NS-7/NS-8/regime) | **Frontier** | data-model semantics, signal-adjacent |
+| `regime_store.py` rewire + `_use_pg()` seam | **Frontier** | live-blend path, highest risk |
+| NS-7 `store.py` + NS-8 `store.py` rewire (drop-in `_use_pg`) | **Frontier** | signal-adjacent data (league/signals/tranche) |
+| Backfill NS-7/NS-8 → PG + no-data-loss verify | **Frontier** | data-integrity gate |
+| Update `common/test_regime.py` + NS-7/NS-8 test fixtures to the seam | **Junior** | test scaffolding |
+| Caller rewiring where mechanical (e.g. `export_signals_json` → write `strategy_output` too) | **Junior** | plumbing |
+| Delete orphaned `ns7.db`/`ns8.db`/`regime_history.db` + JSONs + `.gitignore` tidy | **Junior** | cleanup (after frontier verify) |
+| Full-suite re-run (NS-5 181 + NS-7 70 + NS-8 35 + common) | **Junior** | verification |
+
+### H.6 Phasing (safest order)
+
+1. **Frontier** — add schema + accessors (H.3/H.5) + backfill + verify no data loss.
+2. **Frontier** — rewire `regime_store` (highest-risk first, isolated).
+3. **Frontier** — rewire NS-7, then NS-8.
+4. **Junior** — update test fixtures + caller plumbing.
+5. **Junior** — delete orphaned files, tidy `.gitignore`, full-suite re-run.
+
+### H.7 Acceptance
+
+- All three stores delegate to PG in prod (`_use_pg()` True) and sqlite in tests.
+- `common/test_regime.py` + NS-7/NS-8 suites pass unchanged-or-updated (no silent
+  semantics drift; `latest()`/`get_league()`/`get_signal()` return identical shapes).
+- Backfill diff: PG rows == sqlite rows (no data loss).
+- Orphaned `.db`/JSONs deleted; `find NS-* -name '*.db'` returns only scratch.
+- NS-5 live blend still resolves regime (`latest()` non-None on PG) after rewire.
+
+### H.8 Frontier implementation status (2026-08-16 — DONE, junior steps NOT run)
+
+Frontier portion complete and verified (9/9 ad-hoc + NS-7 70 / NS-8 35 / regime 46):
+
+- **H.3 schema** — 7 new PG tables (`ns7_league/volume/selection/refresh_meta`,
+  `ns8_signals/tranche_state/audit_log`) applied.
+- **H.5 accessors** — 21 new `common.db` accessors (10 NS-7, 8 NS-8, 3 regime).
+- **Backfill + verify** — no data loss: NS-7 league 507, volume 35,405, selection
+  10, meta 3; NS-8 signals 2, tranche 4, audit 0 (all == sqlite).
+- **regime_store rewire** — `_use_pg()` seam + shape normalization (the critical
+  `recorded_at` string + `query_window` DataFrame contracts preserved).
+- **NS-7 + NS-8 store rewire** — `_use_pg()` seam, drop-in. QA→PROD synced.
+- **STOPPED before junior steps**: test-fixture updates, `export_signals_json` →
+  `strategy_output`, orphan-file deletion, `.gitignore` tidy, full-suite re-run.
+
+---
+
+*Design + implementation doc. Phases 0–5 complete (Phase 5 scoped). Part H =
+G.3 design + frontier implementation done; junior steps (4–5) pending review.*

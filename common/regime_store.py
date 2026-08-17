@@ -14,12 +14,31 @@ from __future__ import annotations
 import datetime
 import os
 import sqlite3
+import sys
+from pathlib import Path
 
 import pandas as pd
 
 # Store in common/data/ alongside sentiment_db (pattern match)
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DB_PATH = os.path.join(DATA_DIR, "regime_history.db")
+DEFAULT_DB_PATH = DB_PATH                       # the un-monkeypatched prod path
+
+# Repo root so `import common.db` resolves regardless of the caller's cwd.
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+
+def _use_pg() -> bool:
+    """True when DB_PATH is the prod default (→ delegate to PostgreSQL common.db).
+
+    Tests monkeypatch regime_store.DB_PATH to a temp sqlite file; that makes this
+    False, so the sqlite implementation below remains the hermetic test seam.
+    In prod the DB_PATH is untouched → we centralize on Postgres. Fail-open:
+    if common.db is unreachable we fall back to sqlite (never lose regime state).
+    """
+    return DB_PATH == DEFAULT_DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS regime_history (
@@ -50,7 +69,14 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db():
-    """Create table if missing. Idempotent; call at import time."""
+    """Create table if missing. Idempotent. Prod: ensure Postgres schema."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.ensure_schema()
+        except Exception:
+            pass  # fail-open
+        return
     try:
         with _connect() as conn:
             conn.executescript(_SCHEMA)
@@ -66,6 +92,15 @@ def upsert(date: str, row: dict) -> bool:
         row: dict with keys {regime, confidence, flags, cpi_yoy, gdp_qoq,
              unrate, curve_bp, baa_aaa_bp, nfci, vix, corr, wti}
     """
+    if _use_pg():
+        try:
+            import common.db
+            recorded_at = datetime.datetime.utcnow().isoformat() + "Z"
+            full = dict(row)
+            full["recorded_at"] = recorded_at
+            return bool(common.db.upsert_regime(date, full))
+        except Exception:
+            pass  # fall through to sqlite
     try:
         recorded_at = datetime.datetime.utcnow().isoformat() + "Z"
         with _connect() as conn:
@@ -100,7 +135,20 @@ def query_window(days: int = 750) -> pd.DataFrame:
     """Return trailing N days of regime history as a DataFrame.
 
     Returns DataFrame with 'date' as index, or empty DataFrame on failure.
+    (Shape is identical for sqlite and Postgres paths.)
     """
+    if _use_pg():
+        try:
+            import common.db
+            rows = common.db.query_regime_window(days)
+            if not rows:
+                return pd.DataFrame()
+            df = pd.DataFrame(rows)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date").sort_index()
+            return df
+        except Exception:
+            pass  # fall through to sqlite
     try:
         with _connect() as conn:
             rows = conn.execute(
@@ -119,6 +167,20 @@ def query_window(days: int = 750) -> pd.DataFrame:
 
 def latest() -> dict | None:
     """Return the most recent regime row as a dict, or None."""
+    if _use_pg():
+        try:
+            import common.db
+            row = common.db.latest_regime()
+            if row is None:
+                return None
+            # normalize: recorded_at is TIMESTAMPTZ (datetime) in PG, but callers
+            # expect a string ("...Z") like the sqlite TEXT column.
+            ra = row.get("recorded_at")
+            if isinstance(ra, datetime.datetime):
+                row["recorded_at"] = ra.isoformat()
+            return row
+        except Exception:
+            pass  # fall through to sqlite
     try:
         with _connect() as conn:
             row = conn.execute(

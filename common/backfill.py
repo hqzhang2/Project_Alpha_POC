@@ -293,6 +293,122 @@ def _backfill_daily_prices() -> int:
             pass
 
 
+# ── NS-7 store (Phase G.3) ───────────────────────────────────────────────
+def _backfill_ns7() -> int:
+    """ns7.db → ns7_league / ns7_volume / ns7_selection / ns7_refresh_meta."""
+    ns7_db = ROOT / "NS-7_QA" / "data" / "ns7.db"
+    if not ns7_db.exists():
+        return 0
+    try:
+        c = sqlite3.connect(ns7_db)
+        c.row_factory = sqlite3.Row
+        league = [dict(r) for r in c.execute("SELECT * FROM league")]
+        volume = [dict(r) for r in c.execute("SELECT * FROM volume")]
+        selection = [dict(r) for r in c.execute("SELECT * FROM selection ORDER BY id")]
+        meta = [dict(r) for r in c.execute("SELECT * FROM refresh_meta")]
+        c.close()
+    except Exception:
+        return 0
+
+    conn = db._connect()
+    if conn is None:
+        return 0
+    n = 0
+    try:
+        with conn, conn.cursor() as cur:
+            for r in league:
+                cur.execute(
+                    "INSERT INTO ns7_league (ticker, league, consecutive_compliant, "
+                    " consecutive_noncompliant, first_seen, last_seen) VALUES (%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (ticker) DO UPDATE SET league=EXCLUDED.league, "
+                    " consecutive_compliant=EXCLUDED.consecutive_compliant, "
+                    " consecutive_noncompliant=EXCLUDED.consecutive_noncompliant, "
+                    " first_seen=EXCLUDED.first_seen, last_seen=EXCLUDED.last_seen",
+                    (r["ticker"], r["league"], r["consecutive_compliant"],
+                     r["consecutive_noncompliant"], r["first_seen"], r["last_seen"]))
+                n += 1
+            for r in volume:
+                cur.execute(
+                    "INSERT INTO ns7_volume (ticker, date, volume) VALUES (%s,%s,%s) "
+                    "ON CONFLICT (ticker, date) DO UPDATE SET volume=EXCLUDED.volume",
+                    (r["ticker"], r["date"], r["volume"]))
+                n += 1
+            for r in selection:
+                cur.execute(
+                    "INSERT INTO ns7_selection (generated_at, as_of, payload) VALUES (%s,%s,%s) "
+                    "ON CONFLICT (id) DO NOTHING",
+                    (r["generated_at"], r["as_of"], db._jsonb(r["payload"])))
+                n += 1
+            for r in meta:
+                cur.execute(
+                    "INSERT INTO ns7_refresh_meta (key, value) VALUES (%s,%s) "
+                    "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                    (r["key"], r["value"]))
+                n += 1
+        return n
+    except Exception:
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+# ── NS-8 store (Phase G.3) ───────────────────────────────────────────────
+def _backfill_ns8() -> int:
+    """ns8.db → ns8_signals / ns8_tranche_state / ns8_audit_log."""
+    ns8_db = ROOT / "NS-8_QA" / "data" / "ns8.db"
+    if not ns8_db.exists():
+        return 0
+    try:
+        c = sqlite3.connect(ns8_db)
+        c.row_factory = sqlite3.Row
+        signals = [dict(r) for r in c.execute("SELECT * FROM signals")]
+        tranche = [dict(r) for r in c.execute("SELECT * FROM tranche_state")]
+        audit = [dict(r) for r in c.execute("SELECT * FROM audit_log ORDER BY id")]
+        c.close()
+    except Exception:
+        return 0
+
+    conn = db._connect()
+    if conn is None:
+        return 0
+    n = 0
+    try:
+        with conn, conn.cursor() as cur:
+            for r in signals:
+                cur.execute(
+                    "INSERT INTO ns8_signals (as_of, signals_json, weights_json, version, generated_at) "
+                    "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (as_of) DO UPDATE SET "
+                    " signals_json=EXCLUDED.signals_json, weights_json=EXCLUDED.weights_json, "
+                    " version=EXCLUDED.version, generated_at=EXCLUDED.generated_at",
+                    (r["as_of"], db._jsonb(r["signals_json"]), db._jsonb(r["weights_json"]),
+                     r["version"], r["generated_at"]))
+                n += 1
+            for r in tranche:
+                cur.execute(
+                    "INSERT INTO ns8_tranche_state (tranche_idx, next_rebalance, last_rebalance) "
+                    "VALUES (%s,%s,%s) ON CONFLICT (tranche_idx) DO UPDATE SET "
+                    " next_rebalance=EXCLUDED.next_rebalance, last_rebalance=EXCLUDED.last_rebalance",
+                    (r["tranche_idx"], r["next_rebalance"], r["last_rebalance"]))
+                n += 1
+            for r in audit:
+                cur.execute(
+                    "INSERT INTO ns8_audit_log (timestamp, tranche_idx, symbol, side, qty, order_id) "
+                    "VALUES (%s,%s,%s,%s,%s,%s)",
+                    (r["timestamp"], r["tranche_idx"], r["symbol"], r["side"], r["qty"], r["order_id"]))
+                n += 1
+        return n
+    except Exception:
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def main() -> int:
     if not db.available():
         print("ERROR: Postgres unavailable (psycopg2 missing or DB down). Aborting.")
@@ -304,9 +420,11 @@ def main() -> int:
     rg = _backfill_regime()
     ns6 = _backfill_ns6_logs()
     dp = _backfill_daily_prices()
+    ns7 = _backfill_ns7()
+    ns8 = _backfill_ns8()
     print(f"backfilled: portfolios={p} strategy_output={so} "
           f"strategy_returns={sr} regime_history={rg} "
-          f"ns6_logs={ns6} daily_prices={dp}")
+          f"ns6_logs={ns6} daily_prices={dp} ns7={ns7} ns8={ns8}")
     return 0
 
 

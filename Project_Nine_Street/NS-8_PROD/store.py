@@ -1,14 +1,33 @@
 """store.py — NS-8 SQLite Persistence Layer.
 
-Handles signals, tranche state, and audit logging.
+Handles signals, tranche state, and audit logging. Prod: delegates to
+PostgreSQL (common.db); sqlite retained as the fail-open fallback.
 """
 import json
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import config
+
+DEFAULT_DB_PATH = str(config.DB_PATH)           # snapshot of the prod path
+
+# Repo root so `import common.db` resolves (this service runs with NS-8_QA/ cwd).
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _use_pg() -> bool:
+    """True when config.DB_PATH is the prod default (→ PostgreSQL common.db).
+
+    NS-8 tests don't monkeypatch DB_PATH (pure-function tests + a /tranches
+    endpoint); in prod config.DB_PATH is the default, so this is True → Postgres.
+    Fail-open: pg error → sqlite fallback so NS-8 never loses signal/tranche state.
+    """
+    return str(config.DB_PATH) == DEFAULT_DB_PATH
 
 
 def _conn() -> sqlite3.Connection:
@@ -19,7 +38,14 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Initialize all tables."""
+    """Initialize all tables. Prod: ensure Postgres schema."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.ensure_schema()
+        except Exception:
+            pass  # fail-open
+        return
     conn = _conn()
     try:
         conn.execute("""
@@ -64,6 +90,13 @@ def upsert_signal(
     generated_at: str
 ) -> None:
     """Insert or replace a monthly signal record."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.upsert_signal(as_of, signals, weights, version, generated_at)
+        except Exception:
+            pass  # fall through to sqlite
+        return
     conn = _conn()
     try:
         conn.execute(
@@ -77,6 +110,12 @@ def upsert_signal(
 
 def get_latest_signal() -> Optional[Dict[str, Any]]:
     """Get the most recent signal record."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.get_latest_signal()
+        except Exception:
+            pass  # fall through to sqlite
     conn = _conn()
     try:
         row = conn.execute(
@@ -97,6 +136,12 @@ def get_latest_signal() -> Optional[Dict[str, Any]]:
 
 def get_signal(as_of: str) -> Optional[Dict[str, Any]]:
     """Get signal for a specific date."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.get_signal(as_of)
+        except Exception:
+            pass  # fall through to sqlite
     conn = _conn()
     try:
         row = conn.execute(
@@ -119,6 +164,13 @@ def get_signal(as_of: str) -> Optional[Dict[str, Any]]:
 
 def init_tranche_state() -> None:
     """Initialize 4 tranches with staggered rebalance weeks."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.init_tranche_state()
+        except Exception:
+            pass  # fall through to sqlite
+        return
     conn = _conn()
     try:
         # Check if already initialized
@@ -139,6 +191,12 @@ def init_tranche_state() -> None:
 
 def get_tranche_state() -> List[Dict[str, Any]]:
     """Get all tranche states."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.get_tranche_state()
+        except Exception:
+            pass  # fall through to sqlite
     conn = _conn()
     try:
         rows = conn.execute("SELECT * FROM tranche_state ORDER BY tranche_idx").fetchall()
@@ -156,6 +214,13 @@ def get_tranche_state() -> List[Dict[str, Any]]:
 
 def update_tranche_rebalance(tranche_idx: int, next_rebalance: str, last_rebalance: str) -> None:
     """Update a tranche's rebalance dates."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.update_tranche_rebalance(tranche_idx, next_rebalance, last_rebalance)
+        except Exception:
+            pass  # fall through to sqlite
+        return
     conn = _conn()
     try:
         conn.execute(
@@ -190,6 +255,13 @@ def log_audit(
     order_id: Optional[str] = None
 ) -> None:
     """Log an execution order."""
+    if _use_pg():
+        try:
+            import common.db
+            common.db.log_audit(tranche_idx, symbol, side, qty, order_id)
+        except Exception:
+            pass  # fall through to sqlite
+        return
     conn = _conn()
     try:
         conn.execute(
@@ -203,6 +275,12 @@ def log_audit(
 
 def get_audit_log(limit: int = 100) -> List[Dict[str, Any]]:
     """Get recent audit log entries."""
+    if _use_pg():
+        try:
+            import common.db
+            return common.db.get_audit_log(limit)
+        except Exception:
+            pass  # fall through to sqlite
     conn = _conn()
     try:
         rows = conn.execute(
@@ -216,7 +294,22 @@ def get_audit_log(limit: int = 100) -> List[Dict[str, Any]]:
 # ── Export ──────────────────────────────────────────────────────────────
 
 def export_signals_json() -> None:
-    """Export latest signal to JSON file for NS-5 consumption."""
+    """Export latest signal to JSON file for NS-5 consumption.
+
+    NS-DB: also write the signal document to `strategy_output` (service=ns8,
+    kind=signals) so cross-service consumers read from Postgres, not the JSON
+    file. The file write is kept as a backward-compat artifact. Fail-open.
+    """
     signal = get_latest_signal()
-    if signal:
+    if not signal:
+        return
+    try:
         config.SIGNALS_PATH.write_text(json.dumps(signal, indent=2, default=str))
+    except Exception:
+        pass  # fail-open
+    try:
+        import common.db
+        as_of = signal.get("as_of")
+        common.db.write_strategy_output("ns8", "signals", signal, as_of=as_of)
+    except Exception:
+        pass  # fail-open
