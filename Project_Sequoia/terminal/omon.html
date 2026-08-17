@@ -45,6 +45,15 @@
         .iv-cell { transition: background-color 0.3s; }
         .expected-move { color: #3fb950; font-size: 14px; font-weight: 600; }
         .smile-chart { margin-top: 16px; background: #161b22; border-radius: 8px; padding: 12px; }
+        .gex-chart { margin-top: 16px; background: #161b22; border-radius: 8px; padding: 12px; }
+        .gex-chart .gex-title { color: #8b949e; font-size: 12px; margin-bottom: 6px; }
+        .gex-chart .gex-title .gex-sub { color: #58a6ff; margin-left: 8px; }
+        .gex-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 11px; color: #8b949e; }
+        .gex-legend-item { display: flex; align-items: center; gap: 5px; }
+        .gex-swatch { width: 10px; height: 10px; display: inline-block; border-radius: 2px; }
+        .gex-swatch.line { height: 0; border-top: 2px solid; border-radius: 0; }
+        .gex-swatch.dashed { width: 14px; height: 0; border-top: 2px dashed; border-radius: 0; }
+        .gex-swatch.shade { background: repeating-linear-gradient(90deg, rgba(63,185,80,0.25) 0 4px, rgba(248,81,73,0.25) 4px 8px); }
         
         .info-bar { background: #161b22; padding: 12px 24px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
         .info-bar .ticker { font-size: 24px; font-weight: 700; }
@@ -420,6 +429,7 @@
                 html = `<div class="loading" style="padding:24px;color:#3fb950;">✅ No parity violations — all quoted strikes agree with the chain consensus.</div>`;
             }
             document.getElementById('chainContainer').innerHTML = html;
+            renderGexChart();
             renderSmileChart();
         }
         
@@ -504,6 +514,305 @@
                 ctx.restore();
             }
         };
+        // ===================================================================
+        // Gamma Exposure (GEX): per-strike call/put gamma from the SELECTED
+        // chain (OI * gamma * spot * 100). Placed between the chain table and
+        // the IV smile. No date picker — it always reflects the loaded chain.
+        // ===================================================================
+        let gexChart = null;
+        let gexMeta = null;   // computed series shared with the draw plugin
+
+        function fmtCompact(n) {
+            if (n === null || n === undefined || isNaN(n)) return '-';
+            const abs = Math.abs(n);
+            if (abs >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+            if (abs >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+            if (abs >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return n.toFixed(0);
+        }
+
+        // Round a bin width up to a "nice" number (1/2/5 × 10^k).
+        function niceBin(b) {
+            if (!(b > 0)) return 1;
+            const p = Math.pow(10, Math.floor(Math.log10(b)));
+            const m = b / p;
+            let nm = 1;
+            if (m > 1) nm = 2;
+            if (m > 2) nm = 5;
+            if (m > 5) nm = 10;
+            return nm * p;
+        }
+
+        function computeGex(spot) {
+            // Focus on the liquid moneyness band around spot (deep-OTM wings
+            // with sparse strikes would otherwise stretch the x-axis and pull
+            // the gamma-flip to a meaningless far strike).
+            const WIN = 0.25;              // ±25% of spot
+            const lo = spot * (1 - WIN), hi = spot * (1 + WIN);
+            // Accumulate call (+) and put (−) dollar gamma by strike.
+            const byStrike = {};
+            const fold = (list, sign) => {
+                if (!list) return;
+                for (const o of list) {
+                    if (!o || o.strike == null) continue;
+                    const K = o.strike;
+                    if (K < lo || K > hi) continue;
+                    const gex = (o.oi || 0) * (o.gamma || 0) * spot * 100;
+                    if (gex === 0) continue;
+                    if (!byStrike[K]) byStrike[K] = { K, call: 0, put: 0 };
+                    if (sign > 0) byStrike[K].call += gex;
+                    else byStrike[K].put += gex;   // stored as positive magnitude
+                }
+            };
+            fold(optionsData.calls, 1);
+            fold(optionsData.puts, -1);
+
+            const strikes = Object.values(byStrike).sort((a, b) => a.K - b.K);
+            if (!strikes.length) return null;
+
+            // True call / put walls from the raw per-strike data (real strike
+            // values used for the labels even though bars are binned).
+            let maxCall = { K: null, v: -Infinity }, maxPut = { K: null, v: -Infinity };
+            for (const s of strikes) {
+                if (s.call > maxCall.v) maxCall = { K: s.K, v: s.call };
+                if (s.put > maxPut.v) maxPut = { K: s.K, v: s.put };   // magnitude
+            }
+
+            // Adaptive binning: high-priced tickers (SPY at ~$770) have a
+            // strike every $2, which would render hundreds of thin bars. Bin
+            // to ~55 buckets so the histogram stays readable at any price.
+            const binSize = niceBin((hi - lo) / 55);
+            const bins = new Map();
+            for (const s of strikes) {
+                const cKey = Math.floor(s.K / binSize) * binSize;
+                let b = bins.get(cKey);
+                if (!b) { b = { cKey, call: 0, put: 0 }; bins.set(cKey, b); }
+                b.call += s.call;
+                b.put += s.put;
+            }
+            const binList = [...bins.values()].sort((a, b) => a.cKey - b.cKey);
+
+            const labels = [], callBars = [], putBars = [], agg = [];
+            let cum = 0, maxAbs = 0;
+            for (const b of binList) {
+                const center = b.cKey + binSize / 2;
+                const call = +b.call.toFixed(2);
+                const put = -(+b.put.toFixed(2));       // negative magnitude
+                const net = call + put;
+                cum += net;
+                labels.push(center);
+                callBars.push({ x: center, y: call });
+                putBars.push({ x: center, y: put });
+                agg.push({ x: center, y: +cum.toFixed(2) });
+                maxAbs = Math.max(maxAbs, Math.abs(call), Math.abs(put));
+            }
+
+            // Zero crossings of the cumulative aggregate line = where net GEX
+            // flips sign (the "gamma flip"). Interpolate between adjacent bins.
+            const crossings = [];
+            for (let i = 1; i < agg.length; i++) {
+                const y1 = agg[i - 1].y, y2 = agg[i].y;
+                if (y1 === 0) crossings.push(agg[i - 1].x);
+                else if (y2 === 0) crossings.push(agg[i].x);
+                else if ((y1 < 0 && y2 > 0) || (y1 > 0 && y2 < 0)) {
+                    const t = (0 - y1) / (y2 - y1);
+                    crossings.push(+(agg[i - 1].x + t * (agg[i].x - agg[i - 1].x)).toFixed(2));
+                }
+            }
+            // Split the axis into contiguous positive/negative gamma zones for
+            // the background shading (green = positive, red = negative).
+            const edges = [agg[0].x, ...crossings, agg[agg.length - 1].x];
+            const regions = [];
+            let positive = agg[0].y >= 0;
+            for (let i = 0; i < edges.length - 1; i++) {
+                regions.push({ from: edges[i], to: edges[i + 1], positive });
+                positive = !positive;
+            }
+            // Flip = the crossing nearest spot (the pivot of price magnetism).
+            let flip = null;
+            if (crossings.length) {
+                let best = Infinity;
+                for (const c of crossings) {
+                    const d = Math.abs(c - spot);
+                    if (d < best) { best = d; flip = c; }
+                }
+            }
+            return { labels, callBars, putBars, agg, maxCall, maxPut, flip, regions, maxAbs, binSize };
+        }
+
+        // Draws the shading zones, gamma-flip / last-price lines, and the
+        // call/put wall annotations on top of the chart.js render.
+        const gexPlugin = {
+            id: 'gex',
+            beforeDatasetsDraw(chart) {
+                if (!gexMeta || !gexMeta.regions) return;
+                const xs = chart.scales.x, area = chart.chartArea;
+                if (!xs || !area) return;
+                const ctx = chart.ctx;
+                const h = area.bottom - area.top;
+                ctx.save();
+                for (const r of gexMeta.regions) {
+                    const left = xs.getPixelForValue(r.from);
+                    const right = xs.getPixelForValue(r.to);
+                    // Positive gamma regime (green), negative regime (red).
+                    ctx.fillStyle = r.positive ? 'rgba(63, 185, 80, 0.06)' : 'rgba(248, 81, 73, 0.06)';
+                    ctx.fillRect(left, area.top, right - left, h);
+                }
+                ctx.restore();
+            },
+            afterDraw(chart) {
+                if (!gexMeta) return;
+                const xs = chart.scales.x, ys = chart.scales.y;
+                const area = chart.chartArea;
+                if (!xs || !ys || !area) return;
+                const ctx = chart.ctx;
+                const font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+                ctx.save();
+                ctx.font = font;
+                ctx.textBaseline = 'middle';
+
+                // Gamma flip vertical line + label (orange).
+                if (gexMeta.flip != null) {
+                    const px = xs.getPixelForValue(gexMeta.flip);
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeStyle = '#f0883e';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(px, area.top); ctx.lineTo(px, area.bottom); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#f0883e';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Flip ' + gexMeta.flip.toFixed(2), px, area.top + 9);
+                }
+
+                // Last price (spot) vertical line + label (grey).
+                if (gexMeta.spot != null) {
+                    const px = xs.getPixelForValue(gexMeta.spot);
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeStyle = '#8b949e';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(px, area.top); ctx.lineTo(px, area.bottom); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#8b949e';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Last ' + gexMeta.spot.toFixed(2), px, area.bottom - 9);
+                }
+
+                // Call wall: tallest green bar, labelled above it.
+                if (gexMeta.maxCall && gexMeta.maxCall.K != null && isFinite(gexMeta.maxCall.v)) {
+                    const px = xs.getPixelForValue(gexMeta.maxCall.K);
+                    const topY = ys.getPixelForValue(gexMeta.maxCall.v);
+                    ctx.fillStyle = '#3fb950';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Call Wall ' + gexMeta.maxCall.K.toFixed(0), px, Math.max(area.top + 14, topY - 8));
+                }
+
+                // Put wall: most-negative red bar, labelled below it.
+                if (gexMeta.maxPut && gexMeta.maxPut.K != null && isFinite(gexMeta.maxPut.v)) {
+                    const px = xs.getPixelForValue(gexMeta.maxPut.K);
+                    const botY = ys.getPixelForValue(-gexMeta.maxPut.v);
+                    ctx.fillStyle = '#f85149';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Put Wall ' + gexMeta.maxPut.K.toFixed(0), px, Math.min(area.bottom - 14, botY + 14));
+                }
+                ctx.restore();
+            }
+        };
+
+        function renderGexChart() {
+            const container = document.getElementById('chainContainer');
+            if (!container || typeof Chart === 'undefined') return;
+            const existing = document.getElementById('gexChartWrap');
+            if (existing) existing.remove();
+            if (gexChart) { gexChart.destroy(); gexChart = null; }
+
+            const viewMode = document.getElementById('viewMode')?.value || 'otm';
+            if (viewMode === 'violations' || !optionsData) return;   // skip in exception view
+            const spot = optionsData.spot;
+            if (!spot) return;
+
+            const meta = computeGex(spot);
+            if (!meta) return;
+            gexMeta = Object.assign({}, meta, { spot });
+
+            const wrap = document.createElement('div');
+            wrap.id = 'gexChartWrap';
+            wrap.className = 'gex-chart';
+            const expiryLabel = optionsData.expiry || '';
+            wrap.innerHTML =
+                `<div class="gex-title">Gamma Exposure<span class="gex-sub">Expiry: ${expiryLabel}</span></div>` +
+                `<canvas id="gexCanvas" height="80"></canvas>` +
+                `<div class="gex-legend">` +
+                    `<span class="gex-legend-item"><span class="gex-swatch" style="background:#3fb950;"></span>Call</span>` +
+                    `<span class="gex-legend-item"><span class="gex-swatch" style="background:#f85149;"></span>Put</span>` +
+                    `<span class="gex-legend-item"><span class="gex-swatch shade"></span>Net</span>` +
+                    `<span class="gex-legend-item"><span class="gex-swatch dashed" style="border-color:#f0883e;"></span>Gamma Flip</span>` +
+                    `<span class="gex-legend-item"><span class="gex-swatch line" style="border-color:#58a6ff;"></span>Aggregate GEX</span>` +
+                    `<span class="gex-legend-item"><span class="gex-swatch dashed" style="border-color:#8b949e;"></span>Last Price</span>` +
+                `</div>`;
+            container.appendChild(wrap);
+
+            const canvas = document.getElementById('gexCanvas');
+            const ctx = canvas.getContext('2d');
+            const pad = meta.maxAbs * 1.15;
+            // Hug the data: bound the strike axis to the rendered bins so a
+            // concentrated chain fills the width instead of leaving an empty
+            // gap to a "nice" rounded axis limit.
+            const firstX = meta.callBars[0].x;
+            const lastX = meta.callBars[meta.callBars.length - 1].x;
+            const xPad = meta.binSize * 0.6;
+
+            gexChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: meta.labels,
+                    datasets: [
+                        { label: 'Call', data: meta.callBars, type: 'bar', backgroundColor: '#3fb950', hoverBackgroundColor: '#2ea043', yAxisID: 'y', borderWidth: 0 },
+                        { label: 'Put', data: meta.putBars, type: 'bar', backgroundColor: '#f85149', hoverBackgroundColor: '#da3633', yAxisID: 'y', borderWidth: 0 },
+                        { label: 'Aggregate GEX', data: meta.agg, type: 'line', borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.08)', pointRadius: 0, pointHitRadius: 8, borderWidth: 2, tension: 0.3, spanGaps: true, yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: c => {
+                                    if (c.dataset.label === 'Aggregate GEX') return c.dataset.label + ': $' + fmtCompact(c.parsed.y);
+                                    return c.dataset.label + ' GEX: $' + fmtCompact(c.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            min: firstX - xPad,
+                            max: lastX + xPad,
+                            title: { display: true, text: 'Strike Price', color: '#8b949e', font: { size: 11 } },
+                            ticks: { color: '#8b949e', font: { size: 10 }, callback: v => v.toFixed(0) },
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        y: {
+                            position: 'left',
+                            title: { display: true, text: 'Gamma ($)', color: '#8b949e', font: { size: 11 } },
+                            min: -pad, max: pad,
+                            ticks: { color: '#8b949e', font: { size: 10 }, callback: v => fmtCompact(v) },
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        y1: {
+                            position: 'right',
+                            title: { display: true, text: 'Aggregate GEX ($)', color: '#8b949e', font: { size: 11 } },
+                            ticks: { color: '#8b949e', font: { size: 10 }, callback: v => fmtCompact(v) },
+                            grid: { drawOnChartArea: false }
+                        }
+                    }
+                },
+                plugins: [gexPlugin]
+            });
+        }
+
         function renderSmileChart() {
             const container = document.getElementById('chainContainer');
             if (!container || typeof Chart === 'undefined') return;
