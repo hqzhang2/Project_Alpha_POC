@@ -51,6 +51,7 @@ MAX_POSITION_WEIGHT = 0.40                 # per name within a small sleeve
 VIX_CRISIS_LEVEL = 28.0
 VIX_SPOT_SERIES = "^VIX"
 VIX_AVG_WINDOW = 60                        # trading days for the dashboard avg
+VIX_MA_WINDOW = 20                         # VIX moving-average line (NS-1 uses 20MA)
 HYG, TLT_MACRO = "HYG", "TLT"              # credit macro ratio input
 
 # ── Regime (NS-3 T3 pattern) ─────────────────────────────────────────────

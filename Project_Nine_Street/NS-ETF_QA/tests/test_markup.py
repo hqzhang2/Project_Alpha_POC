@@ -34,6 +34,16 @@ class TestMarkup(unittest.TestCase):
         self.assertIn("VIX spot", self.html)
         self.assertIn("avg", self.html)
 
+    def test_vix_on_left_axis(self):
+        # PM spec: left y-axis = VIX; strategy/SPY on right (yaxis2)
+        self.assertIn("side: 'left'", self.html)
+        self.assertIn("yaxis2", self.html)
+        self.assertIn("VIX spot (left)", self.html)
+        self.assertIn("VIX avg (left)", self.html)
+
+    def test_crosshair_present(self):
+        self.assertIn("plotly_hover", self.html)
+
 
 if __name__ == "__main__":
     unittest.main()

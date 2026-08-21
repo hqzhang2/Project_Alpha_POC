@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>NS-ETF — Combined ETF Strategy</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <style>
 :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#e6edf3;
         --dim:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922; }
@@ -68,9 +68,79 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
   </section>
 </main>
 <script>
-const dc = { bg:'#0d1117', panel:'#161b22', border:'#30363d', txt:'#e6edf3',
-             dim:'#8b949e', green:'#3fb950', red:'#f85149', amber:'#d29922' };
+const dc = { green:'#3fb950', red:'#f85149', amber:'#d29922' };
 let perfChart = null;
+
+// Crosshair: vertical line follows the hovered date (NS-1 chart UX).
+const crosshair = {
+  type: 'line', xref: 'x', yref: 'paper',
+  x0: null, x1: null, y0: 0, y1: 1,
+  line: { color: '#8b949e', width: 1, dash: 'dot' }, visible: false,
+};
+const layout = {
+  paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+  font: { color: '#e6edf3', size: 11, family: '-apple-system,Menlo,monospace' },
+  margin: { l: 50, r: 55, t: 10, b: 28 },
+  showlegend: true,
+  legend: { orientation: 'h', y: 1.12, x: 0 },
+  hovermode: 'x unified',
+  // LEFT axis = VIX (PM spec); strategy/SPY rebased on RIGHT.
+  yaxis: {
+    title: { text: 'VIX', font: { color: '#f85149', size: 10 } },
+    side: 'left', gridcolor: '#30363d', tickfont: { color: '#f85149', size: 10 },
+    rangemode: 'tozero',
+  },
+  yaxis2: {
+    overlaying: 'y', side: 'right', gridcolor: 'transparent',
+    tickfont: { color: '#8b949e', size: 10 },
+  },
+  xaxis: { gridcolor: '#30363d', tickfont: { color: '#8b949e' } },
+  shapes: [crosshair],
+};
+
+function renderPerf(p) {
+  if (p.error) { document.getElementById('status').textContent = 'perf: ' + p.error; return; }
+  const hasVix = p.vix_series && p.vix_series.some(v => v !== null);
+  const traces = [
+    { x: p.dates, y: p.strategy, name: 'NS-ETF (right)',
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
+      line: { color: '#3fb950', width: 2 } },
+    { x: p.dates, y: p.spy, name: 'SPY (right)',
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
+      line: { color: '#8b949e', width: 1.4 } },
+  ];
+  if (hasVix) {
+    traces.push({ x: p.dates, y: p.vix_series, name: 'VIX spot (left)',
+      type: 'scatter', mode: 'lines', yaxis: 'y',
+      line: { color: '#f85149', width: 1, dash: 'dot' } });
+    if (p.vix_avg_series && p.vix_avg_series.some(v => v !== null)) {
+      traces.push({ x: p.dates, y: p.vix_avg_series, name: 'VIX avg (left)',
+        type: 'scatter', mode: 'lines', yaxis: 'y',
+        line: { color: '#d29922', width: 1, dash: 'dash' } });
+    }
+  }
+  Plotly.react('perfChart', traces, layout, { responsive: true, displayModeBar: false });
+  const st = document.getElementById('status');
+  st.textContent = (p.vix && p.vix.spot != null)
+    ? 'VIX spot ' + Number(p.vix.spot).toFixed(2) + ' · avg ' + Number(p.vix.avg).toFixed(2)
+    : '';
+}
+
+// Crosshair wiring: move the shape to the hovered x; hide on leave.
+const chartEl = document.getElementById('perfChart');
+chartEl.on ? null : null;   // set after first plot via Plotly.attach
+function wireCrosshair() {
+  chartEl.removeAllListeners && chartEl.removeAllListeners('plotly_hover');
+  chartEl.on('plotly_hover', ev => {
+    crosshair.x0 = crosshair.x1 = ev.xs ? ev.xs[ev.pointindex || 0] || ev.xs[0] : null;
+    crosshair.visible = crosshair.x0 != null;
+    Plotly.relayout('perfChart', { 'shapes[0].x0': crosshair.x0, 'shapes[0].x1': crosshair.x1, 'shapes[0].visible': crosshair.visible });
+  });
+  chartEl.on('plotly_unhover', () => {
+    crosshair.visible = false;
+    Plotly.relayout('perfChart', { 'shapes[0].visible': false });
+  });
+}
 
 async function jget(url) {
   const r = await fetch(url);
@@ -78,29 +148,6 @@ async function jget(url) {
   return r.json();
 }
 
-function renderPerf(p) {
-  if (p.error) { document.getElementById('status').textContent = 'perf: ' + p.error; return; }
-  const ctx = document.getElementById('perfChart').getContext('2d');
-  if (perfChart) perfChart.destroy();
-  const ds = [
-    { label:'NS-ETF', data:p.strategy, borderColor:dc.green, borderWidth:1.5, pointRadius:0, tension:.15 },
-    { label:'SPY',    data:p.spy,      borderColor:dc.dim,    borderWidth:1.2, pointRadius:0, tension:.15 },
-  ];
-  if (p.vix && p.vix.spot != null) {
-    ds.push({ label:'VIX spot ' + p.vix.spot, data:null, borderColor:dc.amber, borderWidth:0, pointRadius:0 });
-  }
-  perfChart = new Chart(ctx, { type:'line',
-    data:{ labels:p.dates, datasets:ds },
-    options:{ animation:false,
-      plugins:{ legend:{ labels:{ color:dc.txt, boxWidth:12 } },
-        tooltip:{ mode:'index', intersect:false } },
-      scales:{ x:{ ticks:{ color:dc.dim, maxTicksLimit:10 }, grid:{ color:dc.border } },
-               y:{ ticks:{ color:dc.dim }, grid:{ color:dc.border } } } } });
-  if (p.vix && p.vix.avg != null) {
-    document.getElementById('status').textContent =
-      'VIX spot ' + p.vix.spot + ' · avg ' + p.vix.avg;
-  }
-}
 
 function renderFeed(f) {
   const tb = document.querySelector('#sleeveTable tbody');
@@ -148,7 +195,13 @@ async function loadAll() {
   } catch (e) {
     document.getElementById('status').textContent = 'feed unavailable: ' + e.message;
   }
-  try { renderPerf(await jget('/api/performance')); } catch (e) { /* status shown */ }
+  try {
+    renderPerf(await jget('/api/performance'));
+    if (chartEl.on && !chartEl._crosshairWired) {   // attach once after first plot
+      chartEl._crosshairWired = true;
+      wireCrosshair();
+    }
+  } catch (e) { /* status shown */ }
 }
 loadAll();
 setInterval(loadAll, 300000);

@@ -91,8 +91,10 @@ def overlay_state(spot, avg):
 
 
 def performance_snapshot():
-    """Strategy-vs-SPY equity curve for the retained NS-1 chart.
-    Computed from the sqlite price store (never hardcoded)."""
+    """Strategy-vs-SPY equity curve for the retained NS-1-style chart.
+    Computed from the sqlite price store (never hardcoded). Includes the
+    VIX spot series and its moving average, aligned to the same dates
+    (left-axis overlay per NS-1 pattern)."""
     conn = store._connect()
     try:
         store.init_db()
@@ -109,18 +111,73 @@ def performance_snapshot():
     dset_book = dict(book)
     s0 = dset_spy[dates[0]]
     b0 = dset_book[dates[0]]
-    vix = None
+    dates = dates[-500:]
+
+    # VIX spot series + moving average (NS-1 /api/chart pattern: ffill-align
+    # onto the price dates). Fail-open: missing → nulls, chart still renders.
+    vix_series, vix_avg_series = _vix_aligned(dates)
+
+    return {
+        "dates": dates,
+        "strategy": [round(dset_book[d] / b0, 4) for d in dates],
+        "spy": [round(dset_spy[d] / s0, 4) for d in dates],
+        "vix_series": vix_series,
+        "vix_avg_series": vix_avg_series,
+        "vix": pipeline_vix_point(),
+    }
+
+
+_VIX_CACHE = {"ts": 0.0, "data": None}
+
+
+def _vix_aligned(dates, ttl=900):
+    """{date: vix_close} from yfinance ^VIX, cached 15min. Returns
+    (spot_list, avg_list) aligned 1:1 with `dates` (None where missing)."""
+    import time as _t
+    now = _t.time()
+    if _VIX_CACHE["data"] is None or now - _VIX_CACHE["ts"] > ttl:
+        try:
+            import yfinance as yf
+            df = yf.download(config.VIX_SPOT_SERIES,
+                             period=f"{config.VIX_AVG_WINDOW * 3}d",
+                             progress=False, auto_adjust=True)
+            if df is not None and not df.empty and "Close" in df:
+                close_col = df["Close"]
+                if hasattr(close_col, "columns"):
+                    close_col = close_col.iloc[:, 0]
+                m = {}
+                for idx, v in close_col.dropna().items():
+                    try:
+                        d = getattr(idx, "date", None)
+                        ds = str(d()) if callable(d) else str(idx)[:10]
+                        val = float(v.item()) if hasattr(v, "item") else float(v)
+                        m[ds] = val
+                    except Exception:
+                        continue
+                _VIX_CACHE["data"] = m
+                _VIX_CACHE["ts"] = now
+        except Exception:
+            _VIX_CACHE["data"] = {}
+            _VIX_CACHE["ts"] = now
+    vmap = _VIX_CACHE["data"] or {}
+    spot = [vmap.get(d) for d in dates]
+    # Moving average over the spot series itself (NS-1 uses 20d MA),
+    # computed forward-looking so each point only uses past data.
+    avg, window = [], config.VIX_MA_WINDOW
+    vals = [s for s in spot]
+    for i in range(len(vals)):
+        chunk = [v for v in vals[max(0, i - window + 1):i + 1] if v is not None]
+        avg.append(round(sum(chunk) / len(chunk), 2) if len(chunk) >= max(5, window // 4) else None)
+    return ([round(v, 2) if v is not None else None for v in spot], avg)
+
+
+def pipeline_vix_point():
+    """Latest VIX spot/avg for the status line; None-safe."""
     try:
         spot, avg = pipeline.vix_snapshot()
-        vix = {"spot": spot, "avg": avg}
+        return {"spot": spot, "avg": avg}
     except Exception:
-        pass
-    return {
-        "dates": dates[-500:],   # last ~2y of daily points
-        "strategy": [round(dset_book[d] / b0, 4) for d in dates][-500:],
-        "spy": [round(dset_spy[d] / s0, 4) for d in dates][-500:],
-        "vix": vix,
-    }
+        return {"spot": None, "avg": None}
 
 
 def selector_series(conn, ticker):
