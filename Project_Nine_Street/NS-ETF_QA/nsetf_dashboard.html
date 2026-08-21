@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NS-ETF — Combined ETF Strategy</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#e6edf3;
+        --dim:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--txt);
+       font:13px/1.45 -apple-system,"SF Mono",Menlo,monospace; }
+header { padding:10px 16px; border-bottom:1px solid var(--border);
+         display:flex; align-items:baseline; gap:14px; }
+header h1 { font-size:15px; margin:0; }
+header .sub { color:var(--dim); font-size:11px; }
+main { padding:12px 16px; display:grid;
+       grid-template-columns: 2fr 1fr; gap:12px; }
+.panel { background:var(--panel); border:1px solid var(--border);
+         border-radius:8px; padding:12px; }
+.panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em;
+            color:var(--dim); margin:0 0 8px; }
+canvas { max-width:100%; }
+table { width:100%; border-collapse:collapse; }
+th,td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--border); }
+th { color:var(--dim); font-weight:600; font-size:11px; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.pos { color:var(--green); } .neg { color:var(--red); }
+.badge { display:inline-block; padding:1px 7px; border-radius:10px;
+         font-size:10px; border:1px solid var(--amber); color:var(--amber); }
+.crisis { color:var(--red); font-weight:700; }
+.kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:12px; }
+.kv .k { color:var(--dim); }
+#status { font-size:11px; color:var(--dim); }
+.full { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NS-ETF</h1>
+  <span class="sub">Combined ETF Strategy · parallel-run with NS-1/3/4</span>
+  <span id="status"></span>
+</header>
+<main>
+  <section class="panel full">
+    <h2>Strategy vs SPY <span style="text-transform:none">(normalized, with VIX spot / avg)</span></h2>
+    <canvas id="perfChart" height="90"></canvas>
+  </section>
+
+  <section class="panel">
+    <h2>Sleeves &amp; Weights</h2>
+    <table id="sleeveTable"><thead>
+      <tr><th>Ticker</th><th>Sleeve</th><th class="num">Weight</th></tr>
+    </thead><tbody></tbody></table>
+  </section>
+
+  <section class="panel">
+    <h2>State</h2>
+    <div class="kv" id="stateBox"></div>
+  </section>
+
+  <section class="panel full">
+    <h2>Sector Ratios — Advisory Panel <span class="badge">ADVISORY ONLY · zero allocation impact</span></h2>
+    <table id="ratioTable"><thead>
+      <tr><th>Ratio</th><th>Name</th><th class="num">Last</th>
+          <th class="num">RSI</th><th class="num">ADX</th><th>Trend</th></tr>
+    </thead><tbody></tbody></table>
+  </section>
+</main>
+<script>
+const dc = { bg:'#0d1117', panel:'#161b22', border:'#30363d', txt:'#e6edf3',
+             dim:'#8b949e', green:'#3fb950', red:'#f85149', amber:'#d29922' };
+let perfChart = null;
+
+async function jget(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(url + ' → ' + r.status);
+  return r.json();
+}
+
+function renderPerf(p) {
+  if (p.error) { document.getElementById('status').textContent = 'perf: ' + p.error; return; }
+  const ctx = document.getElementById('perfChart').getContext('2d');
+  if (perfChart) perfChart.destroy();
+  const ds = [
+    { label:'NS-ETF', data:p.strategy, borderColor:dc.green, borderWidth:1.5, pointRadius:0, tension:.15 },
+    { label:'SPY',    data:p.spy,      borderColor:dc.dim,    borderWidth:1.2, pointRadius:0, tension:.15 },
+  ];
+  if (p.vix && p.vix.spot != null) {
+    ds.push({ label:'VIX spot ' + p.vix.spot, data:null, borderColor:dc.amber, borderWidth:0, pointRadius:0 });
+  }
+  perfChart = new Chart(ctx, { type:'line',
+    data:{ labels:p.dates, datasets:ds },
+    options:{ animation:false,
+      plugins:{ legend:{ labels:{ color:dc.txt, boxWidth:12 } },
+        tooltip:{ mode:'index', intersect:false } },
+      scales:{ x:{ ticks:{ color:dc.dim, maxTicksLimit:10 }, grid:{ color:dc.border } },
+               y:{ ticks:{ color:dc.dim }, grid:{ color:dc.border } } } } });
+  if (p.vix && p.vix.avg != null) {
+    document.getElementById('status').textContent =
+      'VIX spot ' + p.vix.spot + ' · avg ' + p.vix.avg;
+  }
+}
+
+function renderFeed(f) {
+  const tb = document.querySelector('#sleeveTable tbody');
+  tb.innerHTML = '';
+  for (const [t, w] of Object.entries(f.weights || {}).sort((a,b)=>b[1]-a[1])) {
+    const sleeve = (f.sleeves.defensive.weights && f.sleeves.defensive.weights[t] != null) ? 'defensive'
+                 : (f.sleeves.real_asset.weights && f.sleeves.real_asset.weights[t] != null) ? 'real_asset' : '—';
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>'+t+'</td><td>'+sleeve+'</td><td class="num">'+(100*w).toFixed(1)+'%</td>';
+    tb.appendChild(tr);
+  }
+  const sb = document.getElementById('stateBox');
+  const crisis = f.crisis_mode
+    ? '<span class="crisis">CRISIS</span>'
+    : (f.vix && f.vix.state ? f.vix.state : '—');
+  sb.innerHTML =
+    '<span class="k">as_of</span><span>'+f.as_of+'</span>' +
+    '<span class="k">VIX state</span><span>'+crisis+'</span>' +
+    '<span class="k">exposure cap</span><span>'+(f.vix && f.vix.exposure_cap != null ? f.vix.exposure_cap : '—')+'</span>' +
+    '<span class="k">regime</span><span>'+(f.regime && (f.regime.regime || f.regime.hmm_state || '—'))+'</span>' +
+    '<span class="k">events</span><span>'+(f.events ? f.events.length : 0)+'</span>';
+}
+
+function renderAdvisory(panel) {
+  const tb = document.querySelector('#ratioTable tbody');
+  tb.innerHTML = '';
+  for (const r of panel) {
+    if (r.error) continue;                       // skip error rows (NS-4 lesson)
+    const tr = document.createElement('tr');
+    const cls = r.trend === 'UP' ? 'pos' : (r.trend === 'DOWN' ? 'neg' : '');
+    tr.innerHTML = '<td>'+r.ratio+'</td><td>'+r.name+'</td>' +
+      '<td class="num">'+r.last+'</td>' +
+      '<td class="num">'+(r.rsi != null ? r.rsi : '—')+'</td>' +
+      '<td class="num">'+(r.adx != null ? r.adx : '—')+'</td>' +
+      '<td class="'+cls+'">'+r.trend+'</td>';
+    tb.appendChild(tr);
+  }
+}
+
+async function loadAll() {
+  try {
+    const feed = await jget('/api/signals');
+    renderFeed(feed);
+    renderAdvisory(feed.advisory_sector_ratios || []);
+  } catch (e) {
+    document.getElementById('status').textContent = 'feed unavailable: ' + e.message;
+  }
+  try { renderPerf(await jget('/api/performance')); } catch (e) { /* status shown */ }
+}
+loadAll();
+setInterval(loadAll, 300000);
+</script>
+</body>
+</html>

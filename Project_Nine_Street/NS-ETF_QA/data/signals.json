@@ -1,0 +1,209 @@
+{
+  "as_of": "2026-08-21",
+  "generated_at": "2026-08-21T18:46:29",
+  "service": "ns-etf",
+  "version": 1,
+  "sleeves": {
+    "defensive": {
+      "signals": {
+        "BIL": 1,
+        "SHV": 1,
+        "SHY": 1
+      },
+      "weights": {
+        "BIL": 0.4526,
+        "SHV": 0.448,
+        "SHY": 0.0995
+      }
+    },
+    "real_asset": {
+      "signals": {
+        "DBC": 1,
+        "GLD": 1
+      },
+      "weights": {
+        "DBC": 0.5412,
+        "GLD": 0.4588
+      }
+    }
+  },
+  "signals": {
+    "BIL": 1,
+    "SHV": 1,
+    "SHY": 1,
+    "DBC": 1,
+    "GLD": 1
+  },
+  "weights": {
+    "BIL": 0.226284,
+    "SHV": 0.223981,
+    "SHY": 0.049735,
+    "DBC": 0.270599,
+    "GLD": 0.229401
+  },
+  "regime": {
+    "hmm_state": "bull",
+    "hmm_confidence": 0.537,
+    "source": "local_hmm"
+  },
+  "crisis_mode": false,
+  "vix": {
+    "spot": 15.13,
+    "avg": 16.92,
+    "state": "NORMAL",
+    "exposure_cap": 1.0
+  },
+  "advisory_sector_ratios": [
+    {
+      "ratio": "XLK/SPY",
+      "name": "Tech vs SPY",
+      "last": 0.2394,
+      "sma": {
+        "10": 0.2423,
+        "20": 0.2397,
+        "50": 0.2435
+      },
+      "rsi": 46.9,
+      "adx": 19.4,
+      "alignment": -2,
+      "trend": "DOWN",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLF/SPY",
+      "name": "Financials vs SPY",
+      "last": 0.0751,
+      "sma": {
+        "10": 0.0749,
+        "20": 0.0755,
+        "50": 0.0745
+      },
+      "rsi": 51.0,
+      "adx": 11.5,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLE/SPY",
+      "name": "Energy vs SPY",
+      "last": 0.0831,
+      "sma": {
+        "10": 0.0808,
+        "20": 0.0791,
+        "50": 0.0764
+      },
+      "rsi": 63.8,
+      "adx": 18.0,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLV/SPY",
+      "name": "Healthcare vs SPY",
+      "last": 0.228,
+      "sma": {
+        "10": 0.2206,
+        "20": 0.2192,
+        "50": 0.215
+      },
+      "rsi": 64.0,
+      "adx": 14.7,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLY/SPY",
+      "name": "Cons.Disc vs SPY",
+      "last": 0.1541,
+      "sma": {
+        "10": 0.1531,
+        "20": 0.1532,
+        "50": 0.1545
+      },
+      "rsi": 51.8,
+      "adx": 8.2,
+      "alignment": 2,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLP/SPY",
+      "name": "Cons.Staples vs SPY",
+      "last": 0.1123,
+      "sma": {
+        "10": 0.1109,
+        "20": 0.1123,
+        "50": 0.1127
+      },
+      "rsi": 51.1,
+      "adx": 9.1,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLB/SPY",
+      "name": "Materials vs SPY",
+      "last": 0.0699,
+      "sma": {
+        "10": 0.0683,
+        "20": 0.0685,
+        "50": 0.0686
+      },
+      "rsi": 59.4,
+      "adx": 9.8,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLI/SPY",
+      "name": "Industrials vs SPY",
+      "last": 0.2354,
+      "sma": {
+        "10": 0.2388,
+        "20": 0.2405,
+        "50": 0.2419
+      },
+      "rsi": 37.0,
+      "adx": 12.9,
+      "alignment": -4,
+      "trend": "DOWN",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLU/SPY",
+      "name": "Utilities vs SPY",
+      "last": 0.0559,
+      "sma": {
+        "10": 0.0568,
+        "20": 0.0579,
+        "50": 0.0596
+      },
+      "rsi": 33.6,
+      "adx": 16.9,
+      "alignment": -2,
+      "trend": "DOWN",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLRE/SPY",
+      "name": "RealEstate vs SPY",
+      "last": 0.0589,
+      "sma": {
+        "10": 0.0581,
+        "20": 0.0592,
+        "50": 0.0597
+      },
+      "rsi": 48.5,
+      "adx": 13.9,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    }
+  ],
+  "events": []
+}
