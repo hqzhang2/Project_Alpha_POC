@@ -202,20 +202,24 @@ def _risk_metrics(curve):
             "max_dd": round(mdd, 4)}
 
 
-_VIX_CACHE = {"ts": 0.0, "data": None}
+_VIX_CACHE = {"ts": 0.0, "data": None, "start": None}
 
 
 def _vix_aligned(dates, ttl=900):
-    """{date: vix_close} from yfinance ^VIX, cached 15min. Returns
-    (spot_list, avg_list) aligned 1:1 with `dates` (None where missing)."""
+    """{date: vix_close} from yfinance ^VIX covering the FULL chart window
+    (PM: SMA must span all history, not start mid-series). Cached 15min.
+    Returns (spot_list, sma20_list) aligned 1:1 with `dates`."""
+    import datetime as _dt
     import time as _t
     now = _t.time()
-    if _VIX_CACHE["data"] is None or now - _VIX_CACHE["ts"] > ttl:
+    need_start = min(dates) if dates else str(_dt.date.today())
+    stale = (_VIX_CACHE["data"] is None or now - _VIX_CACHE["ts"] > ttl
+             or _VIX_CACHE.get("start") != need_start)
+    if stale:
         try:
             import yfinance as yf
             df = yf.download(config.VIX_SPOT_SERIES,
-                             period=f"{config.VIX_AVG_WINDOW * 3}d",
-                             progress=False, auto_adjust=True)
+                             start=need_start, progress=False, auto_adjust=True)
             if df is not None and not df.empty and "Close" in df:
                 close_col = df["Close"]
                 if hasattr(close_col, "columns"):
@@ -231,17 +235,17 @@ def _vix_aligned(dates, ttl=900):
                         continue
                 _VIX_CACHE["data"] = m
                 _VIX_CACHE["ts"] = now
+                _VIX_CACHE["start"] = need_start
         except Exception:
             _VIX_CACHE["data"] = {}
             _VIX_CACHE["ts"] = now
+            _VIX_CACHE["start"] = need_start
     vmap = _VIX_CACHE["data"] or {}
     spot = [vmap.get(d) for d in dates]
-    # Moving average over the spot series itself (NS-1 uses 20d MA),
-    # computed forward-looking so each point only uses past data.
+    # Forward-looking SMA-20 over the spot series (each point uses only past).
     avg, window = [], config.VIX_MA_WINDOW
-    vals = [s for s in spot]
-    for i in range(len(vals)):
-        chunk = [v for v in vals[max(0, i - window + 1):i + 1] if v is not None]
+    for i in range(len(spot)):
+        chunk = [v for v in spot[max(0, i - window + 1):i + 1] if v is not None]
         avg.append(round(sum(chunk) / len(chunk), 2) if len(chunk) >= max(5, window // 4) else None)
     return ([round(v, 2) if v is not None else None for v in spot], avg)
 

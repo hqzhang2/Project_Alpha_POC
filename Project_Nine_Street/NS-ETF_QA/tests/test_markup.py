@@ -28,18 +28,26 @@ class TestMarkup(unittest.TestCase):
 
     def test_error_rows_skipped_in_advisory(self):
         # regression guard: NS-4 dashboard crashed on error rows
-        self.assertIn("if (r.error) continue;", self.html.replace("  ", " "))
+        self.assertIn("filter(r => !r.error)", self.html)
 
     def test_vix_spot_and_avg_present(self):
         self.assertIn("VIX spot", self.html)
         self.assertIn("avg", self.html)
 
-    def test_vix_on_left_axis(self):
-        # PM spec: left y-axis = VIX; strategy/SPY on right (yaxis2)
+    def test_vix_on_right_axis(self):
+        # PM spec rev 2: LEFT = growth of $100, RIGHT = VIX
         self.assertIn("side: 'left'", self.html)
-        self.assertIn("yaxis2", self.html)
-        self.assertIn("VIX spot (left)", self.html)
-        self.assertIn("VIX avg (left)", self.html)
+        self.assertIn("Growth of $100", self.html)
+        self.assertIn("VIX spot (right)", self.html)
+        self.assertIn("VIX SMA (right)", self.html)
+
+    def test_metrics_and_scores_panels(self):
+        self.assertIn('id="metricsRow"', self.html)
+        self.assertIn('id="scoreTable"', self.html)
+        self.assertIn('id="scoreLeaders"', self.html)
+        self.assertIn("composite_scores", self.html)
+        self.assertIn("Accept advisory", self.html)
+        self.assertIn("/api/advisory/accept", self.html)
 
     def test_crosshair_present(self):
         self.assertIn("plotly_hover", self.html)

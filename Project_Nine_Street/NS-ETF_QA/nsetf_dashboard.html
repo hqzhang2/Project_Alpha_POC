@@ -6,65 +6,106 @@
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <style>
 :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#e6edf3;
-        --dim:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922; }
+        --dim:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922;
+        --blue:#58a6ff; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--txt);
        font:13px/1.45 -apple-system,"SF Mono",Menlo,monospace; }
 header { padding:10px 16px; border-bottom:1px solid var(--border);
-         display:flex; align-items:baseline; gap:14px; }
+         display:flex; align-items:center; gap:14px; position:sticky; top:0;
+         background:var(--bg); z-index:10; }
 header h1 { font-size:15px; margin:0; }
-header .sub { color:var(--dim); font-size:11px; }
-main { padding:12px 16px; display:grid;
-       grid-template-columns: 2fr 1fr; gap:12px; }
+header .sub { color:var(--dim); font-size:11px; flex:1; }
+.badge { display:inline-block; padding:2px 9px; border-radius:10px;
+         font-size:10px; border:1px solid var(--green); color:var(--green); }
+.vix-readout { font-size:11px; color:var(--dim); }
+.vix-readout .spot { color:var(--red); font-weight:700; }
+.vix-readout .avg { color:var(--amber); font-weight:700; }
+
+main { padding:16px; display:flex; flex-direction:column; gap:16px; }
 .panel { background:var(--panel); border:1px solid var(--border);
-         border-radius:8px; padding:12px; }
+         border-radius:8px; padding:12px 14px; }
 .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em;
-            color:var(--dim); margin:0 0 8px; }
-canvas { max-width:100%; }
+            color:var(--dim); margin:0 0 10px; display:flex; align-items:center;
+            gap:10px; flex-wrap:wrap; }
+
 table { width:100%; border-collapse:collapse; }
 th,td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--border); }
-th { color:var(--dim); font-weight:600; font-size:11px; }
-td.num { text-align:right; font-variant-numeric:tabular-nums; }
+th { color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase; }
+td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
 .pos { color:var(--green); } .neg { color:var(--red); }
-.badge { display:inline-block; padding:1px 7px; border-radius:10px;
-         font-size:10px; border:1px solid var(--amber); color:var(--amber); }
-.crisis { color:var(--red); font-weight:700; }
-.kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:12px; }
+.chip { display:inline-block; padding:1px 7px; border-radius:9px; font-size:10px; }
+.chip.core { background:rgba(63,185,80,.12); color:var(--green); }
+.chip.def  { background:rgba(88,166,255,.12); color:var(--blue); }
+.chip.ra   { background:rgba(210,153,34,.12); color:var(--amber); }
+.chip.up   { background:rgba(63,185,80,.12); color:var(--green); }
+.chip.down { background:rgba(248,81,73,.12); color:var(--red); }
+.chip.mix  { background:rgba(139,148,158,.12); color:var(--dim); }
+.badge.amber { border-color:var(--amber); color:var(--amber); }
+
+.cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
+.card button.accept { float:right; background:#21262d; color:var(--green);
+  border:1px solid var(--green); border-radius:6px; padding:4px 12px;
+  cursor:pointer; font-size:11px; }
+.kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12px; }
 .kv .k { color:var(--dim); }
+.tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+.tile { background:var(--bg); border:1px solid var(--border); border-radius:6px;
+        padding:8px 10px; }
+.tile .r-name { font-size:11px; color:var(--dim); }
+.tile .r-val  { font-size:15px; margin:2px 0; }
+.tile .r-meta { font-size:10px; color:var(--dim); display:flex;
+                justify-content:space-between; align-items:center; }
 #status { font-size:11px; color:var(--dim); }
-.full { grid-column: 1 / -1; }
+.crisis { color:var(--red); font-weight:700; }
 </style>
 </head>
 <body>
 <header>
   <h1>NS-ETF</h1>
   <span class="sub">Combined ETF Strategy · parallel-run with NS-1/3/4</span>
-  <span id="status"></span>
+  <span class="vix-readout" id="vixReadout"></span>
+  <span id="liveBadge"></span>
 </header>
+
 <main>
-  <section class="panel full">
-    <h2>Strategy vs SPY <span style="text-transform:none">(normalized, with VIX spot / avg)</span></h2>
-    <div id="perfChart" style="height:340px;"></div>
-    <div id="metricsRow" style="margin-top:8px;"></div>
-  </section>
 
+  <!-- Band 2: growth chart + metrics strip -->
   <section class="panel">
-    <h2>Sleeves &amp; Weights</h2>
-    <table id="sleeveTable"><thead>
-      <tr><th>Ticker</th><th>Sleeve</th><th class="num">Weight</th></tr>
-    </thead><tbody></tbody></table>
+    <h2>Growth of $100 — NS-ETF vs SPY
+        <span style="text-transform:none;font-weight:400">
+          (left axis $ · VIX right axis)</span></h2>
+    <div id="perfChart" style="height:380px;"></div>
+    <div id="metricsRow" style="margin-top:10px;"></div>
   </section>
 
+  <!-- Band 3: three cards -->
+  <div class="cards">
+    <section class="panel">
+      <h2>Sleeves &amp; Weights</h2>
+      <table id="sleeveTable"><thead>
+        <tr><th>Ticker</th><th>Sleeve</th><th class="num">Weight</th></tr>
+      </thead><tbody></tbody></table>
+    </section>
+
+    <section class="panel">
+      <h2>State
+        <button id="acceptBtn" class="accept">Accept advisory → rebalance</button></h2>
+      <div class="kv" id="stateBox"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Composite Scores — leaders</h2>
+      <table id="scoreLeaders"><thead>
+        <tr><th>Tkr</th><th class="num">Score</th><th class="num">Mom</th><th class="num">RSI</th></tr>
+      </thead><tbody></tbody></table>
+      <div style="color:var(--dim);font-size:10px;margin-top:6px">full table below ↓</div>
+    </section>
+  </div>
+
+  <!-- Band 4a: full composite scores -->
   <section class="panel">
-    <h2>State <span id="liveBadge"></span>
-        <button id="acceptBtn" style="float:right;background:#21262d;color:#3fb950;
-                border:1px solid #3fb950;border-radius:6px;padding:3px 10px;cursor:pointer;">
-          Accept advisory → rebalance</button></h2>
-    <div class="kv" id="stateBox"></div>
-  </section>
-
-  <section class="panel full">
-    <h2>Composite Scores (NS-1 factor model)</h2>
+    <h2>Composite Scores (NS-1 factor model) — all scored ETFs</h2>
     <table id="scoreTable"><thead>
       <tr><th>Ticker</th><th>Sleeve</th><th class="num">Score</th>
           <th class="num">Mom blend</th><th class="num">Risk-adj</th>
@@ -72,19 +113,17 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
     </thead><tbody></tbody></table>
   </section>
 
-  <section class="panel full">
-    <h2>Sector Ratios — Advisory Panel <span class="badge">ADVISORY ONLY · zero allocation impact</span></h2>
-    <table id="ratioTable"><thead>
-      <tr><th>Ratio</th><th>Name</th><th class="num">Last</th>
-          <th class="num">RSI</th><th class="num">ADX</th><th>Trend</th></tr>
-    </thead><tbody></tbody></table>
+  <!-- Band 4b: advisory tiles -->
+  <section class="panel">
+    <h2>Ratio vs SPY — Advisory Panel
+      <span class="badge amber">ADVISORY ONLY · zero allocation impact</span></h2>
+    <div class="tiles" id="ratioTiles"></div>
   </section>
-</main>
-<script>
-const dc = { green:'#3fb950', red:'#f85149', amber:'#d29922' };
-let perfChart = null;
 
-// Crosshair: vertical line follows the hovered date (NS-1 chart UX).
+</main>
+
+<script>
+// Crosshair: vertical line follows the hovered date.
 const crosshair = {
   type: 'line', xref: 'x', yref: 'paper',
   x0: null, x1: null, y0: 0, y1: 1,
@@ -93,20 +132,16 @@ const crosshair = {
 const layout = {
   paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
   font: { color: '#e6edf3', size: 11, family: '-apple-system,Menlo,monospace' },
-  margin: { l: 50, r: 55, t: 10, b: 28 },
-  showlegend: true,
-  legend: { orientation: 'h', y: 1.12, x: 0 },
+  margin: { l: 55, r: 55, t: 8, b: 28 },
+  showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0 },
   hovermode: 'x unified',
-  // LEFT axis = VIX (PM spec); strategy/SPY rebased on RIGHT.
-  yaxis: {
-    title: { text: 'VIX', font: { color: '#f85149', size: 10 } },
-    side: 'left', gridcolor: '#30363d', tickfont: { color: '#f85149', size: 10 },
-    rangemode: 'tozero',
-  },
-  yaxis2: {
-    overlaying: 'y', side: 'right', gridcolor: 'transparent',
-    tickfont: { color: '#8b949e', size: 10 },
-  },
+  // PM spec: LEFT = growth of $100 (strategy/SPY), RIGHT = VIX spot/avg.
+  yaxis: { side: 'left', tickprefix: '$',
+           title: { text: 'Growth of $100', font: { size: 10 } },
+           gridcolor: '#30363d' },
+  yaxis2: { overlaying: 'y', side: 'right', gridcolor: 'transparent',
+            title: { text: 'VIX', font: { color: '#f85149', size: 10 } },
+            tickfont: { color: '#f85149', size: 10 }, rangemode: 'tozero' },
   xaxis: { gridcolor: '#30363d', tickfont: { color: '#8b949e' } },
   shapes: [crosshair],
 };
@@ -115,58 +150,56 @@ function renderPerf(p) {
   if (p.error) { document.getElementById('status').textContent = 'perf: ' + p.error; return; }
   const hasVix = p.vix_series && p.vix_series.some(v => v !== null);
   const traces = [
-    { x: p.dates, y: p.strategy, name: 'NS-ETF (right)',
-      type: 'scatter', mode: 'lines', yaxis: 'y2',
+    { x: p.dates, y: p.strategy.map(v => +(v * 100).toFixed(2)), name: 'NS-ETF ($ left)',
+      type: 'scatter', mode: 'lines', yaxis: 'y',
       line: { color: '#3fb950', width: 2 } },
-    { x: p.dates, y: p.spy, name: 'SPY (right)',
-      type: 'scatter', mode: 'lines', yaxis: 'y2',
+    { x: p.dates, y: p.spy.map(v => +(v * 100).toFixed(2)), name: 'SPY ($ left)',
+      type: 'scatter', mode: 'lines', yaxis: 'y',
       line: { color: '#8b949e', width: 1.4 } },
   ];
   if (hasVix) {
-    traces.push({ x: p.dates, y: p.vix_series, name: 'VIX spot (left)',
-      type: 'scatter', mode: 'lines', yaxis: 'y',
+    traces.push({ x: p.dates, y: p.vix_series, name: 'VIX spot (right)',
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
       line: { color: '#f85149', width: 1, dash: 'dot' } });
     if (p.vix_avg_series && p.vix_avg_series.some(v => v !== null)) {
-      traces.push({ x: p.dates, y: p.vix_avg_series, name: 'VIX avg (left)',
-        type: 'scatter', mode: 'lines', yaxis: 'y',
+      traces.push({ x: p.dates, y: p.vix_avg_series, name: 'VIX SMA (right)',
+        type: 'scatter', mode: 'lines', yaxis: 'y2',
         line: { color: '#d29922', width: 1, dash: 'dash' } });
     }
   }
   Plotly.react('perfChart', traces, layout, { responsive: true, displayModeBar: false });
-  const st = document.getElementById('status');
-  st.textContent = (p.vix && p.vix.spot != null)
-    ? 'VIX spot ' + Number(p.vix.spot).toFixed(2) + ' · avg ' + Number(p.vix.avg).toFixed(2)
+  const st = document.getElementById('vixReadout');
+  st.innerHTML = (p.vix && p.vix.spot != null)
+    ? 'VIX <span class="spot">' + Number(p.vix.spot).toFixed(2) +
+      '</span> · avg <span class="avg">' + Number(p.vix.avg).toFixed(2) + '</span>'
     : '';
   renderMetrics(p.metrics);
 }
 
-// NS-1 heritage metric strip: CAGR / vol / Sharpe / MaxDD for both lines.
 function renderMetrics(m) {
   if (!m || !m.strategy || !m.spy) return;
-  const fmt = x => x == null ? '—' :
-    (typeof x === 'number' ? (Math.abs(x) < 1 ? (100 * x).toFixed(2) + '%' : x.toFixed(2)) : x);
+  const pctf = x => x == null ? '—' : (100 * x).toFixed(2) + '%';
   document.getElementById('metricsRow').innerHTML =
-    '<table style="width:auto"><tr>' +
-    '<th></th><th class="num">CAGR</th><th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Max DD</th></tr>' +
-    '<tr><td>NS-ETF</td><td class="num pos">' + fmt(m.strategy.cagr) + '</td>' +
-    '<td class="num">' + fmt(m.strategy.vol) + '</td>' +
-    '<td class="num">' + fmt(m.strategy.sharpe) + '</td>' +
-    '<td class="num neg">' + fmt(m.strategy.max_dd) + '</td></tr>' +
-    '<tr><td>SPY</td><td class="num">' + fmt(m.spy.cagr) + '</td>' +
-    '<td class="num">' + fmt(m.spy.vol) + '</td>' +
-    '<td class="num">' + fmt(m.spy.sharpe) + '</td>' +
-    '<td class="num neg">' + fmt(m.spy.max_dd) + '</td></tr></table>';
+    '<table style="width:auto">' +
+    '<tr><th style="visibility:hidden">.</th><th class="num">CAGR</th>' +
+    '<th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Max DD</th></tr>' +
+    '<tr><td>NS-ETF</td><td class="num pos">' + pctf(m.strategy.cagr) + '</td>' +
+    '<td class="num">' + pctf(m.strategy.vol) + '</td>' +
+    '<td class="num pos">' + (m.strategy.sharpe ?? '—') + '</td>' +
+    '<td class="num neg">' + pctf(m.strategy.max_dd) + '</td></tr>' +
+    '<tr><td>SPY</td><td class="num">' + pctf(m.spy.cagr) + '</td>' +
+    '<td class="num">' + pctf(m.spy.vol) + '</td>' +
+    '<td class="num">' + (m.spy.sharpe ?? '—') + '</td>' +
+    '<td class="num neg">' + pctf(m.spy.max_dd) + '</td></tr></table>';
 }
 
-// Crosshair wiring: move the shape to the hovered x; hide on leave.
 const chartEl = document.getElementById('perfChart');
-chartEl.on ? null : null;   // set after first plot via Plotly.attach
 function wireCrosshair() {
-  chartEl.removeAllListeners && chartEl.removeAllListeners('plotly_hover');
   chartEl.on('plotly_hover', ev => {
     crosshair.x0 = crosshair.x1 = ev.xs ? ev.xs[ev.pointindex || 0] || ev.xs[0] : null;
     crosshair.visible = crosshair.x0 != null;
-    Plotly.relayout('perfChart', { 'shapes[0].x0': crosshair.x0, 'shapes[0].x1': crosshair.x1, 'shapes[0].visible': crosshair.visible });
+    Plotly.relayout('perfChart', { 'shapes[0].x0': crosshair.x0,
+      'shapes[0].x1': crosshair.x1, 'shapes[0].visible': crosshair.visible });
   });
   chartEl.on('plotly_unhover', () => {
     crosshair.visible = false;
@@ -174,102 +207,115 @@ function wireCrosshair() {
   });
 }
 
-async function jget(url) {
-  const r = await fetch(url);
+async function jget(url, opts) {
+  const r = await fetch(url, opts);
   if (!r.ok) throw new Error(url + ' → ' + r.status);
   return r.json();
 }
-
+const pct = v => v == null ? '—' : (100 * v).toFixed(1) + '%';
+const num2 = v => v == null ? '—' : Number(v).toFixed(2);
 
 function renderFeed(f) {
+  // sleeves table
   const tb = document.querySelector('#sleeveTable tbody');
   tb.innerHTML = '';
+  const sleeveOf = {};
+  for (const [name, s] of Object.entries(f.sleeves || {}))
+    for (const t of Object.keys(s.weights || {})) sleeveOf[t] = name;
   for (const [t, w] of Object.entries(f.weights || {}).sort((a,b)=>b[1]-a[1])) {
-    const sleeve = (f.sleeves.defensive.weights && f.sleeves.defensive.weights[t] != null) ? 'defensive'
-                 : (f.sleeves.real_asset.weights && f.sleeves.real_asset.weights[t] != null) ? 'real_asset'
-                 : (f.sleeves.sector_core && f.sleeves.sector_core.weights && f.sleeves.sector_core.weights[t] != null) ? 'sector core' : '—';
-    const tr = document.createElement('tr');
-    tr.innerHTML = '<td>'+t+'</td><td>'+sleeve+'</td><td class="num">'+(100*w).toFixed(1)+'%</td>';
-    tb.appendChild(tr);
+    const cls = sleeveOf[t] === 'sector_core' ? 'core'
+              : sleeveOf[t] === 'defensive' ? 'def'
+              : sleeveOf[t] === 'real_asset' ? 'ra' : '';
+    const label = (sleeveOf[t] || '—').replace('_', ' ');
+    tb.insertAdjacentHTML('beforeend',
+      `<tr><td>${t}</td><td>${cls ? `<span class="chip ${cls}">${label}</span>` : label}` +
+      `</td><td class="num">${(100*w).toFixed(1)}%</td></tr>`);
   }
-  // Composite scores table (NS-1 factor model)
+  // composite leaders card
+  const cs = f.composite_scores || [];
+  const lb = document.querySelector('#scoreLeaders tbody');
+  lb.innerHTML = '';
+  for (const s of cs.slice().sort((a,b)=>b.score-a.score).slice(0,5))
+    lb.insertAdjacentHTML('beforeend',
+      `<tr><td>${s.ticker}</td><td class="num pos">${num2(s.score)}</td>` +
+      `<td class="num">${pct((s.components||{}).momentum_blend)}</td>` +
+      `<td class="num">${num2((s.components||{}).rsi)}</td></tr>`);
+  // full composite table
   const stb = document.querySelector('#scoreTable tbody');
   stb.innerHTML = '';
-  for (const s of (f.composite_scores || [])) {
+  for (const s of cs) {
     const c = s.components || {};
-    const tr = document.createElement('tr');
-    tr.innerHTML = '<td>'+s.ticker+'</td><td>'+s.sleeve+'</td>' +
-      '<td class="num pos">'+Number(s.score).toFixed(2)+'</td>' +
-      '<td class="num">'+pct(c.momentum_blend)+'</td>' +
-      '<td class="num">'+num(c.risk_adj_momentum)+'</td>' +
-      '<td class="num">'+pct(c.spy_rel_strength)+'</td>' +
-      '<td class="num">'+num(c.rsi)+'</td>' +
-      '<td class="num">'+num(c.adx)+'</td>';
-    stb.appendChild(tr);
+    const cls = s.sleeve === 'sector_core' ? 'core'
+              : s.sleeve === 'defensive' ? 'def'
+              : s.sleeve === 'real_asset' ? 'ra' : '';
+    stb.insertAdjacentHTML('beforeend',
+      `<tr><td>${s.ticker}</td>` +
+      `<td><span class="chip ${cls}">${s.sleeve.replace('_',' ')}</span></td>` +
+      `<td class="num pos">${num2(s.score)}</td>` +
+      `<td class="num">${pct(c.momentum_blend)}</td>` +
+      `<td class="num">${num2(c.risk_adj_momentum)}</td>` +
+      `<td class="num">${pct(c.spy_rel_strength)}</td>` +
+      `<td class="num">${num2(c.rsi)}</td><td class="num">${num2(c.adx)}</td></tr>`);
   }
-  function pct(v){ return v==null ? '—' : (100*v).toFixed(1)+'%'; }
-  function num(v){ return v==null ? '—' : Number(v).toFixed(2); }
+  // state box
   const sb = document.getElementById('stateBox');
-  const crisis = f.crisis_mode
-    ? '<span class="crisis">CRISIS</span>'
-    : (f.vix && f.vix.state ? f.vix.state : '—');
+  const crisis = f.crisis_mode ? '<span class="crisis">CRISIS</span>'
+               : (f.vix && f.vix.state ? f.vix.state : '—');
   sb.innerHTML =
-    '<span class="k">as_of</span><span>'+f.as_of+'</span>' +
-    '<span class="k">VIX state</span><span>'+crisis+'</span>' +
-    '<span class="k">exposure cap</span><span>'+(f.vix && f.vix.exposure_cap != null ? f.vix.exposure_cap : '—')+'</span>' +
-    '<span class="k">regime</span><span>'+(f.regime && (f.regime.regime || f.regime.hmm_state || '—'))+'</span>' +
-    '<span class="k">events</span><span>'+(f.events ? f.events.length : 0)+'</span>';
+    '<span class="k">as_of</span><span>' + f.as_of + '</span>' +
+    '<span class="k">VIX state</span><span>' + crisis + '</span>' +
+    '<span class="k">exposure cap</span><span>' +
+      (f.vix && f.vix.exposure_cap != null ? f.vix.exposure_cap : '—') + '</span>' +
+    '<span class="k">regime</span><span>' +
+      (f.regime && (f.regime.regime || f.regime.hmm_state || '—')) + '</span>' +
+    '<span class="k">shares</span><span>' +
+      Object.entries((f.sleeves)||{}).map(([k,v]) =>
+        k.replace('_',' ')+' '+Math.round(100*(v.share??0))+'%').join(' · ') + '</span>' +
+    '<span class="k">events</span><span>' + (f.events ? f.events.length : 0) + '</span>';
+  renderAdvisory(f.advisory_sector_ratios || []);
 }
 
 function renderAdvisory(panel) {
-  const tb = document.querySelector('#ratioTable tbody');
-  tb.innerHTML = '';
-  for (const r of panel) {
-    if (r.error) continue;                       // skip error rows (NS-4 lesson)
-    const tr = document.createElement('tr');
-    const cls = r.trend === 'UP' ? 'pos' : (r.trend === 'DOWN' ? 'neg' : '');
-    tr.innerHTML = '<td>'+r.ratio+'</td><td>'+r.name+'</td>' +
-      '<td class="num">'+r.last+'</td>' +
-      '<td class="num">'+(r.rsi != null ? r.rsi : '—')+'</td>' +
-      '<td class="num">'+(r.adx != null ? r.adx : '—')+'</td>' +
-      '<td class="'+cls+'">'+r.trend+'</td>';
-    tb.appendChild(tr);
-  }
+  const wrap = document.getElementById('ratioTiles');
+  wrap.innerHTML = panel.filter(r => !r.error).map(r => {
+    const chipCls = r.trend === 'UP' ? 'up' : (r.trend === 'DOWN' ? 'down' : 'mix');
+    return `<div class="tile">
+      <div class="r-name">${r.ratio} · ${r.name}</div>
+      <div class="r-val">${r.last}</div>
+      <div class="r-meta"><span>RSI ${r.rsi ?? '—'} · ADX ${r.adx ?? '—'}</span>
+        <span class="chip ${chipCls}">${r.trend}</span></div></div>`;
+  }).join('');
 }
 
 async function loadAll() {
   try {
-    const feed = await jget('/api/signals');
-    renderFeed(feed);
-    renderAdvisory(feed.advisory_sector_ratios || []);
+    renderFeed(await jget('/api/signals'));
   } catch (e) {
     document.getElementById('status').textContent = 'feed unavailable: ' + e.message;
   }
   try {
     const meta = await jget('/api/meta');
     const badge = document.getElementById('liveBadge');
-    const live = meta.status === 'live';
-    badge.innerHTML = live
-      ? '<span class="badge" style="border-color:#3fb950;color:#3fb950;">LIVE · as_of ' + meta.as_of + '</span>'
-      : '<span class="badge" style="border-color:#f85149;color:#f85149;">STALE · last run ' + meta.as_of + '</span>';
+    badge.innerHTML = meta.status === 'live'
+      ? '<span class="badge">LIVE · as_of ' + meta.as_of + '</span>'
+      : '<span class="badge" style="border-color:#f85149;color:#f85149;">STALE · last run '
+        + meta.as_of + '</span>';
   } catch (e) { /* badge optional */ }
   try {
     renderPerf(await jget('/api/performance'));
-    if (chartEl.on && !chartEl._crosshairWired) {   // attach once after first plot
+    if (chartEl.on && !chartEl._crosshairWired) {
       chartEl._crosshairWired = true;
       wireCrosshair();
     }
   } catch (e) { /* status shown */ }
 }
 
-// PM button: accept advisory → rebalance (semi-live mode)
 document.getElementById('acceptBtn').addEventListener('click', async () => {
   const btn = document.getElementById('acceptBtn');
   btn.disabled = true; btn.textContent = 'Rebalancing…';
   try {
-    const r = await fetch('/api/advisory/accept', { method: 'POST' });
-    const d = await r.json();
-    btn.textContent = d.accepted ? 'Accepted ✓ (' + d.as_of + ')' : 'Failed';
+    const d = await jget('/api/advisory/accept', { method: 'POST' });
+    btn.textContent = 'Accepted ✓ (' + d.as_of + ')';
     await loadAll();
   } catch (e) {
     btn.textContent = 'Failed: ' + e.message;
@@ -277,6 +323,7 @@ document.getElementById('acceptBtn').addEventListener('click', async () => {
   btn.disabled = false;
   setTimeout(() => { btn.textContent = 'Accept advisory → rebalance'; }, 5000);
 });
+
 loadAll();
 setInterval(loadAll, 300000);
 </script>
