@@ -1,0 +1,658 @@
+{
+  "as_of": "2026-08-22",
+  "generated_at": "2026-08-22T13:42:41",
+  "service": "ns-etf",
+  "version": 1,
+  "sleeves": {
+    "sector_core": {
+      "signals": {
+        "XLV": 1,
+        "XLF": 1,
+        "XLE": 1
+      },
+      "weights": {
+        "XLV": 0.2956,
+        "XLF": 0.447,
+        "XLE": 0.2573
+      },
+      "share": 0.6
+    },
+    "defensive": {
+      "signals": {
+        "BIL": 1,
+        "SHY": 1,
+        "IEI": 1
+      },
+      "weights": {
+        "BIL": 0.7545,
+        "SHY": 0.1658,
+        "IEI": 0.0797
+      },
+      "share": 0.15
+    },
+    "real_asset": {
+      "signals": {
+        "DBC": 1,
+        "GLD": 1
+      },
+      "weights": {
+        "DBC": 0.5412,
+        "GLD": 0.4588
+      },
+      "share": 0.25
+    }
+  },
+  "signals": {
+    "XLV": 1,
+    "XLF": 1,
+    "XLE": 1,
+    "BIL": 1,
+    "SHY": 1,
+    "IEI": 1,
+    "DBC": 1,
+    "GLD": 1
+  },
+  "weights": {
+    "XLV": 0.177379,
+    "XLF": 0.268227,
+    "XLE": 0.154394,
+    "BIL": 0.113172,
+    "SHY": 0.024874,
+    "IEI": 0.011953,
+    "DBC": 0.135299,
+    "GLD": 0.114701
+  },
+  "sample_portfolio": {
+    "notional": 100000,
+    "rows": [
+      {
+        "ticker": "DBC",
+        "shares": 432,
+        "last": 31.26,
+        "value": 13504.32
+      },
+      {
+        "ticker": "GLD",
+        "shares": 27,
+        "last": 423.36,
+        "value": 11430.72
+      },
+      {
+        "ticker": "IEI",
+        "shares": 10,
+        "last": 116.41,
+        "value": 1164.1
+      },
+      {
+        "ticker": "SHY",
+        "shares": 30,
+        "last": 82.0,
+        "value": 2460.0
+      },
+      {
+        "ticker": "XLE",
+        "shares": 242,
+        "last": 63.64,
+        "value": 15400.88
+      },
+      {
+        "ticker": "XLF",
+        "shares": 466,
+        "last": 57.48,
+        "value": 26785.68
+      },
+      {
+        "ticker": "XLV",
+        "shares": 101,
+        "last": 174.62,
+        "value": 17636.62
+      },
+      {
+        "ticker": "BIL",
+        "shares": 126,
+        "last": 91.6,
+        "value": 11541.6
+      }
+    ],
+    "invested": 99923.92,
+    "cash": 0.0
+  },
+  "composite_scores": [
+    {
+      "ticker": "XLV",
+      "score": 45.8767,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.129507736078348,
+        "risk_adj_momentum": 13.999833327767279,
+        "spy_rel_strength": 0.006455617277949743,
+        "rsi": 68.36386297766715,
+        "bb_position": 0.9985709902777099,
+        "adx": 27.94142252144045
+      }
+    },
+    {
+      "ticker": "XLF",
+      "score": 41.9228,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.08305026186695508,
+        "risk_adj_momentum": 13.509703754368202,
+        "spy_rel_strength": -0.012008452451071738,
+        "rsi": 54.98678530460086,
+        "bb_position": 0.4589081823327289,
+        "adx": 26.346673070888365
+      }
+    },
+    {
+      "ticker": "XLE",
+      "score": 23.6632,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.11046361304323371,
+        "risk_adj_momentum": 6.0073129639886735,
+        "spy_rel_strength": 0.05905627167683125,
+        "rsi": 71.79183265401346,
+        "bb_position": 0.8795220345603983,
+        "adx": 28.453422041074365
+      }
+    },
+    {
+      "ticker": "XLB",
+      "score": 18.1659,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.05274788251648547,
+        "risk_adj_momentum": 6.276239932464435,
+        "spy_rel_strength": -0.09731446665180887,
+        "rsi": 61.2877456281476,
+        "bb_position": 0.9453110604603732,
+        "adx": 11.966575968667666
+      }
+    },
+    {
+      "ticker": "XLI",
+      "score": 14.7366,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.024239193228516236,
+        "risk_adj_momentum": 5.3753733258815215,
+        "spy_rel_strength": -0.09415185297569373,
+        "rsi": 43.059759849880066,
+        "bb_position": 0.23421853211936378,
+        "adx": 14.624351344598063
+      }
+    },
+    {
+      "ticker": "XLK",
+      "score": 13.5768,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.11972651090718116,
+        "risk_adj_momentum": 1.9334717334576548,
+        "spy_rel_strength": 0.18779057851540082,
+        "rsi": 49.52062112182899,
+        "bb_position": 0.5204240846767401,
+        "adx": 13.88803917028378
+      }
+    },
+    {
+      "ticker": "XLRE",
+      "score": 6.8318,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.025260959132648326,
+        "risk_adj_momentum": 2.5038554733465554,
+        "spy_rel_strength": -0.06557890094150642,
+        "rsi": 52.084820960608155,
+        "bb_position": 0.5050729034785789,
+        "adx": 9.312533179914325
+      }
+    },
+    {
+      "ticker": "XLP",
+      "score": 5.3883,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.0156276048512541,
+        "risk_adj_momentum": 2.408659348059106,
+        "spy_rel_strength": -0.1258429116661104,
+        "rsi": 54.211300876375866,
+        "bb_position": 0.6510446582553243,
+        "adx": 16.727877066058586
+      }
+    },
+    {
+      "ticker": "XLY",
+      "score": -0.044,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": 0.030090731157823087,
+        "risk_adj_momentum": 0.15788210967984959,
+        "spy_rel_strength": -0.10768074961229512,
+        "rsi": 53.76181508918541,
+        "bb_position": 0.6117270943263311,
+        "adx": 16.23250099920616
+      }
+    },
+    {
+      "ticker": "XLU",
+      "score": -17.945,
+      "sleeve": "sector_core",
+      "components": {
+        "momentum_blend": -0.060659436258935585,
+        "risk_adj_momentum": -4.135381841105211,
+        "spy_rel_strength": -0.18100868648072377,
+        "rsi": 32.74781819864805,
+        "bb_position": 0.024404796630184276,
+        "adx": 12.016914003849275
+      }
+    },
+    {
+      "ticker": "SHY",
+      "score": 22.889,
+      "sleeve": "defensive",
+      "components": {
+        "momentum_blend": 0.0062362193729974535,
+        "risk_adj_momentum": 8.17794612623922,
+        "spy_rel_strength": -0.11098775372422653,
+        "rsi": 61.699095905080725,
+        "bb_position": 0.7391068109590769,
+        "adx": 25.291252970149113
+      }
+    },
+    {
+      "ticker": "IEI",
+      "score": 2.1031,
+      "sleeve": "defensive",
+      "components": {
+        "momentum_blend": -0.0012096439521756357,
+        "risk_adj_momentum": 1.711398017670655,
+        "spy_rel_strength": -0.12868750284674058,
+        "rsi": 49.12986130637549,
+        "bb_position": 0.48519721350055744,
+        "adx": 7.3106083882354715
+      }
+    },
+    {
+      "ticker": "AGG",
+      "score": -2.5774,
+      "sleeve": "defensive",
+      "components": {
+        "momentum_blend": -0.004006437305993038,
+        "risk_adj_momentum": 0.09967031060201446,
+        "spy_rel_strength": -0.13222065819745488,
+        "rsi": 47.217204132027135,
+        "bb_position": 0.4018743591773395,
+        "adx": 7.941720821568611
+      }
+    },
+    {
+      "ticker": "IEF",
+      "score": -3.5173,
+      "sleeve": "defensive",
+      "components": {
+        "momentum_blend": -0.007463106302766365,
+        "risk_adj_momentum": -0.05122023735097405,
+        "spy_rel_strength": -0.1416300117580649,
+        "rsi": 46.03140585514561,
+        "bb_position": 0.2800806874169282,
+        "adx": 7.9877604460502285
+      }
+    },
+    {
+      "ticker": "TLT",
+      "score": -10.6915,
+      "sleeve": "defensive",
+      "components": {
+        "momentum_blend": -0.028392316189391087,
+        "risk_adj_momentum": -2.2495162384940586,
+        "spy_rel_strength": -0.17787654166222422,
+        "rsi": 44.19270474852331,
+        "bb_position": 0.33000270462324743,
+        "adx": 20.300381807852506
+      }
+    },
+    {
+      "ticker": "DBC",
+      "score": 12.4752,
+      "sleeve": "real_asset",
+      "components": {
+        "momentum_blend": 0.10677184609785122,
+        "risk_adj_momentum": 1.7374082168044753,
+        "spy_rel_strength": 0.1541728348888063,
+        "rsi": 68.70639250983739,
+        "bb_position": 0.9674351892564749,
+        "adx": 23.76084463348015
+      }
+    },
+    {
+      "ticker": "GLD",
+      "score": 0.6896,
+      "sleeve": "real_asset",
+      "components": {
+        "momentum_blend": 0.019409846193655045,
+        "risk_adj_momentum": 1.441155401907449,
+        "spy_rel_strength": -0.21314033579541325,
+        "rsi": 71.15678830072717,
+        "bb_position": 0.9679216616659413,
+        "adx": 26.97228858041056
+      }
+    }
+  ],
+  "regime": {
+    "hmm_state": "bull",
+    "hmm_confidence": 0.537,
+    "source": "local_hmm"
+  },
+  "crisis_mode": false,
+  "vix": {
+    "spot": 15.13,
+    "avg": 16.92,
+    "state": "NORMAL",
+    "exposure_cap": 1.0
+  },
+  "advisory_sector_ratios": [
+    {
+      "ratio": "XLK/SPY",
+      "name": "Tech vs SPY",
+      "last": 0.2394,
+      "sma": {
+        "10": 0.2423,
+        "20": 0.2397,
+        "50": 0.2435
+      },
+      "rsi": 46.9,
+      "adx": 19.4,
+      "alignment": -2,
+      "trend": "DOWN",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLF/SPY",
+      "name": "Financials vs SPY",
+      "last": 0.0751,
+      "sma": {
+        "10": 0.0749,
+        "20": 0.0755,
+        "50": 0.0745
+      },
+      "rsi": 51.0,
+      "adx": 11.5,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLE/SPY",
+      "name": "Energy vs SPY",
+      "last": 0.0831,
+      "sma": {
+        "10": 0.0808,
+        "20": 0.0791,
+        "50": 0.0764
+      },
+      "rsi": 63.8,
+      "adx": 18.0,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLV/SPY",
+      "name": "Healthcare vs SPY",
+      "last": 0.228,
+      "sma": {
+        "10": 0.2206,
+        "20": 0.2192,
+        "50": 0.215
+      },
+      "rsi": 64.0,
+      "adx": 14.6,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLY/SPY",
+      "name": "Cons.Disc vs SPY",
+      "last": 0.1541,
+      "sma": {
+        "10": 0.1531,
+        "20": 0.1532,
+        "50": 0.1545
+      },
+      "rsi": 51.8,
+      "adx": 8.2,
+      "alignment": 2,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLP/SPY",
+      "name": "Cons.Staples vs SPY",
+      "last": 0.1123,
+      "sma": {
+        "10": 0.1109,
+        "20": 0.1123,
+        "50": 0.1127
+      },
+      "rsi": 51.1,
+      "adx": 9.1,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLB/SPY",
+      "name": "Materials vs SPY",
+      "last": 0.0699,
+      "sma": {
+        "10": 0.0683,
+        "20": 0.0685,
+        "50": 0.0686
+      },
+      "rsi": 59.4,
+      "adx": 9.8,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLI/SPY",
+      "name": "Industrials vs SPY",
+      "last": 0.2354,
+      "sma": {
+        "10": 0.2388,
+        "20": 0.2405,
+        "50": 0.2419
+      },
+      "rsi": 37.0,
+      "adx": 12.9,
+      "alignment": -4,
+      "trend": "DOWN",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLU/SPY",
+      "name": "Utilities vs SPY",
+      "last": 0.0559,
+      "sma": {
+        "10": 0.0568,
+        "20": 0.0579,
+        "50": 0.0596
+      },
+      "rsi": 33.6,
+      "adx": 16.9,
+      "alignment": -2,
+      "trend": "DOWN",
+      "advisory_only": true
+    },
+    {
+      "ratio": "XLRE/SPY",
+      "name": "RealEstate vs SPY",
+      "last": 0.0589,
+      "sma": {
+        "10": 0.0581,
+        "20": 0.0592,
+        "50": 0.0597
+      },
+      "rsi": 48.5,
+      "adx": 13.9,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "EFA/SPY",
+      "name": "EAFE vs SPY",
+      "last": 0.1414,
+      "sma": {
+        "10": 0.1402,
+        "20": 0.1404,
+        "50": 0.1397
+      },
+      "rsi": 58.1,
+      "adx": 11.0,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "EEM/SPY",
+      "name": "EM vs SPY",
+      "last": 0.0877,
+      "sma": {
+        "10": 0.086,
+        "20": 0.0855,
+        "50": 0.0879
+      },
+      "rsi": 55.6,
+      "adx": 20.6,
+      "alignment": 2,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "TLT/SPY",
+      "name": "20y Treasury vs SPY",
+      "last": 0.1072,
+      "sma": {
+        "10": 0.1066,
+        "20": 0.1082,
+        "50": 0.1116
+      },
+      "rsi": 40.9,
+      "adx": 22.1,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "IEF/SPY",
+      "name": "7-10y Treasury vs SPY",
+      "last": 0.1212,
+      "sma": {
+        "10": 0.1206,
+        "20": 0.122,
+        "50": 0.1242
+      },
+      "rsi": 43.0,
+      "adx": 19.7,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "IEI/SPY",
+      "name": "3-7y Treasury vs SPY",
+      "last": 0.152,
+      "sma": {
+        "10": 0.1512,
+        "20": 0.1528,
+        "50": 0.155
+      },
+      "rsi": 44.8,
+      "adx": 17.7,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "AGG/SPY",
+      "name": "Agg Bond vs SPY",
+      "last": 0.1271,
+      "sma": {
+        "10": 0.1264,
+        "20": 0.1278,
+        "50": 0.1301
+      },
+      "rsi": 43.7,
+      "adx": 21.3,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "SHY/SPY",
+      "name": "1-3y Treasury vs SPY",
+      "last": 0.1071,
+      "sma": {
+        "10": 0.1064,
+        "20": 0.1074,
+        "50": 0.1088
+      },
+      "rsi": 46.5,
+      "adx": 16.2,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "BIL/SPY",
+      "name": "T-Bill vs SPY",
+      "last": 0.1196,
+      "sma": {
+        "10": 0.1188,
+        "20": 0.12,
+        "50": 0.1215
+      },
+      "rsi": 46.8,
+      "adx": 16.5,
+      "alignment": 0,
+      "trend": "MIXED",
+      "advisory_only": true
+    },
+    {
+      "ratio": "DBC/SPY",
+      "name": "Commodities vs SPY",
+      "last": 0.0408,
+      "sma": {
+        "10": 0.0394,
+        "20": 0.0389,
+        "50": 0.0381
+      },
+      "rsi": 62.8,
+      "adx": 15.1,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    },
+    {
+      "ratio": "GLD/SPY",
+      "name": "Gold vs SPY",
+      "last": 0.5529,
+      "sma": {
+        "10": 0.5275,
+        "20": 0.515,
+        "50": 0.5096
+      },
+      "rsi": 69.0,
+      "adx": 22.8,
+      "alignment": 4,
+      "trend": "UP",
+      "advisory_only": true
+    }
+  ],
+  "events": []
+}

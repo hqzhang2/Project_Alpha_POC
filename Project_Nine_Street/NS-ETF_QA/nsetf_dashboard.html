@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NS-ETF — Combined ETF Strategy</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#e6edf3;
+        --dim:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922;
+        --blue:#58a6ff; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--txt);
+       font:13px/1.45 -apple-system,"SF Mono",Menlo,monospace; }
+header { padding:10px 16px; border-bottom:1px solid var(--border);
+         display:flex; align-items:center; gap:14px; position:sticky; top:0;
+         background:var(--bg); z-index:10; }
+header h1 { font-size:15px; margin:0; }
+header .sub { color:var(--dim); font-size:11px; flex:1; }
+.badge { display:inline-block; padding:2px 9px; border-radius:10px;
+         font-size:10px; border:1px solid var(--green); color:var(--green); }
+.vix-readout { font-size:11px; color:var(--dim); }
+.vix-readout .spot { color:var(--red); font-weight:700; }
+.vix-readout .avg { color:var(--amber); font-weight:700; }
+
+main { padding:16px; display:flex; flex-direction:column; gap:16px; }
+.panel { background:var(--panel); border:1px solid var(--border);
+         border-radius:8px; padding:12px 14px; }
+.panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em;
+            color:var(--dim); margin:0 0 10px; display:flex; align-items:center;
+            gap:10px; flex-wrap:wrap; }
+
+table { width:100%; border-collapse:collapse; }
+th,td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--border); }
+th { color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase; }
+td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+.pos { color:var(--green); } .neg { color:var(--red); }
+.chip { display:inline-block; padding:1px 7px; border-radius:9px; font-size:10px; }
+.chip.core { background:rgba(63,185,80,.12); color:var(--green); }
+.chip.def  { background:rgba(88,166,255,.12); color:var(--blue); }
+.chip.ra   { background:rgba(210,153,34,.12); color:var(--amber); }
+.chip.up   { background:rgba(63,185,80,.12); color:var(--green); }
+.chip.down { background:rgba(248,81,73,.12); color:var(--red); }
+.chip.mix  { background:rgba(139,148,158,.12); color:var(--dim); }
+.badge.amber { border-color:var(--amber); color:var(--amber); }
+
+.cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
+.panel button.accept {
+  width:100%; margin-top:12px; padding:8px 0; font-size:13px;
+  background:linear-gradient(180deg, #4aca5f 0%, var(--green) 55%, #2f9440 100%);
+  color:#06220c; border:none; border-radius:8px;
+  cursor:pointer; font-weight:700;
+  box-shadow: 0 2px 4px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.35);
+}
+.panel button.accept:hover { filter:brightness(1.08); }
+.panel button.accept:active { transform:translateY(1px);
+  box-shadow: 0 1px 2px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.2); }
+.panel button.accept.accepted {
+  background:linear-gradient(180deg, #7cb8ff 0%, var(--blue) 55%, #2f6fd0 100%);
+  color:#04182e;
+}
+.kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12px; }
+.kv .k { color:var(--dim); }
+.tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+.tile { background:var(--bg); border:1px solid var(--border); border-radius:6px;
+        padding:8px 10px; }
+.tile .r-name { font-size:11px; color:var(--dim); }
+.tile .r-val  { font-size:15px; margin:2px 0; }
+.tile .r-meta { font-size:10px; color:var(--dim); display:flex;
+                justify-content:space-between; align-items:center; }
+#status { font-size:11px; color:var(--dim); }
+.crisis { color:var(--red); font-weight:700; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NS-ETF</h1>
+  <span class="sub">Combined ETF Strategy · parallel-run with NS-1/3/4</span>
+  <span class="vix-readout" id="vixReadout"></span>
+  <span id="liveBadge"></span>
+</header>
+
+<main>
+
+  <!-- Band 2: growth chart + metrics strip -->
+  <section class="panel">
+    <h2>Growth of $100 — NS-ETF vs SPY
+        <span style="text-transform:none;font-weight:400">
+          (left axis $ · VIX right axis)</span></h2>
+    <div id="perfChart" style="height:380px;"></div>
+    <div id="metricsRow" style="margin-top:10px;"></div>
+  </section>
+
+  <!-- Band 3: three cards -->
+  <div class="cards">
+    <section class="panel">
+      <h2>Sleeves &amp; Weights</h2>
+      <table id="sleeveTable"><thead>
+        <tr><th>Ticker</th><th>Sleeve</th><th class="num">Weight</th>
+            <th class="num">Last</th><th class="num">Shares ($100K)</th></tr>
+      </thead><tbody></tbody></table>
+    </section>
+
+    <section class="panel">
+      <h2>State</h2>
+      <div class="kv" id="stateBox"></div>
+      <button id="acceptBtn" class="accept">⚖ Accept advisory → rebalance</button>
+    </section>
+
+    <section class="panel">
+      <h2>Composite Scores — leaders</h2>
+      <table id="scoreLeaders"><thead>
+        <tr><th>Tkr</th><th class="num">Score</th><th class="num">Mom</th><th class="num">RSI</th></tr>
+      </thead><tbody></tbody></table>
+      <div style="color:var(--dim);font-size:10px;margin-top:6px">full table below ↓</div>
+    </section>
+  </div>
+
+  <!-- Band 4a: full composite scores -->
+  <section class="panel">
+    <h2>Composite Scores (NS-1 factor model) — all scored ETFs</h2>
+    <table id="scoreTable"><thead>
+      <tr><th>Ticker</th><th>Sleeve</th><th class="num">Score</th>
+          <th class="num">Mom blend</th><th class="num">Risk-adj</th>
+          <th class="num">vs SPY</th><th class="num">RSI</th><th class="num">ADX</th></tr>
+    </thead><tbody></tbody></table>
+  </section>
+
+  <!-- Band 4b: advisory tiles -->
+  <section class="panel">
+    <h2>Ratio vs SPY — Advisory Panel
+      <span class="badge amber">ADVISORY ONLY · zero allocation impact</span></h2>
+    <div class="tiles" id="ratioTiles"></div>
+  </section>
+
+</main>
+
+<script>
+// Crosshair: vertical line follows the hovered date.
+const crosshair = {
+  type: 'line', xref: 'x', yref: 'paper',
+  x0: null, x1: null, y0: 0, y1: 1,
+  line: { color: '#8b949e', width: 1, dash: 'dot' }, visible: false,
+};
+const layout = {
+  paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+  font: { color: '#e6edf3', size: 11, family: '-apple-system,Menlo,monospace' },
+  margin: { l: 55, r: 55, t: 8, b: 28 },
+  showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0 },
+  hovermode: 'x unified',
+  // PM spec: LEFT = growth of $100 (strategy/SPY), RIGHT = VIX spot/avg.
+  yaxis: { side: 'left', tickprefix: '$',
+           title: { text: 'Growth of $100', font: { size: 10 } },
+           gridcolor: '#30363d' },
+  yaxis2: { overlaying: 'y', side: 'right', gridcolor: 'transparent',
+            title: { text: 'VIX', font: { color: '#f85149', size: 10 } },
+            tickfont: { color: '#f85149', size: 10 }, rangemode: 'tozero' },
+  xaxis: { gridcolor: '#30363d', tickfont: { color: '#8b949e' } },
+  shapes: [crosshair],
+};
+
+function renderPerf(p) {
+  if (p.error) { document.getElementById('status').textContent = 'perf: ' + p.error; return; }
+  const hasVix = p.vix_series && p.vix_series.some(v => v !== null);
+  const traces = [
+    { x: p.dates, y: p.strategy.map(v => +(v * 100).toFixed(2)), name: 'NS-ETF',
+      type: 'scatter', mode: 'lines', yaxis: 'y',
+      line: { color: '#3fb950', width: 2 } },
+    { x: p.dates, y: p.spy.map(v => +(v * 100).toFixed(2)), name: 'SPY',
+      type: 'scatter', mode: 'lines', yaxis: 'y',
+      line: { color: '#8b949e', width: 1.4 } },
+  ];
+  if (hasVix) {
+    traces.push({ x: p.dates, y: p.vix_series, name: 'VIX spot',
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
+      line: { color: '#f85149', width: 1, dash: 'dot' } });
+    if (p.vix_avg_series && p.vix_avg_series.some(v => v !== null)) {
+      traces.push({ x: p.dates, y: p.vix_avg_series, name: 'VIX SMA',
+        type: 'scatter', mode: 'lines', yaxis: 'y2',
+        line: { color: '#d29922', width: 1, dash: 'dash' } });
+    }
+  }
+  Plotly.react('perfChart', traces, layout, { responsive: true, displayModeBar: false });
+  const st = document.getElementById('vixReadout');
+  st.innerHTML = (p.vix && p.vix.spot != null)
+    ? 'VIX <span class="spot">' + Number(p.vix.spot).toFixed(2) +
+      '</span> · avg <span class="avg">' + Number(p.vix.avg).toFixed(2) + '</span>'
+    : '';
+  renderMetrics(p.metrics);
+}
+
+function renderMetrics(m) {
+  if (!m || !m.strategy || !m.spy) return;
+  const pctf = x => x == null ? '—' : (100 * x).toFixed(2) + '%';
+  document.getElementById('metricsRow').innerHTML =
+    '<table style="width:auto">' +
+    '<tr><th style="visibility:hidden">.</th><th class="num">CAGR</th>' +
+    '<th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Max DD</th></tr>' +
+    '<tr><td>NS-ETF</td><td class="num pos">' + pctf(m.strategy.cagr) + '</td>' +
+    '<td class="num">' + pctf(m.strategy.vol) + '</td>' +
+    '<td class="num pos">' + (m.strategy.sharpe ?? '—') + '</td>' +
+    '<td class="num neg">' + pctf(m.strategy.max_dd) + '</td></tr>' +
+    '<tr><td>SPY</td><td class="num">' + pctf(m.spy.cagr) + '</td>' +
+    '<td class="num">' + pctf(m.spy.vol) + '</td>' +
+    '<td class="num">' + (m.spy.sharpe ?? '—') + '</td>' +
+    '<td class="num neg">' + pctf(m.spy.max_dd) + '</td></tr></table>';
+}
+
+const chartEl = document.getElementById('perfChart');
+function wireCrosshair() {
+  chartEl.on('plotly_hover', ev => {
+    crosshair.x0 = crosshair.x1 = ev.xs ? ev.xs[ev.pointindex || 0] || ev.xs[0] : null;
+    crosshair.visible = crosshair.x0 != null;
+    Plotly.relayout('perfChart', { 'shapes[0].x0': crosshair.x0,
+      'shapes[0].x1': crosshair.x1, 'shapes[0].visible': crosshair.visible });
+  });
+  chartEl.on('plotly_unhover', () => {
+    crosshair.visible = false;
+    Plotly.relayout('perfChart', { 'shapes[0].visible': false });
+  });
+}
+
+async function jget(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(url + ' → ' + r.status);
+  return r.json();
+}
+const pct = v => v == null ? '—' : (100 * v).toFixed(1) + '%';
+const num2 = v => v == null ? '—' : Number(v).toFixed(2);
+
+function renderFeed(f) {
+  // sleeves table + $100K sample sizing
+  const tb = document.querySelector('#sleeveTable tbody');
+  tb.innerHTML = '';
+  const sleeveOf = {};
+  for (const [name, s] of Object.entries(f.sleeves || {}))
+    for (const t of Object.keys(s.weights || {})) sleeveOf[t] = name;
+  const sp = f.sample_portfolio || { rows: [] };
+  const byTicker = {};
+  for (const r of (sp.rows || [])) byTicker[r.ticker] = r;
+  for (const [t, w] of Object.entries(f.weights || {}).sort((a,b)=>b[1]-a[1])) {
+    const cls = sleeveOf[t] === 'sector_core' ? 'core'
+              : sleeveOf[t] === 'defensive' ? 'def'
+              : sleeveOf[t] === 'real_asset' ? 'ra' : '';
+    const label = (sleeveOf[t] || '—').replace('_', ' ');
+    const r = byTicker[t];
+    tb.insertAdjacentHTML('beforeend',
+      `<tr><td>${t}</td><td>${cls ? `<span class="chip ${cls}">${label}</span>` : label}` +
+      `</td><td class="num">${(100*w).toFixed(1)}%</td>` +
+      `<td class="num">${r ? r.last.toFixed(2) : '—'}</td>` +
+      `<td class="num">${r ? r.shares.toLocaleString() : '—'}</td></tr>`);
+  }
+  // distinctive TOTAL row (BIL absorbs rounding residual — no cash line)
+  if (sp.rows) {
+    tb.insertAdjacentHTML('beforeend',
+      `<tr style="border-top:2px solid var(--txt);font-weight:700;background:#1c2430">
+        <td>TOTAL</td><td>${sp.rows.length} ETFs</td>
+        <td class="num">100.0%</td><td class="num"></td>
+        <td class="num">$${(sp.invested||0).toLocaleString()}</td></tr>`);
+  }
+  // composite leaders card
+  const cs = f.composite_scores || [];
+  const lb = document.querySelector('#scoreLeaders tbody');
+  lb.innerHTML = '';
+  for (const s of cs.slice().sort((a,b)=>b.score-a.score).slice(0,5))
+    lb.insertAdjacentHTML('beforeend',
+      `<tr><td>${s.ticker}</td><td class="num pos">${num2(s.score)}</td>` +
+      `<td class="num">${pct((s.components||{}).momentum_blend)}</td>` +
+      `<td class="num">${num2((s.components||{}).rsi)}</td></tr>`);
+  // full composite table (cash equivalents excluded — not trade signals)
+  const CASH = new Set(['BIL', 'SHY']);
+  const stb = document.querySelector('#scoreTable tbody');
+  stb.innerHTML = '';
+  for (const s of cs.filter(x => !CASH.has(x.ticker))) {
+    const c = s.components || {};
+    const cls = s.sleeve === 'sector_core' ? 'core'
+              : s.sleeve === 'defensive' ? 'def'
+              : s.sleeve === 'real_asset' ? 'ra' : '';
+    stb.insertAdjacentHTML('beforeend',
+      `<tr><td>${s.ticker}</td>` +
+      `<td><span class="chip ${cls}">${s.sleeve.replace('_',' ')}</span></td>` +
+      `<td class="num pos">${num2(s.score)}</td>` +
+      `<td class="num">${pct(c.momentum_blend)}</td>` +
+      `<td class="num">${num2(c.risk_adj_momentum)}</td>` +
+      `<td class="num">${pct(c.spy_rel_strength)}</td>` +
+      `<td class="num">${num2(c.rsi)}</td><td class="num">${num2(c.adx)}</td></tr>`);
+  }
+  // state box
+  const sb = document.getElementById('stateBox');
+  const crisis = f.crisis_mode ? '<span class="crisis">CRISIS</span>'
+               : (f.vix && f.vix.state ? f.vix.state : '—');
+  sb.innerHTML =
+    '<span class="k">as_of</span><span>' + f.as_of + '</span>' +
+    '<span class="k">VIX state</span><span>' + crisis + '</span>' +
+    '<span class="k">exposure cap</span><span>' +
+      (f.vix && f.vix.exposure_cap != null ? f.vix.exposure_cap : '—') + '</span>' +
+    '<span class="k">regime</span><span>' +
+      (f.regime && (f.regime.regime || f.regime.hmm_state || '—')) + '</span>' +
+    '<span class="k">shares</span><span>' +
+      Object.entries((f.sleeves)||{}).map(([k,v]) =>
+        k.replace('_',' ')+' '+Math.round(100*(v.share??0))+'%').join(' · ') + '</span>' +
+    '<span class="k">events</span><span>' + (f.events ? f.events.length : 0) + '</span>';
+  renderAdvisory(f.advisory_sector_ratios || []);
+}
+
+function renderAdvisory(panel) {
+  const wrap = document.getElementById('ratioTiles');
+  wrap.innerHTML = panel.filter(r => !r.error).map(r => {
+    const chipCls = r.trend === 'UP' ? 'up' : (r.trend === 'DOWN' ? 'down' : 'mix');
+    return `<div class="tile">
+      <div class="r-name">${r.ratio} · ${r.name}</div>
+      <div class="r-val">${r.last}</div>
+      <div class="r-meta"><span>RSI ${r.rsi ?? '—'} · ADX ${r.adx ?? '—'}</span>
+        <span class="chip ${chipCls}">${r.trend}</span></div></div>`;
+  }).join('');
+}
+
+async function loadAll() {
+  try {
+    renderFeed(await jget('/api/signals'));
+  } catch (e) {
+    document.getElementById('status').textContent = 'feed unavailable: ' + e.message;
+  }
+  try {
+    const meta = await jget('/api/meta');
+    const badge = document.getElementById('liveBadge');
+    badge.innerHTML = meta.status === 'live'
+      ? '<span class="badge">LIVE · as_of ' + meta.as_of + '</span>'
+      : '<span class="badge" style="border-color:#f85149;color:#f85149;">STALE · last run '
+        + meta.as_of + '</span>';
+  } catch (e) { /* badge optional */ }
+  try {
+    renderPerf(await jget('/api/performance'));
+    if (chartEl.on && !chartEl._crosshairWired) {
+      chartEl._crosshairWired = true;
+      wireCrosshair();
+    }
+  } catch (e) { /* status shown */ }
+}
+
+document.getElementById('acceptBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('acceptBtn');
+  btn.disabled = true; btn.textContent = 'Rebalancing…';
+  try {
+    const d = await jget('/api/advisory/accept', { method: 'POST' });
+    // Accepted state: green → blue until page reload
+    btn.classList.add('accepted');
+    btn.textContent = 'Accepted ✓ rebalanced ' + d.as_of;
+    await loadAll();
+  } catch (e) {
+    btn.textContent = 'Failed: ' + e.message;
+  }
+  btn.disabled = false;
+});
+
+loadAll();
+setInterval(loadAll, 300000);
+</script>
+</body>
+</html>
