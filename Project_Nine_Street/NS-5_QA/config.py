@@ -81,5 +81,11 @@ NS7_SELECTION_PATH = Path(
 AT_SCREENER_URL = "http://127.0.0.1:9099/api/fundamentals/screen"
 VALUE_SLEEVE_N = 20
 # PM-decidable tilt (2a evidence: momentum carries the engine → asymmetric).
+# v4.4: ETF diversifier sleeves (NS-ETF) added as a third axis. Tilt tuples
+# are (momentum, value); the ETF share is the remainder so existing tilts
+# hold their momentum/value ratio.
 SLEEVE_TILT = {"growth": (0.80, 0.20), "defensive": (0.50, 0.50)}
+ETF_SLEEVE_SHARE = {"growth": 0.10, "defensive": 0.25}   # PM dial
+NSETF_SIGNALS_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-ETF_QA/data/signals.json")
 BLEND_PATH = DATA_DIR / "sleeve_blend.json"

@@ -23,10 +23,19 @@ This folder is home. Treat it that way.
 | Service | QA | PROD |
 |--------|-----|------|
 | Alpha Terminal | 9099 | 9098 |
-| NS-1 | 9199 | 9199 |
-| NS-2 Backend | 9099 | 9098 |
-| NS-3 | 9206 | 9206 |
-| NS-4 | 9210 | 9210 |
+| NS-1 | 9219 | 9218 |
+| NS-2 | 9229 | 9228 |
+| NS-3 | 9237 | 9236 |
+| NS-4 | 9241 | 9240 |
+| NS-5 | 9251 | 9250 |
+| NS-6 | 9261 | 9260 |
+| NS-7 | 9271 | 9270 |
+| NS-8 | 9281 | 9280 |
+| NS-X | 9291 | 9290 |
+| NS-ETF | 9293 | 9292 |
+| NS-PC | 9301 | 9300 |
+
+(Convention: QA = PROD + 1. Portal serves on 8000.)
 
 ## First Run
 

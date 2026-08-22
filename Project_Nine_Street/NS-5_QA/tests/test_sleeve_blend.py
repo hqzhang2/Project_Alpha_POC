@@ -133,12 +133,73 @@ def test_main_writes_blend_doc(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BLEND_PATH", tmp_path / "sleeve_blend.json")
     monkeypatch.setattr(sb, "growth_sleeve", lambda: ["DELL", "MRVL"])
     monkeypatch.setattr(sb, "value_sleeve", lambda: ["V1", "V2"])
+    monkeypatch.setattr(sb, "etf_sleeve", lambda: {})
     monkeypatch.setattr(sb, "regime_class", lambda: "growth")
     assert sb.main() == 0
     doc = json.loads((tmp_path / "sleeve_blend.json").read_text())
     assert doc["regime"] == "growth"
-    assert doc["sleeve_weights"] == {"momentum": 0.8, "value": 0.2}
+    assert doc["sleeve_weights"]["momentum"] == 0.8
+    assert doc["sleeve_weights"]["etf_share_applied"] == 0.0   # no ETF feed
     assert doc["growth_sleeve"] == ["DELL", "MRVL"]
     assert doc["blended"]["DELL"] == pytest.approx(0.4)
     assert doc["blended"]["V1"] == pytest.approx(0.1)
     assert doc["guardrails"]["weights_sum"] == pytest.approx(1.0)
+
+
+# ── v4.4: NS-ETF diversifier sleeve ──────────────────────────────────────
+def test_etf_sleeve_reads_signals_json(tmp_path):
+    p = tmp_path / "signals.json"
+    p.write_text(json.dumps({
+        "as_of": "2026-08-21",
+        "weights": {"XLF": 0.6, "BIL": 0.15, "GLD": 0.25}}))
+    etf = sb.etf_sleeve(str(p))
+    assert set(etf) == {"XLF", "BIL", "GLD"}
+    assert sum(etf.values()) == pytest.approx(1.0)   # normalized
+
+
+def test_etf_sleeve_stale_fail_open(tmp_path):
+    import datetime as dt
+    old = (dt.date.today() - dt.timedelta(days=10)).isoformat()
+    p = tmp_path / "signals.json"
+    p.write_text(json.dumps({"as_of": old, "weights": {"XLF": 1.0}}))
+    assert sb.etf_sleeve(str(p)) == {}          # stale → out of the blend
+
+
+def test_etf_sleeve_missing_file_fail_open():
+    assert sb.etf_sleeve("/nonexistent/signals.json") == {}
+
+
+def test_apply_etf_share_preserves_equity_ratio():
+    equity = {"DELL": 0.8, "V1": 0.2}           # 80/20 tilt
+    etf = {"XLF": 0.5, "GLD": 0.5}
+    out, applied = sb.apply_etf_share(equity, etf, 0.20)
+    assert applied == pytest.approx(0.20)
+    assert out["DELL"] == pytest.approx(0.8 * 0.8)     # ratio preserved
+    assert out["V1"] == pytest.approx(0.2 * 0.8)
+    assert out["XLF"] == pytest.approx(0.10)           # ETF equal-weight share
+    assert sum(out.values()) == pytest.approx(1.0)
+
+
+def test_apply_etf_share_zero_when_no_etf():
+    out, applied = sb.apply_etf_share({"DELL": 1.0}, {}, 0.20)
+    assert applied == 0.0 and out == {"DELL": 1.0}
+
+
+def test_main_applies_etf_share(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "BLEND_PATH", tmp_path / "sleeve_blend.json")
+    monkeypatch.setattr(config, "ETF_SLEEVE_SHARE", {"growth": 0.10})
+    monkeypatch.setattr(sb, "growth_sleeve", lambda: ["DELL", "MRVL"])
+    monkeypatch.setattr(sb, "value_sleeve", lambda: [])
+    monkeypatch.setattr(sb, "etf_sleeve", lambda: {"TLT": 0.5, "GLD": 0.5})
+    monkeypatch.setattr(sb, "regime_class", lambda: "growth")
+    assert sb.main() == 0
+    doc = json.loads((tmp_path / "sleeve_blend.json").read_text())
+    b = doc["blended"]
+    # momentum carries the full 90% equity block; ETF takes 10%
+    assert b["DELL"] == pytest.approx(0.45)
+    assert b["MRVL"] == pytest.approx(0.45)
+    assert b["TLT"] == pytest.approx(0.05)
+    assert b["GLD"] == pytest.approx(0.05)
+    assert doc["sleeve_weights"]["etf_share_applied"] == pytest.approx(0.10)
+    assert doc["guardrails"]["weights_sum"] == pytest.approx(1.0)
+    assert doc["etf_sleeve"] == ["GLD", "TLT"]
