@@ -54,6 +54,14 @@ VIX_AVG_WINDOW = 60                        # trading days for the dashboard avg
 VIX_MA_WINDOW = 20                         # VIX moving-average line (NS-1 uses 20MA)
 HYG, TLT_MACRO = "HYG", "TLT"              # credit macro ratio input
 
+# ── Adopted allocation (WF iteration 3, P2R_def15 — PM-approved) ─────────
+# Evidence: 8.9% CAGR / -8.5% MaxDD / 0.25x SPY DD (gate <=0.75x), tn 8.6/yr.
+# research_nsetf_walkforward.md (gitignored).
+SECTOR_CORE_SHARE = 0.60                   # top-3 sector momentum core
+DEFENSIVE_SHARE = 0.15                     # defensive sleeve (PM dial; WF frontier point)
+# real_asset share = remainder (0.25)
+CRISIS_CHECK_DAILY = True                  # VIX entry/exit daily, weights quarterly
+
 # ── Regime (NS-3 T3 pattern) ─────────────────────────────────────────────
 HMM_SEED = 42                              # deterministic; scales confidence only
 REGIME_STORE_PATH = Path(                  # common.regime_store sqlite (read-only)

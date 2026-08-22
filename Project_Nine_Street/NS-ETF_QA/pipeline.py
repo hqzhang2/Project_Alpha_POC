@@ -142,11 +142,14 @@ def run(fetcher=None, vix_fn=None, db_path=None):
         # Fail-open: no SPY → cannot score relative strength; still rank absolute.
         spy_closes = []
 
-    # Rank each allocation-bearing sleeve
+    # Rank each allocation-bearing sleeve + the sector core (adopted design:
+    # P2R_def15 — sector core SECTOR_CORE_SHARE, defensive DEFENSIVE_SHARE,
+    # real-asset remainder; WF iteration 3, PM-approved).
     sleeve_picks, sleeve_weights, signal_rows = {}, {}, []
-    for sleeve, members in (
-            ("defensive", config.DEFENSIVE_ETFS),
-            ("real_asset", config.REAL_ASSET_ETFS)):
+    sleeves = [("defensive", config.DEFENSIVE_ETFS),
+               ("real_asset", config.REAL_ASSET_ETFS),
+               ("sector_core", config.SECTOR_ETFS)]
+    for sleeve, members in sleeves:
         ranked = selector.rank_sleeve(conn, members, spy_closes)
         top = [r for r in ranked if "score" in r][:config.TOP_N_PER_SLEEVE]
         picks = [r["ticker"] for r in top]
@@ -156,10 +159,24 @@ def run(fetcher=None, vix_fn=None, db_path=None):
         for r in top:
             signal_rows.append((r["ticker"], sleeve, r["score"], 1, wts.get(r["ticker"], 0.0)))
 
+    # Blend to the adopted allocation: sector core + defensive + remainder
+    # real-asset, with the soft 200d regime tilt (sectors→defensive when
+    # SPY < 200d, matching the validated walk-forward design).
+    spy_200 = (sum(spy_closes[-200:]) / 200) if len(spy_closes) >= 200 else None
+    s_share = config.SECTOR_CORE_SHARE
+    d_share = config.DEFENSIVE_SHARE
+    if spy_200 is not None and spy_closes[-1] < spy_200:
+        s_share -= 0.10
+        d_share += 0.10
+    r_share = 1.0 - s_share - d_share
+    blended = {}
+    for sleeve, share in (("sector_core", s_share),
+                          ("defensive", d_share),
+                          ("real_asset", r_share)):
+        for t, w in sleeve_weights.get(sleeve, {}).items():
+            blended[t] = blended.get(t, 0.0) + w * share
+
     # VIX overlay across the blended book
-    blended = dict(sleeve_weights.get("defensive", {}))
-    for t, w in sleeve_weights.get("real_asset", {}).items():
-        blended[t] = blended.get(t, 0.0) + w
     spot, avg = vix_fn()
     vix_info = overlay.vix_state(spot, avg)
     final_w, o_events = overlay.apply_overlay(conn, sleeve_picks, blended, vix_info)
@@ -188,15 +205,23 @@ def run(fetcher=None, vix_fn=None, db_path=None):
         "service": "ns-etf",
         "version": config.FEED_VERSION,
         "sleeves": {
+            "sector_core": {
+                "signals": {t: 1 for t in sleeve_weights.get("sector_core", {})},
+                "weights": {t: round(w, 4) for t, w in
+                            sleeve_weights.get("sector_core", {}).items()},
+                "share": round(s_share, 3),
+            },
             "defensive": {
                 "signals": {t: 1 for t in sleeve_weights.get("defensive", {})},
                 "weights": {t: round(w, 4) for t, w in
                             sleeve_weights.get("defensive", {}).items()},
+                "share": round(d_share, 3),
             },
             "real_asset": {
                 "signals": {t: 1 for t in sleeve_weights.get("real_asset", {})},
                 "weights": {t: round(w, 4) for t, w in
                             sleeve_weights.get("real_asset", {}).items()},
+                "share": round(r_share, 3),
             },
         },
         "signals": flat_signals,
