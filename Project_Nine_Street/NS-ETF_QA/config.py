@@ -22,7 +22,7 @@ SECTOR_ETFS = ["XLK", "XLV", "XLF", "XLY", "XLP", "XLE",
                "XLI", "XLB", "XLU", "XLRE"]
 BROAD_ETFS = ["SPY"]                      # sole broad-equity anchor
 INTL_ETFS = ["EFA", "EEM"]                # INTERNAL rotation only — never fed to NS-5
-DEFENSIVE_ETFS = ["TLT", "IEF", "IEI", "AGG", "SHY", "BIL", "SHV"]
+DEFENSIVE_ETFS = ["TLT", "IEF", "IEI", "AGG", "SHY", "BIL"]   # SHV removed: duplicate of BIL (PM)
 REAL_ASSET_ETFS = ["DBC", "GLD"]          # VNQ deferred to v2 (spec §4)
 
 # Full internal rotation universe (allocation-bearing inside NS-ETF)
@@ -79,8 +79,7 @@ ADVISORY_RATIOS = [
     ("TLT/SPY", "20y Treasury vs SPY"), ("IEF/SPY", "7-10y Treasury vs SPY"),
     ("IEI/SPY", "3-7y Treasury vs SPY"), ("AGG/SPY", "Agg Bond vs SPY"),
     ("SHY/SPY", "1-3y Treasury vs SPY"), ("BIL/SPY", "T-Bill vs SPY"),
-    ("SHV/SPY", "Cash Eq vs SPY"), ("DBC/SPY", "Commodities vs SPY"),
-    ("GLD/SPY", "Gold vs SPY"),
+    ("DBC/SPY", "Commodities vs SPY"), ("GLD/SPY", "Gold vs SPY"),
 ]
 
 # ── Feed artifact ────────────────────────────────────────────────────────
