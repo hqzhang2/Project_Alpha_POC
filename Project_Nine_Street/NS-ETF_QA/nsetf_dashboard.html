@@ -239,15 +239,13 @@ function renderFeed(f) {
       `<td class="num">${r ? r.last.toFixed(2) : '—'}</td>` +
       `<td class="num">${r ? r.shares.toLocaleString() : '—'}</td></tr>`);
   }
-  // distinctive TOTAL row
+  // distinctive TOTAL row (BIL absorbs rounding residual — no cash line)
   if (sp.rows) {
     tb.insertAdjacentHTML('beforeend',
       `<tr style="border-top:2px solid var(--txt);font-weight:700;background:#1c2430">
-        <td>TOTAL</td><td>${sp.rows.length} ETFs + cash</td>
+        <td>TOTAL</td><td>${sp.rows.length} ETFs</td>
         <td class="num">100.0%</td><td class="num"></td>
-        <td class="num">$${(sp.notional||0).toLocaleString()}</td></tr>
-      <tr style="color:var(--dim);font-size:11px"><td colspan="4" style="text-align:right">residual cash (whole-share rounding)</td>
-        <td class="num">$${(sp.cash||0).toLocaleString()}</td></tr>`);
+        <td class="num">$${(sp.invested||0).toLocaleString()}</td></tr>`);
   }
   // composite leaders card
   const cs = f.composite_scores || [];

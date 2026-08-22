@@ -120,9 +120,13 @@ def build_advisory_panel(price_map):
 
 def sample_portfolio(conn, weights, notional=100000):
     """$100K sample book: whole shares + last close per ticker.
-    Residual cash (notional - invested) reported so the TOTAL is exact."""
+    BIL is the cash-equivalent sweep: it absorbs the rounding residual so
+    the book totals exactly $100K with no uninvested cash line."""
     import selector
-    rows, invested = [], 0.0
+    rows = []
+    bil_shares_extra = 0
+    invested_ex_bil = 0.0
+    bil_last = None
     for t in sorted(weights):
         closes = selector.store_series(conn, t)
         if not closes:
@@ -132,13 +136,24 @@ def sample_portfolio(conn, weights, notional=100000):
             continue
         target = notional * weights[t]
         shares = int(target // last)          # whole shares only
+        if t == config.CASH_EQ:
+            bil_last = last                    # sized last, absorbs remainder
+            continue
         value = round(shares * last, 2)
-        invested += value
+        invested_ex_bil += value
         rows.append({"ticker": t, "shares": shares,
                      "last": round(last, 2), "value": value})
+    if bil_last:
+        # BIL takes its own whole-share allocation + all residual cash,
+        # allowing slight over/under vs $100K (PM-approved).
+        remaining = notional - invested_ex_bil
+        bil_shares = int(remaining // bil_last)   # may slightly under/over
+        rows.append({"ticker": config.CASH_EQ, "shares": bil_shares,
+                     "last": round(bil_last, 2),
+                     "value": round(bil_shares * bil_last, 2)})
+    total = round(sum(r["value"] for r in rows), 2)
     return {"notional": notional, "rows": rows,
-            "invested": round(invested, 2),
-            "cash": round(notional - invested, 2)}
+            "invested": total, "cash": 0.0}
 
 
 def run(fetcher=None, vix_fn=None, db_path=None):
