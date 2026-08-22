@@ -48,7 +48,7 @@ class Handler(BaseHTTPRequestHandler):
     # ── routes ────────────────────────────────────────────────────────
     def do_GET(self):
         route = self.path.split("?")[0].rstrip("/") or "/"
-        if route in ("/", "/index.html"):
+        if route in ("/", "/index.html", "/nsetf_dashboard.html"):
             self._html(DASHBOARD)
         elif route == "/health":
             ok = config.SIGNALS_PATH.exists()
