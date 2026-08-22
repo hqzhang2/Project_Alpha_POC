@@ -44,9 +44,10 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
 .badge.amber { border-color:var(--amber); color:var(--amber); }
 
 .cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
-.card button.accept { float:right; background:#21262d; color:var(--green);
-  border:1px solid var(--green); border-radius:6px; padding:4px 12px;
-  cursor:pointer; font-size:11px; }
+.card button.accept { float:right; background:var(--green); color:#0d1117;
+  border:none; border-radius:6px; padding:4px 12px;
+  cursor:pointer; font-size:11px; font-weight:700; }
+.card button.accept.accepted { background:var(--blue); color:#fff; }
 .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12px; }
 .kv .k { color:var(--dim); }
 .tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
@@ -332,13 +333,14 @@ document.getElementById('acceptBtn').addEventListener('click', async () => {
   btn.disabled = true; btn.textContent = 'Rebalancing…';
   try {
     const d = await jget('/api/advisory/accept', { method: 'POST' });
-    btn.textContent = 'Accepted ✓ (' + d.as_of + ')';
+    // Accepted state: green → blue until page reload
+    btn.classList.add('accepted');
+    btn.textContent = 'Accepted ✓ rebalanced ' + d.as_of;
     await loadAll();
   } catch (e) {
     btn.textContent = 'Failed: ' + e.message;
   }
   btn.disabled = false;
-  setTimeout(() => { btn.textContent = 'Accept advisory → rebalance'; }, 5000);
 });
 
 loadAll();

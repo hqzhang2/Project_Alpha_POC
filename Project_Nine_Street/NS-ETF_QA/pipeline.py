@@ -270,11 +270,14 @@ def run(fetcher=None, vix_fn=None, db_path=None):
         # last close per ticker.
         "sample_portfolio": sample,
         # NS-1 heritage: composite factor scores for every scored ETF
+        # (BIL excluded — cash equivalent is not a trade signal; it enters
+        # the book via the residual sweep and CRISIS_SAFE rotation)
         "composite_scores": [
             {"ticker": r["ticker"], "score": r["score"], "sleeve": sleeve,
              "components": r.get("components", {})}
             for sleeve in ("sector_core", "defensive", "real_asset")
-            for r in sleeve_picks.get(sleeve, []) if "score" in r
+            for r in sleeve_picks.get(sleeve, [])
+            if "score" in r and r["ticker"] != config.CASH_EQ
         ],
         "regime": reg,
         "crisis_mode": vix_info.get("crisis", False),
