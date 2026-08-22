@@ -44,16 +44,17 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
 .badge.amber { border-color:var(--amber); color:var(--amber); }
 
 .cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
-.card button.accept {
-  float:right; background:linear-gradient(180deg, #4aca5f 0%, var(--green) 55%, #2f9440 100%);
-  color:#06220c; border:none; border-radius:8px; padding:4px 12px;
-  cursor:pointer; font-size:11px; font-weight:700;
+.panel button.accept {
+  width:100%; margin-top:12px; padding:8px 0; font-size:13px;
+  background:linear-gradient(180deg, #4aca5f 0%, var(--green) 55%, #2f9440 100%);
+  color:#06220c; border:none; border-radius:8px;
+  cursor:pointer; font-weight:700;
   box-shadow: 0 2px 4px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.35);
 }
-.card button.accept:hover { filter:brightness(1.08); }
-.card button.accept:active { transform:translateY(1px);
+.panel button.accept:hover { filter:brightness(1.08); }
+.panel button.accept:active { transform:translateY(1px);
   box-shadow: 0 1px 2px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.2); }
-.card button.accept.accepted {
+.panel button.accept.accepted {
   background:linear-gradient(180deg, #7cb8ff 0%, var(--blue) 55%, #2f6fd0 100%);
   color:#04182e;
 }
@@ -102,8 +103,7 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
     <section class="panel">
       <h2>State</h2>
       <div class="kv" id="stateBox"></div>
-      <button id="acceptBtn" class="accept" style="width:100%;margin-top:12px;
-              padding:8px 0;font-size:13px;">⚖ Accept advisory → rebalance</button>
+      <button id="acceptBtn" class="accept">⚖ Accept advisory → rebalance</button>
     </section>
 
     <section class="panel">
