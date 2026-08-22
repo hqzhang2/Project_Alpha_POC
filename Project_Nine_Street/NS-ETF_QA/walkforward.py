@@ -104,17 +104,60 @@ def sleeve_weights(closes_map, picks, d):
     return {t: v / tot for t, v in inv.items()}
 
 
-def run_policy(name, closes_map, dates, rebalance_dates, policy):
+def true_design_target(defensive, real_asset, sector_share=0.60,
+                       defensive_share=0.25):
+    """NS-ETF's actual design: top-3 sector momentum core (sector_share),
+    split-sleeve diversifier (rest, 2:1 defensive:real-asset tilt).
+    Regime tilt via defensive sleeve weight scaling by 52w SPY trend —
+    SPY below its 200d → shift 10pp from sectors to defensive (soft)."""
+    def target(d, scored, cm):
+        sec_picks = [t for t, _ in scored if t not in defensive + real_asset][:3]
+        def_picks = [t for t, _ in scored if t in defensive][:config.TOP_N_PER_SLEEVE]
+        ra_picks = [t for t, _ in scored if t in real_asset][:config.TOP_N_PER_SLEEVE]
+        sw = sleeve_weights(cm, sec_picks, d)
+        dw = sleeve_weights(cm, def_picks, d)
+        rw = sleeve_weights(cm, ra_picks, d)
+        s_share, d_share = sector_share, defensive_share
+        spy = cm.get("SPY", {})
+        ds = [x for x in spy if x <= d]
+        if len(ds) >= 200 and spy[ds[-1]] < sum(spy[x] for x in ds[-200:]) / 200:
+            s_share -= 0.10
+            d_share += 0.10
+        r_share = 1.0 - s_share - d_share
+        out = {t: w * s_share for t, w in sw.items()}
+        out.update({t: out.get(t, 0) + w * d_share for t, w in dw.items()})
+        out.update({t: out.get(t, 0) + w * r_share for t, w in rw.items()})
+        return out
+    return target
+
+
+def run_policy(name, closes_map, dates, rebalance_dates, policy, vix_map=None):
     """Simulate daily mark-to-market, rebalance on schedule.
-    policy(d, scored) -> {ticker: weight} target book."""
+    policy(d, scored) -> {ticker: weight} target book.
+    vix_map enables the NS-1 heritage overlay: VIX >= CRISIS → whole book
+    rotates to CRISIS_SAFE (equal-vol), back on the next rebalance when
+    VIX < CRISIS_OUT (hysteresis, matching NS-1's crisis_in/out)."""
     equity = 1.0
-    holdings = {}          # {t: shares_value_fraction}
     last_weights = {}
     curve, turnover_total, n_rebal = [], 0.0, 0
+    in_crisis = False
     for d in dates:
-        if d in rebalance_dates:
+        if d in rebalance_dates or (
+                vix_map and in_crisis and vix_map.get(d, 99) < config.VIX_CRISIS_LEVEL - 5):
             scored = rank_universe(closes_map, d, policy["universe"])
             target = policy["target"](d, scored, closes_map)
+            # VIX overlay (fail-open: missing VIX = no rotation)
+            if vix_map:
+                v = vix_map.get(d)
+                if v is not None:
+                    was = in_crisis
+                    if not in_crisis and v >= config.VIX_CRISIS_LEVEL:
+                        in_crisis = True
+                    elif in_crisis and v < config.VIX_CRISIS_LEVEL - 5:
+                        in_crisis = False
+                    if in_crisis:
+                        safe = sorted(t for t in config.CRISIS_SAFE if t in closes_map)
+                        target = sleeve_weights(closes_map, safe, d)
             if target:
                 traded = sum(abs(target.get(t, 0) - last_weights.get(t, 0))
                              for t in set(target) | set(last_weights))
@@ -200,28 +243,35 @@ def main(force=False):
              (t, w) for (t, _), w in zip(
                  scored[:3],
                  list(sleeve_weights(cm, [t for t, _ in scored[:3]], d).values())))},
+        {"name": "P0V_baseline_plus_vix",
+         "universe": sectors,
+         "vix": True,
+         "target": lambda d, scored, cm: dict(
+             (t, w) for (t, _), w in zip(
+                 scored[:3],
+                 list(sleeve_weights(cm, [t for t, _ in scored[:3]], d).values())))},
         {"name": "P1_merged_diversifier",
          "universe": sectors + defensive + real_asset,
+         "vix": True,
          "target": lambda d, scored, cm: dict(
              (t, w) for (t, _), w in zip(
                  scored[:TOP_N_MERGED],
                  list(sleeve_weights(cm, [t for t, _ in scored[:TOP_N_MERGED]], d).values())))},
-        {"name": "P2_split_sleeves",
+        # True NS-ETF design: sector-momentum core + defensive/real-asset
+        # sleeves sized by regime tilt, VIX crisis overlay on top.
+        {"name": "P2R_true_design",
          "universe": sectors + defensive + real_asset,
-         "target": lambda d, scored, cm: (lambda sd, rd: {
-             **{t: 0.5 * w for t, w in sd.items()},
-             **{t: 0.5 * w for t, w in rd.items()}})(
-             sleeve_weights(cm, [t for t, _ in
-                          [s for s in scored if s[0] in defensive][:config.TOP_N_PER_SLEEVE]], d),
-             sleeve_weights(cm, [t for t, _ in
-                          [s for s in scored if s[0] in real_asset][:config.TOP_N_PER_SLEEVE]], d))},
+         "vix": True,
+         "target": true_design_target(defensive, real_asset)},
     ]
 
+    vix_map = {d: v for d, v in to_maps(raw).get("^VIX", {}).items()}
     results = {}
     print(f"\n{'policy':26s} {'CAGR':>7s} {'MaxDD':>8s} {'DD/SPY':>7s} {'tn/yr':>6s} {'excess yrs':>11s}")
     spy_mdd = abs(drawdown(spy_curve))
     for p in policies:
-        r = run_policy(p["name"], closes, spy_dates, rebal, p)
+        r = run_policy(p["name"], closes, spy_dates, rebal, p,
+                       vix_map=vix_map if p.get("vix") else None)
         mdd = abs(drawdown(r["curve"]))
         wins, tot, detail = excess_years(r["curve"], spy_curve)
         results[p["name"]] = {
