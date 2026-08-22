@@ -27,6 +27,7 @@ import config
 import pipeline
 import store
 import universe
+import vs_badges
 
 PORT = int(os.environ.get("PORT", 9271))
 ENV = os.environ.get("ENV", "QA")
@@ -87,6 +88,8 @@ class NS7Handler(BaseHTTPRequestHandler):
             return self._major()
         if path == "/api/select":
             return self._select()
+        if path == "/api/vsbadges":
+            return self._vsbadges()
         if path.startswith("/api/leagues/"):
             ticker = path.split("/")[-1].strip().upper()
             if ticker:
@@ -139,6 +142,11 @@ class NS7Handler(BaseHTTPRequestHandler):
             return self._json({"error": "no selection yet — run pipeline.py",
                                "as_of": None, "selections": []}, 404)
         self._json(latest["payload"])
+
+    def _vsbadges(self):
+        """Daily badge snapshot (HMM + value screen) — {} when absent/stale."""
+        snap = vs_badges.load_snapshot()
+        self._json(snap or {"tickers": {}})
 
     def _league_reason(self, row: dict, facts: dict, major_qual: bool) -> str:
         """Why this ticker is in its league — the drill-down headline."""
@@ -213,6 +221,9 @@ class NS7Handler(BaseHTTPRequestHandler):
             "grace_days_left_to_promotion": grace_left if row["league"] == config.LEAGUE_MINOR else None,
             "ns2_signal": pipeline.load_ns2_signals().get(ticker.upper()),
             "ns2_advisory": pipeline.load_ns2_signals().get(ticker.upper()) in config.NS2_NO_CONVICTION,
+            # v4.4: daily badge snapshot (fresh HMM signal + 4-framework value
+            # screen) for benchmark outperformers; None when absent/stale.
+            "vs": vs_badges.ticker_entry(ticker),
             "selection": self._selection_status(ticker),
             "momentum_window": mom,
             "facts": {k: facts.get(k) for k in
