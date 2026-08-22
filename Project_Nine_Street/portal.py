@@ -196,8 +196,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <button class="nav-tab" data-strategy="ns6" onclick="switchStrategy('ns6')"><span class="status-indicator" id="status-ns6"></span>NS-6</button>
               <button class="nav-tab" data-strategy="ns7" onclick="switchStrategy('ns7')"><span class="status-indicator" id="status-ns7"></span>NS-7</button>
               <button class="nav-tab" data-strategy="ns8" onclick="switchStrategy('ns8')"><span class="status-indicator" id="status-ns8"></span>NS-8</button>
-              <button class="nav-tab" data-strategy="nsx" onclick="switchStrategy('nsx')"><span class="status-indicator" id="status-nsx"></span>NS-X</button>
               <button class="nav-tab" data-strategy="nsetf" onclick="switchStrategy('nsetf')"><span class="status-indicator" id="status-nsetf"></span>NS-ETF</button>
+              <button class="nav-tab" data-strategy="nsx" onclick="switchStrategy('nsx')"><span class="status-indicator" id="status-nsx"></span>NS-X</button>
               <button class="nav-tab" data-strategy="nspc" onclick="switchStrategy('nspc')"><span class="status-indicator" id="status-nspc"></span>NS-PC</button>
             </div>
     </div>
