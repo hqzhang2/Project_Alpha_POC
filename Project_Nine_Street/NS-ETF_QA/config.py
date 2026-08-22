@@ -23,7 +23,7 @@ SECTOR_ETFS = ["XLK", "XLV", "XLF", "XLY", "XLP", "XLE",
 BROAD_ETFS = ["SPY"]                      # sole broad-equity anchor
 INTL_ETFS = ["EFA", "EEM"]                # INTERNAL rotation only — never fed to NS-5
 DEFENSIVE_ETFS = ["TLT", "IEF", "IEI", "AGG", "SHY", "BIL"]   # SHV removed: duplicate of BIL (PM)
-REAL_ASSET_ETFS = ["DBC", "GLD"]          # VNQ deferred to v2 (spec §4)
+REAL_ASSET_ETFS = ["DBC", "GLD"]          # VNQ evidence-gated OUT (v4.4: -0.31% CAGR, +0.5pp DD; vnq_gate.py)
 
 # Full internal rotation universe (allocation-bearing inside NS-ETF)
 UNIVERSE = sorted(set(
