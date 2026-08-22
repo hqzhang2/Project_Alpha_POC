@@ -106,3 +106,5 @@ Project_Nine_Street/scripts/paper_portfolio.json
 data/nsetf.sqlite
 Project_Nine_Street/NS-ETF_QA/data/
 common/data/
+
+Project_Nine_Street/NS-ETF_PROD/data/

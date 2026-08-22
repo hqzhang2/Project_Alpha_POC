@@ -29,6 +29,7 @@
 2. **All development work MUST go to the QA environment (`Project_Sequoia/QA_terminal/`).**
 3. **Ports are STRICT:** Production is ALWAYS `9098`. QA is ALWAYS `9099`.
 4. **Never bypass `deploy.sh`:** Do not manually start servers. The `deploy.sh` scripts set critical `PORT` and `ENV` variables. Missing these will cause QA files to overlap onto the Production port.
+5. **QA/PROD file-pair rule (hit 2026-08-17, OMON GEX):** `QA_terminal/` (9099, canonical dev) and `terminal/` (9098, PROD copy) are a **byte-identical file pair**. Make HTML/JS changes in `QA_terminal/` FIRST, verify on QA, THEN sync to `terminal/`. Editing `terminal/` first leaves QA stale → the feature appears "missing on QA but present on prod" (exact OMON GEX bug). Both files must stay byte-identical.
 
 ## ✅ SECURITY ISSUE RESOLVED (2026-08-07): Hardcoded API keys in news tab
 - **Fixed:** `Project_Sequoia/terminal/news.py` (PROD) — hardcoded Finnhub + NewsAPI fallback keys removed; now env-only (matches QA). Keys moved to BOTH launchd plists (QA + PROD) `EnvironmentVariables`.
@@ -77,6 +78,17 @@
 - **Remaining:** none for sentiment. (Stale `daily_update.py` in terminal/ has a hardcoded `QA_terminal` sys.path — pre-existing, not sentiment-scoped; flag for v3.0.)
 - **Rules:** fail-open everywhere; AV/FRED keys only via env; American color (green=bull/red=bear/gray=null); QA → verify → release branch → PROD via deploy_prod.sh.
 
+## OMON Gamma Exposure (GEX) + NS-7 watchdog (SHIPPED v4.2.0 2026-08-17)
+**OMON Gamma Exposure chart** — between the option chain table and the IV smile chart, matching a reference GEX layout:
+- Computed **client-side from the selected chain** (`OI × gamma × spot × 100`, calls +/puts −). **No date picker** — always reflects the loaded expiry.
+- Green call bars / red put bars, blue **Aggregate GEX** cumulative line (right axis), orange **Gamma Flip** line + grey **Last Price** line, **Call Wall / Put Wall** annotations, sign-aware green/red background zones, 6-item HTML legend.
+- **Adaptive strike binning (~55 buckets)** via `niceBin` — high-priced tickers (SPY ~$770, strike every $2) otherwise render ~250 thin bars. **±25% moneyness window** around spot keeps the flip/walls meaningful (full chain pulls the flip to a meaningless far-OTM strike). Gamma Flip = interpolated zero-crossing of the cumulative line nearest spot; shading is data-driven (green where cum>0, red where <0).
+- Custom Chart.js plugin for the lines/shading/annotations (matches the existing crosshair-plugin pattern; chart.js v4.4.7 has no annotation plugin). Dual y-axis.
+- Applied to BOTH `QA_terminal/omon.html` and `terminal/omon.html`, kept **byte-identical** (rule #5 above).
+- Verification: live browser render + ad-hoc Node checks (extracted real `computeGex`: math/binning/walls/flip/edge-case; 32/32).
+
+**NS-7 watchdog gap (stale-code incident, fixed):** NS-7 `store.py` was migrated to the centralized Postgres (`common.db`) but `restart_stale_services.sh` did **not** list NS-7, so the QA server ran the pre-migration code and `/health` went red (`sqlite3.OperationalError: no such table` on the empty `data/ns7.db`). **Fix:** added `com.ninestreet.ns7.qa` + `com.ninestreet.ns7.prod` to the watchdog `SERVICES` list with `common_flag=1` (NS-7 store.py imports `common.db`). Lesson: keep the watchdog's `SERVICES` list in sync with which services import `common/` after any migration.
+
 ## Human Team Members:
 | Role | Name | Focus |
 |------|------|-------|
@@ -94,6 +106,7 @@
 - **2026-07-23:** 52-Week Highs feature completed in Alpha Terminal QA (feature/v1.8): Market Cap (B) column, finviz ticker cleanup (AADM→ADM etc), OMON-style toolbar + container panel with gradient accent bar, sticky header, sort arrows (▲=asc/▼=desc), zebra striping, removed $1B filter & Reload button. Launchd daily update job at 5pm ET Mon-Fri. All changes in feature/v1.8 branch.
 - **2026-07-24:** Release v1.9 cut and deployed to PROD/QA: Alpha Terminal (9098/9099), Nine Street NS-1/2/3/4 (9218-9241/9219-9241), Portal (8000). All PROD plists created and loaded. Calendar icon visibility fixed in 52-Week Highs/Lows with `filter:invert(1)` on native date picker. Calendar button replaced with native dropdown select populated from calendar API. Calendar button bug fixed: changed from `showPicker()` to `.click()` with `type="button"` for reliable cross-browser dropdown. v1.9 released and pushed to feature/v2.0 branch.
 - **2026-08-08:** **v2.9.0 released to PROD** (PR #16, owner-approved): sentiment board (9 indicators + 6 tiles) shipped, per-ticker EDGAR insider + StockTwits social (dashboard chips + drill-down modals), on-demand P/C OI snapshot (watchlist add), options.py shared-strike fix, P/C overlay label/tooltip/single-point fixes, Finnhub + NewsAPI keys rotated (security closed). Portal label v2.9.0 | 2026-08-08. PROD sentiment-collect `.prod` launchd twin created. master synced, release/v2.9 + feature/v3.0 pushed (next dev line).
+- **2026-08-17:** **v4.2.0 released to PROD** (feature PR #55 + trunk-sync PR #56, owner-approved; master synced to `5c197ec`): OMON **Gamma Exposure chart** + **watchdog NS-7 registration**. Portal label v4.2.0. NO branches deleted (house rule). See "OMON Gamma Exposure + v4.2" below.
 
 ## Project Nine Street - Quantitative Trading System
 **Status:** ACTIVE PRIMARY PROJECT
