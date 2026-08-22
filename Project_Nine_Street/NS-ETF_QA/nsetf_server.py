@@ -3,7 +3,9 @@
 Ports: QA 9293 / PROD 9292. Single-origin dashboard + JSON API.
 CORS from end_headers() ONLY.
 """
+import datetime as dt
 import json
+import math
 import os
 import sqlite3
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -45,6 +47,17 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self._json(404, {"error": "not found"})
 
+    def do_POST(self):   # PM actions (semi-live rebalance)
+        route = self.path.split("?")[0].rstrip("/")
+        if route == "/api/advisory/accept":
+            result = pipeline.run()
+            self._json(200, {"accepted": True,
+                             "as_of": result["as_of"],
+                             "weights": result["weights"],
+                             "events": len(result["events"])})
+        else:
+            self._json(404, {"error": f"unknown route {route}"})
+
     # ── routes ────────────────────────────────────────────────────────
     def do_GET(self):
         route = self.path.split("?")[0].rstrip("/") or "/"
@@ -74,9 +87,41 @@ class Handler(BaseHTTPRequestHandler):
             conn = store._connect()
             meta = store.get_meta(conn, "last_run", {})
             conn.close()
-            self._json(200, meta)
+            self._json(200, live_status(meta))
+        elif route == "/api/advisory/accept":
+            # PM button: accept the current advisory → run a fresh pipeline
+            # pass (rebalance). Manual semi-live per PM spec; trades land in
+            # the feed for NS-6 to gate.
+            result = pipeline.run()
+            self._json(200, {"accepted": True,
+                             "as_of": result["as_of"],
+                             "weights": result["weights"],
+                             "events": len(result["events"])})
         else:
             self._json(404, {"error": f"unknown route {route}"})
+
+
+def live_status(meta):
+    """Live vs stale: fresh = pipeline ran within the last business-day
+    window (weekend-safe: Friday run covers Sat/Sun)."""
+    as_of = meta.get("as_of") if isinstance(meta, dict) else None
+    status = "stale"
+    if as_of:
+        try:
+            run_date = dt.date.fromisoformat(as_of)
+            today = dt.date.today()
+            # business days between run and today
+            bd = 0
+            d = run_date
+            while d < today:
+                d += dt.timedelta(days=1)
+                if d.weekday() < 5:
+                    bd += 1
+            status = "live" if bd <= 1 else "stale"
+        except ValueError:
+            pass
+    return {"status": status, "as_of": as_of,
+            "events": meta.get("events", []) if isinstance(meta, dict) else []}
 
 
 def _feed_or_none():
@@ -91,10 +136,10 @@ def overlay_state(spot, avg):
 
 
 def performance_snapshot():
-    """Strategy-vs-SPY equity curve for the retained NS-1-style chart.
+    """Strategy-vs-SPY equity curve + risk metrics (NS-1 heritage).
     Computed from the sqlite price store (never hardcoded). Includes the
     VIX spot series and its moving average, aligned to the same dates
-    (left-axis overlay per NS-1 pattern)."""
+    (left-axis overlay per NS-1 pattern), plus CAGR/Sharpe/maxDD/vol."""
     conn = store._connect()
     try:
         store.init_db()
@@ -117,6 +162,9 @@ def performance_snapshot():
     # onto the price dates). Fail-open: missing → nulls, chart still renders.
     vix_series, vix_avg_series = _vix_aligned(dates)
 
+    strat_curve = [(d, dset_book[d]) for d in dates]
+    spy_curve_full = [(d, dset_spy[d]) for d in dates]
+
     return {
         "dates": dates,
         "strategy": [round(dset_book[d] / b0, 4) for d in dates],
@@ -124,7 +172,34 @@ def performance_snapshot():
         "vix_series": vix_series,
         "vix_avg_series": vix_avg_series,
         "vix": pipeline_vix_point(),
+        "metrics": {
+            "strategy": _risk_metrics(strat_curve),
+            "spy": _risk_metrics(spy_curve_full),
+        },
     }
+
+
+def _risk_metrics(curve):
+    """CAGR / annualized vol / Sharpe (rf=0) / MaxDD from an equity curve."""
+    if len(curve) < 20:
+        return None
+    rets = [curve[i][1] / curve[i - 1][1] - 1.0
+            for i in range(1, len(curve))
+            if curve[i][0] > curve[i - 1][0]]
+    years = max((dt.date.fromisoformat(curve[-1][0]) -
+                 dt.date.fromisoformat(curve[0][0])).days / 365.25, 1e-9)
+    cagr_v = (curve[-1][1] / curve[0][1]) ** (1 / years) - 1.0
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / len(rets)
+    vol = math.sqrt(var) * math.sqrt(252)
+    sharpe = (cagr_v / vol) if vol > 0 else None
+    peak, mdd = -1e9, 0.0
+    for _, v in curve:
+        peak = max(peak, v)
+        mdd = min(mdd, v / peak - 1.0)
+    return {"cagr": round(cagr_v, 4), "vol": round(vol, 4),
+            "sharpe": round(sharpe, 2) if sharpe else None,
+            "max_dd": round(mdd, 4)}
 
 
 _VIX_CACHE = {"ts": 0.0, "data": None}

@@ -1,9 +1,22 @@
 {
-  "as_of": "2026-08-21",
-  "generated_at": "2026-08-21T18:46:29",
+  "as_of": "2026-08-22",
+  "generated_at": "2026-08-22T11:32:17",
   "service": "ns-etf",
   "version": 1,
   "sleeves": {
+    "sector_core": {
+      "signals": {
+        "XLV": 1,
+        "XLF": 1,
+        "XLE": 1
+      },
+      "weights": {
+        "XLV": 0.2956,
+        "XLF": 0.447,
+        "XLE": 0.2573
+      },
+      "share": 0.6
+    },
     "defensive": {
       "signals": {
         "BIL": 1,
@@ -14,7 +27,8 @@
         "BIL": 0.4526,
         "SHV": 0.448,
         "SHY": 0.0995
-      }
+      },
+      "share": 0.15
     },
     "real_asset": {
       "signals": {
@@ -24,10 +38,14 @@
       "weights": {
         "DBC": 0.5412,
         "GLD": 0.4588
-      }
+      },
+      "share": 0.25
     }
   },
   "signals": {
+    "XLV": 1,
+    "XLF": 1,
+    "XLE": 1,
     "BIL": 1,
     "SHV": 1,
     "SHY": 1,
@@ -35,11 +53,14 @@
     "GLD": 1
   },
   "weights": {
-    "BIL": 0.226284,
-    "SHV": 0.223981,
-    "SHY": 0.049735,
-    "DBC": 0.270599,
-    "GLD": 0.229401
+    "XLV": 0.177379,
+    "XLF": 0.268227,
+    "XLE": 0.154394,
+    "BIL": 0.067886,
+    "SHV": 0.067193,
+    "SHY": 0.014921,
+    "DBC": 0.135299,
+    "GLD": 0.114701
   },
   "regime": {
     "hmm_state": "bull",
@@ -109,7 +130,7 @@
         "50": 0.215
       },
       "rsi": 64.0,
-      "adx": 14.7,
+      "adx": 14.6,
       "alignment": 4,
       "trend": "UP",
       "advisory_only": true

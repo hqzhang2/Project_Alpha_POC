@@ -226,6 +226,13 @@ def run(fetcher=None, vix_fn=None, db_path=None):
         },
         "signals": flat_signals,
         "weights": {t: round(w, 6) for t, w in final_w.items()},
+        # NS-1 heritage: composite factor scores for every scored ETF
+        "composite_scores": [
+            {"ticker": r["ticker"], "score": r["score"], "sleeve": sleeve,
+             "components": r.get("components", {})}
+            for sleeve in ("sector_core", "defensive", "real_asset")
+            for r in sleeve_picks.get(sleeve, []) if "score" in r
+        ],
         "regime": reg,
         "crisis_mode": vix_info.get("crisis", False),
         "vix": {"spot": vix_info.get("spot"), "avg": vix_info.get("avg"),

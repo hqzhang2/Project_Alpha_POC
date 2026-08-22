@@ -74,6 +74,13 @@ ADVISORY_RATIOS = [
     ("XLY/SPY", "Cons.Disc vs SPY"), ("XLP/SPY", "Cons.Staples vs SPY"),
     ("XLB/SPY", "Materials vs SPY"), ("XLI/SPY", "Industrials vs SPY"),
     ("XLU/SPY", "Utilities vs SPY"), ("XLRE/SPY", "RealEstate vs SPY"),
+    # PM: ratio-vs-SPY panel must cover ALL strategy ETFs
+    ("EFA/SPY", "EAFE vs SPY"), ("EEM/SPY", "EM vs SPY"),
+    ("TLT/SPY", "20y Treasury vs SPY"), ("IEF/SPY", "7-10y Treasury vs SPY"),
+    ("IEI/SPY", "3-7y Treasury vs SPY"), ("AGG/SPY", "Agg Bond vs SPY"),
+    ("SHY/SPY", "1-3y Treasury vs SPY"), ("BIL/SPY", "T-Bill vs SPY"),
+    ("SHV/SPY", "Cash Eq vs SPY"), ("DBC/SPY", "Commodities vs SPY"),
+    ("GLD/SPY", "Gold vs SPY"),
 ]
 
 # ── Feed artifact ────────────────────────────────────────────────────────
