@@ -84,7 +84,8 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
     <section class="panel">
       <h2>Sleeves &amp; Weights</h2>
       <table id="sleeveTable"><thead>
-        <tr><th>Ticker</th><th>Sleeve</th><th class="num">Weight</th></tr>
+        <tr><th>Ticker</th><th>Sleeve</th><th class="num">Weight</th>
+            <th class="num">Last</th><th class="num">Shares ($100K)</th></tr>
       </thead><tbody></tbody></table>
     </section>
 
@@ -217,20 +218,36 @@ const pct = v => v == null ? '—' : (100 * v).toFixed(1) + '%';
 const num2 = v => v == null ? '—' : Number(v).toFixed(2);
 
 function renderFeed(f) {
-  // sleeves table
+  // sleeves table + $100K sample sizing
   const tb = document.querySelector('#sleeveTable tbody');
   tb.innerHTML = '';
   const sleeveOf = {};
   for (const [name, s] of Object.entries(f.sleeves || {}))
     for (const t of Object.keys(s.weights || {})) sleeveOf[t] = name;
+  const sp = f.sample_portfolio || { rows: [] };
+  const byTicker = {};
+  for (const r of (sp.rows || [])) byTicker[r.ticker] = r;
   for (const [t, w] of Object.entries(f.weights || {}).sort((a,b)=>b[1]-a[1])) {
     const cls = sleeveOf[t] === 'sector_core' ? 'core'
               : sleeveOf[t] === 'defensive' ? 'def'
               : sleeveOf[t] === 'real_asset' ? 'ra' : '';
     const label = (sleeveOf[t] || '—').replace('_', ' ');
+    const r = byTicker[t];
     tb.insertAdjacentHTML('beforeend',
       `<tr><td>${t}</td><td>${cls ? `<span class="chip ${cls}">${label}</span>` : label}` +
-      `</td><td class="num">${(100*w).toFixed(1)}%</td></tr>`);
+      `</td><td class="num">${(100*w).toFixed(1)}%</td>` +
+      `<td class="num">${r ? r.last.toFixed(2) : '—'}</td>` +
+      `<td class="num">${r ? r.shares.toLocaleString() : '—'}</td></tr>`);
+  }
+  // distinctive TOTAL row
+  if (sp.rows) {
+    tb.insertAdjacentHTML('beforeend',
+      `<tr style="border-top:2px solid var(--txt);font-weight:700;background:#1c2430">
+        <td>TOTAL</td><td>${sp.rows.length} ETFs + cash</td>
+        <td class="num">100.0%</td><td class="num"></td>
+        <td class="num">$${(sp.notional||0).toLocaleString()}</td></tr>
+      <tr style="color:var(--dim);font-size:11px"><td colspan="4" style="text-align:right">residual cash (whole-share rounding)</td>
+        <td class="num">$${(sp.cash||0).toLocaleString()}</td></tr>`);
   }
   // composite leaders card
   const cs = f.composite_scores || [];

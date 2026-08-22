@@ -118,6 +118,29 @@ def build_advisory_panel(price_map):
     return panel
 
 
+def sample_portfolio(conn, weights, notional=100000):
+    """$100K sample book: whole shares + last close per ticker.
+    Residual cash (notional - invested) reported so the TOTAL is exact."""
+    import selector
+    rows, invested = [], 0.0
+    for t in sorted(weights):
+        closes = selector.store_series(conn, t)
+        if not closes:
+            continue
+        last = closes[-1]
+        if last <= 0:
+            continue
+        target = notional * weights[t]
+        shares = int(target // last)          # whole shares only
+        value = round(shares * last, 2)
+        invested += value
+        rows.append({"ticker": t, "shares": shares,
+                     "last": round(last, 2), "value": value})
+    return {"notional": notional, "rows": rows,
+            "invested": round(invested, 2),
+            "cash": round(notional - invested, 2)}
+
+
 def run(fetcher=None, vix_fn=None, db_path=None):
     """Full refresh: prices → scores → sleeves → overlay → signals.json.
     Returns the emitted dict."""
@@ -196,6 +219,8 @@ def run(fetcher=None, vix_fn=None, db_path=None):
                                          for t, s, sc, sg, w in signal_rows])
     store.set_meta(conn, "last_run",
                    {"as_of": as_of, "events": events, "vix": vix_info})
+    # Sample sizing needs the open connection (last closes) — before close.
+    sample = sample_portfolio(conn, final_w, 100000)
     conn.close()
 
     flat_signals = {t: (1 if w > 0 else 0) for t, w in final_w.items()}
@@ -226,6 +251,9 @@ def run(fetcher=None, vix_fn=None, db_path=None):
         },
         "signals": flat_signals,
         "weights": {t: round(w, 6) for t, w in final_w.items()},
+        # Sample-portfolio sizing (PM display): $100K notional, whole shares,
+        # last close per ticker.
+        "sample_portfolio": sample,
         # NS-1 heritage: composite factor scores for every scored ETF
         "composite_scores": [
             {"ticker": r["ticker"], "score": r["score"], "sleeve": sleeve,
