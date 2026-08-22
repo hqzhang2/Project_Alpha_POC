@@ -151,19 +151,19 @@ function renderPerf(p) {
   if (p.error) { document.getElementById('status').textContent = 'perf: ' + p.error; return; }
   const hasVix = p.vix_series && p.vix_series.some(v => v !== null);
   const traces = [
-    { x: p.dates, y: p.strategy.map(v => +(v * 100).toFixed(2)), name: 'NS-ETF ($ left)',
+    { x: p.dates, y: p.strategy.map(v => +(v * 100).toFixed(2)), name: 'NS-ETF',
       type: 'scatter', mode: 'lines', yaxis: 'y',
       line: { color: '#3fb950', width: 2 } },
-    { x: p.dates, y: p.spy.map(v => +(v * 100).toFixed(2)), name: 'SPY ($ left)',
+    { x: p.dates, y: p.spy.map(v => +(v * 100).toFixed(2)), name: 'SPY',
       type: 'scatter', mode: 'lines', yaxis: 'y',
       line: { color: '#8b949e', width: 1.4 } },
   ];
   if (hasVix) {
-    traces.push({ x: p.dates, y: p.vix_series, name: 'VIX spot (right)',
+    traces.push({ x: p.dates, y: p.vix_series, name: 'VIX spot',
       type: 'scatter', mode: 'lines', yaxis: 'y2',
       line: { color: '#f85149', width: 1, dash: 'dot' } });
     if (p.vix_avg_series && p.vix_avg_series.some(v => v !== null)) {
-      traces.push({ x: p.dates, y: p.vix_avg_series, name: 'VIX SMA (right)',
+      traces.push({ x: p.dates, y: p.vix_avg_series, name: 'VIX SMA',
         type: 'scatter', mode: 'lines', yaxis: 'y2',
         line: { color: '#d29922', width: 1, dash: 'dash' } });
     }

@@ -36,10 +36,13 @@ class TestMarkup(unittest.TestCase):
 
     def test_vix_on_right_axis(self):
         # PM spec rev 2: LEFT = growth of $100, RIGHT = VIX
+        # (legend labels are clean names — no "(left)"/"(right)" suffixes)
         self.assertIn("side: 'left'", self.html)
         self.assertIn("Growth of $100", self.html)
-        self.assertIn("VIX spot (right)", self.html)
-        self.assertIn("VIX SMA (right)", self.html)
+        self.assertIn("name: 'VIX spot'", self.html)
+        self.assertIn("name: 'VIX SMA'", self.html)
+        self.assertNotIn("($ left)", self.html)
+        self.assertNotIn("(right)", self.html)
 
     def test_metrics_and_scores_panels(self):
         self.assertIn('id="metricsRow"', self.html)
