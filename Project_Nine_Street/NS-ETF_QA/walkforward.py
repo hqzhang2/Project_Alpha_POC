@@ -141,31 +141,39 @@ def run_policy(name, closes_map, dates, rebalance_dates, policy, vix_map=None):
     last_weights = {}
     curve, turnover_total, n_rebal = [], 0.0, 0
     in_crisis = False
+    crisis_just_flipped = False
     for d in dates:
-        if d in rebalance_dates or (
-                vix_map and in_crisis and vix_map.get(d, 99) < config.VIX_CRISIS_LEVEL - 5):
+        # Daily VIX check, decoupled from cadence (iteration-3 fix): crisis
+        # entry/exit is evaluated EVERY day; rotation trades fire the same
+        # day (crisis entry → CRISIS_SAFE, exit → restore strategic book).
+        if vix_map:
+            v = vix_map.get(d)
+            if v is not None:
+                if not in_crisis and v >= config.VIX_CRISIS_LEVEL:
+                    in_crisis = True
+                    crisis_just_flipped = True
+                elif in_crisis and v < config.VIX_CRISIS_LEVEL - 5:
+                    in_crisis = False
+                    crisis_just_flipped = True
+        needs_trade = (d in rebalance_dates) or (
+            vix_map and in_crisis is not None and
+            ((in_crisis and vix_map.get(d) is not None) or crisis_just_flipped))
+        if needs_trade:
             scored = rank_universe(closes_map, d, policy["universe"])
             target = policy["target"](d, scored, closes_map)
-            # VIX overlay (fail-open: missing VIX = no rotation)
-            if vix_map:
-                v = vix_map.get(d)
-                if v is not None:
-                    was = in_crisis
-                    if not in_crisis and v >= config.VIX_CRISIS_LEVEL:
-                        in_crisis = True
-                    elif in_crisis and v < config.VIX_CRISIS_LEVEL - 5:
-                        in_crisis = False
-                    if in_crisis:
-                        safe = sorted(t for t in config.CRISIS_SAFE if t in closes_map)
-                        target = sleeve_weights(closes_map, safe, d)
+            if vix_map and in_crisis:
+                safe = sorted(t for t in config.CRISIS_SAFE if t in closes_map)
+                target = sleeve_weights(closes_map, safe, d)
             if target:
                 traded = sum(abs(target.get(t, 0) - last_weights.get(t, 0))
                              for t in set(target) | set(last_weights))
-                turnover_total += traded
-                cost = equity * traded * COST_BPS / 10000.0
-                equity -= cost
-                last_weights = target
-                n_rebal += 1
+                if traded > 1e-9:
+                    turnover_total += traded
+                    cost = equity * traded * COST_BPS / 10000.0
+                    equity -= cost
+                    last_weights = target
+                    n_rebal += 1
+        crisis_just_flipped = False
         # daily pnl
         if last_weights:
             day = 0.0
@@ -263,6 +271,19 @@ def main(force=False):
          "universe": sectors + defensive + real_asset,
          "vix": True,
          "target": true_design_target(defensive, real_asset)},
+        # Iteration 3: PM dial (defensive share grid) + monthly cadence.
+        {"name": "P2R_def15",
+         "universe": sectors + defensive + real_asset,
+         "vix": True, "rebal_months": REBALANCE_MONTHS,
+         "target": true_design_target(defensive, real_asset, defensive_share=0.15)},
+        {"name": "P2R_def35",
+         "universe": sectors + defensive + real_asset,
+         "vix": True,
+         "target": true_design_target(defensive, real_asset, defensive_share=0.35)},
+        {"name": "P2R_monthly",
+         "universe": sectors + defensive + real_asset,
+         "vix": True, "rebal_months": 1,
+         "target": true_design_target(defensive, real_asset)},
     ]
 
     vix_map = {d: v for d, v in to_maps(raw).get("^VIX", {}).items()}
@@ -270,7 +291,9 @@ def main(force=False):
     print(f"\n{'policy':26s} {'CAGR':>7s} {'MaxDD':>8s} {'DD/SPY':>7s} {'tn/yr':>6s} {'excess yrs':>11s}")
     spy_mdd = abs(drawdown(spy_curve))
     for p in policies:
-        r = run_policy(p["name"], closes, spy_dates, rebal, p,
+        months = p.get("rebal_months", REBALANCE_MONTHS)
+        reb = set(month_ends(spy_dates)[::months]) if months != REBALANCE_MONTHS else rebal
+        r = run_policy(p["name"], closes, spy_dates, reb, p,
                        vix_map=vix_map if p.get("vix") else None)
         mdd = abs(drawdown(r["curve"]))
         wins, tot, detail = excess_years(r["curve"], spy_curve)
