@@ -89,9 +89,10 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
     </section>
 
     <section class="panel">
-      <h2>State
-        <button id="acceptBtn" class="accept">Accept advisory → rebalance</button></h2>
+      <h2>State</h2>
       <div class="kv" id="stateBox"></div>
+      <button id="acceptBtn" class="accept" style="width:100%;margin-top:12px;
+              padding:8px 0;font-size:13px;">⚖ Accept advisory → rebalance</button>
     </section>
 
     <section class="panel">
@@ -240,10 +241,11 @@ function renderFeed(f) {
       `<tr><td>${s.ticker}</td><td class="num pos">${num2(s.score)}</td>` +
       `<td class="num">${pct((s.components||{}).momentum_blend)}</td>` +
       `<td class="num">${num2((s.components||{}).rsi)}</td></tr>`);
-  // full composite table
+  // full composite table (cash equivalents excluded — not trade signals)
+  const CASH = new Set(['BIL', 'SHY']);
   const stb = document.querySelector('#scoreTable tbody');
   stb.innerHTML = '';
-  for (const s of cs) {
+  for (const s of cs.filter(x => !CASH.has(x.ticker))) {
     const c = s.components || {};
     const cls = s.sleeve === 'sector_core' ? 'core'
               : s.sleeve === 'defensive' ? 'def'
