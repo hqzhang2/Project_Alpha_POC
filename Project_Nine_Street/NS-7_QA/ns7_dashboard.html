@@ -205,7 +205,10 @@
         <button id="d1ModalBtn" onclick="openD1Modal()" style="background:#161b22;border:1px solid #243044;color:#4ade80;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">📈 D1 Basket vs SPY (1Y)</button>
       </div>
       <table id="d1Table">
-        <thead><tr><th>Ticker</th><th class="num">Weight</th><th class="num">Days on List</th></tr></thead>
+        <thead><tr>
+          <th style="width:26px"><input type="checkbox" id="d1SelectAll" onchange="onD1SelectAll()" checked></th>
+          <th>Ticker</th><th class="num">Weight</th><th class="num">Days on List</th>
+        </tr></thead>
         <tbody></tbody>
       </table>
       <div class="league-legend">
@@ -536,6 +539,7 @@ loadD1();
 
 // ── v4.6: D1 portfolio construction (method/n selection + weighted book) ──
 let D1 = null;   // current basket doc
+let D1_SELECT = null;  // Set of checked tickers; null = all selected
 let D1_PENDING = null;  // {method, n} chosen but not yet applied
 
 function loadD1() {
@@ -571,37 +575,90 @@ function renderD1() {
   if (!D1) {
     sum.textContent = 'no basket yet';
     stats.textContent = '';
-    tbody.innerHTML = '<tr><td colspan="3" class="muted">No basket — press Apply to construct one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="muted">No basket — press Apply to construct one.</td></tr>';
+    document.getElementById('d1SelectAll').checked = true;
     return;
   }
   const ten = TENURE || {};
   const entries = Object.entries(D1.weights).sort((a, b) => b[1] - a[1]);
-  tbody.innerHTML = entries.map(([t, w]) =>
-    '<tr><td><b>' + esc(t) + '</b></td>' +
-    '<td class="num">' + (w * 100).toFixed(2) + '%</td>' +
-    '<td class="num"><span class="tenure-badge">' +
-      (ten[t] != null ? ten[t] + 'd' : '—') + '</span></td></tr>'
-  ).join('');
-  stats.textContent = 'effN ' + D1.eff_n + ' · maxW ' +
-    (D1.max_weight * 100).toFixed(1) + '% · n ' + D1.top_n;
+  // Filtered book: checked names only; excluded ones show '–' (0%).
+  const selected = d1SelectedTickers(entries.map(e => e[0]));
+  const checkedSet = new Set(selected);
+  // Renormalize checked weights to 100% of the surviving book.
+  const totalChecked = selected.reduce((s, t) => s + D1.weights[t], 0);
+  tbody.innerHTML = entries.map(([t, w]) => {
+    const on = checkedSet.has(t);
+    const wgt = on && totalChecked > 0 ? (w / totalChecked) : 0;
+    return '<tr>' +
+      '<td><input type="checkbox" class="d1-row-check" data-tk="' + esc(t) +
+        '" onchange="onD1RowCheck()" ' + (on ? 'checked' : '') + '></td>' +
+      '<td><b>' + esc(t) + '</b></td>' +
+      '<td class="num">' + (on ? (wgt * 100).toFixed(2) + '%' : '<span class="dash">–</span>') + '</td>' +
+      '<td class="num"><span class="tenure-badge">' +
+        (ten[t] != null ? ten[t] + 'd' : '—') + '</span></td></tr>';
+  }).join('');
+  // book size + stats from the checked subset
+  const maxW = selected.length && totalChecked > 0
+    ? Math.max(...selected.map(t => D1.weights[t] / totalChecked)) : 0;
+  stats.textContent = 'effN ' + effNChecked(selected, totalChecked) +
+    ' · maxW ' + (maxW * 100).toFixed(1) + '% · n ' + selected.length +
+    (selected.length !== entries.length ? ' (' + entries.length + ' ranked)' : '');
   sum.textContent = D1.method + ' · as of ' + (D1.as_of || '—') +
     (pendingChange() ? ' · UNSAVED changes — press Apply' : '');
+  // master header reflects mixed state
+  updateD1SelectAll();
+}
+
+function d1SelectedTickers(all) {
+  if (D1_SELECT == null) return all.slice();
+  return all.filter(t => D1_SELECT.has(t));
+}
+
+function effNChecked(selected, totalChecked) {
+  if (!selected.length || totalChecked <= 0) return '—';
+  const s = selected.reduce((acc, t) => acc + (D1.weights[t] / totalChecked) ** 2, 0);
+  return s > 0 ? (1 / s).toFixed(2) : '—';
+}
+
+function onD1RowCheck() {
+  const rows = Array.from(document.querySelectorAll('#d1Table .d1-row-check'));
+  const all = Object.keys(D1.weights);
+  const checked = new Set(rows.filter(r => r.checked).map(r => r.dataset.tk));
+  // compact: all checked → null; none → empty set; else the checked set
+  D1_SELECT = checked.size === all.length ? null : checked;
+  renderD1();
+}
+
+function onD1SelectAll() {
+  const on = document.getElementById('d1SelectAll').checked;
+  D1_SELECT = on ? null : new Set();   // null = all; empty set = none
+  renderD1();
+}
+
+function updateD1SelectAll() {
+  const el = document.getElementById('d1SelectAll');
+  const rows = document.querySelectorAll('#d1Table .d1-row-check');
+  const on = Array.from(rows).filter(r => r.checked).length;
+  el.checked = on === rows.length && rows.length > 0;
+  el.indeterminate = on > 0 && on < rows.length;
 }
 
 function applyD1() {
   const btn = document.getElementById('d1ApplyBtn');
   const s = d1Selection();
   btn.disabled = true; btn.textContent = 'Rebuilding…';
+  const keep = D1 ? d1SelectedTickers(Object.keys(D1.weights)) : null;
   api('/api/d1/rebuild', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({method: s.method, n: s.n})
+    body: JSON.stringify({method: s.method, n: s.n, keep: keep})
   }).then(function(d) {
     btn.disabled = false; btn.textContent = 'Apply → rebuild basket';
     if (d.error) { document.getElementById('err').textContent =
       'rebuild failed: ' + d.error; return; }
     D1 = d;
-    loadAll();          // refresh tenure badges for the new names
+    D1_SELECT = null;          // rebuilt book: all selected
+    loadAll();                 // refresh tenure badges for the new names
   }).catch(function(e) {
     btn.disabled = false; btn.textContent = 'Apply → rebuild basket';
     document.getElementById('err').textContent = 'rebuild failed: ' + e.message;

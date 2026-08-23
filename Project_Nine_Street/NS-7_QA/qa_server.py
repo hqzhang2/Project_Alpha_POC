@@ -125,6 +125,22 @@ class NS7Handler(BaseHTTPRequestHandler):
                                          closes_by_ticker=closes)
             if doc is None:
                 self._json({"error": "no selection available"}, 400); return
+            # v4.6: optional manual stock filter — only `keep` names survive,
+            # remaining weights renormalized to 100% (0% → excluded → '–').
+            keep = body.get("keep")
+            if keep:
+                keep_set = {str(t).strip().upper() for t in keep}
+                original_n = len(doc["weights"])
+                kept = {t: w for t, w in doc["weights"].items() if t in keep_set}
+                if not kept:
+                    self._json({"error": "no kept names remain in basket"}, 400); return
+                total = sum(kept.values())
+                doc["weights"] = {t: round(w / total, 6) for t, w in kept.items()}
+                doc["top_n"] = len(doc["weights"])
+                doc["eff_n"] = round(
+                    1.0 / sum((w) ** 2 for w in doc["weights"].values()), 2)
+                doc["max_weight"] = round(max(doc["weights"].values()), 6)
+                doc["filtered_from"] = original_n
             Path(config.D1_BASKET_PATH).write_text(json.dumps(doc, indent=2))
             rows = d1_grading.mark_to_market()      # refresh the stream too
             if rows is not None:
