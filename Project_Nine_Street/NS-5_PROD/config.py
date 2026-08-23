@@ -82,3 +82,19 @@ VALUE_SLEEVE_N = 20
 # PM-decidable tilt (2a evidence: momentum carries the engine — asymmetric).
 SLEEVE_TILT = {"growth": (0.80, 0.20), "defensive": (0.50, 0.50)}
 BLEND_PATH = DATA_DIR / "sleeve_blend.json"
+
+# ── v4.5 feed sources (NS-5 grades D1 / NS8 / NSETF / ALL) ──────────────
+# Each source is a weighted book NS-5 can grade on its own (single) or merged
+# (ALL). Fail-open: missing/stale source contributes nothing.
+# PROD paths: D1 = NS-7_PROD basket; NS-8 = PROD signals; NS-ETF = QA signals
+# (NS-ETF PROD twin not yet live — see AGENTS.md port table).
+D1_BASKET_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_PROD/data/d1_basket.json")
+NS8_SIGNALS_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-8_PROD/data/signals.json")
+NSETF_SIGNALS_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-ETF_QA/data/signals.json")
+# Feed staleness (days): a source older than this is treated as absent.
+FEED_STALE_DAYS = 5
+# Valid source keys for the grade dropdown (single sources + the ALL merge).
+FEED_SOURCES = ("D1", "NS8", "NSETF", "ALL")
