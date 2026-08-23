@@ -393,19 +393,8 @@ async function showDetail(ticker) {
       r(['Snapshot age', f.snapshot_age_days != null ? f.snapshot_age_days + 'd' : '—']);
 
     // ── NS-2 HMM (advisory) ────────────────────────────────────────────
-    // v4.4: the daily batch snapshot is the source of truth for benchmark
-    // outperformers; the legacy watchlist note only shows when the batch
-    // has no HMM for this name.
-    const vsH = d.vs && d.vs.hmm && d.vs.hmm.signal;
     let ns2 = '<div class="dsec">NS-2 HMM (advisory)</div>';
-    if (vsH) {
-      ns2 += '<span style="color:' + esc(d.vs.hmm.color || '#888') + ';font-weight:700">' + esc(vsH) + '</span>' +
-        (d.vs.hmm.gate && d.vs.hmm.gate.verdict
-          ? '<span class="muted" style="font-size:11px;margin-left:8px">walk-forward ' +
-            esc(d.vs.hmm.gate.verdict) +
-            (d.vs.hmm.gate.profit_factor != null ? ' · PF ' + d.vs.hmm.gate.profit_factor : '') + '</span>'
-          : '');
-    } else if (d.ns2_signal) {
+    if (d.ns2_signal) {
       ns2 += (d.ns2_advisory
         ? '<span class="ns2-flag" title="No conviction — PM review">' + esc(d.ns2_signal) + '</span>'
         : '<span class="outp">' + esc(d.ns2_signal) + '</span>') +
@@ -423,17 +412,27 @@ async function showDetail(ticker) {
     const vse = d.vs;
     if (vse && vse.value_screen && vse.value_screen.agreement != null) {
       const vsc = vse.value_screen;
-      vs = '<div class="dsec">Fundamental Selection' +
-        '<span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px;">as of ' +
-        esc((snapGeneratedAt || '').slice(0, 16).replace('T', ' ') || '—') + '</span></div>';
+      const passed = VS_FRAMEWORKS.filter(n => vsc.frameworks[n] && vsc.frameworks[n].pass);
+      const headBadges = passed.map(n =>
+        '<span class="vs-badge">' + n.toUpperCase() + '</span>').join('');
+      vs = '<div class="dsec">Fundamental Selection ' + headBadges +
+        '<span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px;">' +
+        vsc.agreement + '/4 · as of ' + esc((snapGeneratedAt || '').slice(0, 16).replace('T', ' ') || '—') + '</span></div>';
       vs += VS_FRAMEWORKS.map(n => {
         const f = vsc.frameworks[n] || {};
         const ok = !!f.pass;
-        // Buffett's metric carries 3 items → wrap ROE/D-E onto a second line.
-        const metric = f.metric ? esc(f.metric).replace(/ · (?=ROE)/, '<br>') : '';
+        // Buffett only (PM rev): line 1 = PASS + FCF conv; line 2 = ROE · D/E.
+        let val = ok ? 'PASS' : 'FAIL';
+        if (n === 'buffett' && f.metric) {
+          const parts = f.metric.split(' · ');
+          const pick = pfx => parts.find(p => p.indexOf(pfx) === 0) || '';
+          val += ' · ' + esc(pick('FCF')) + '<br>' +
+            [pick('ROE'), pick('D/E')].filter(Boolean).map(esc).join(' · ');
+        } else if (f.metric) {
+          val += ' · ' + esc(f.metric);
+        }
         return r(['<span style="text-transform:capitalize">' + n + '</span>',
-          '<span class="' + (ok ? 'pos' : 'vs-fail') + '">' + (ok ? 'PASS' : 'FAIL') +
-          (metric ? '<br>' + metric : '') + '</span>']);
+          '<span class="' + (ok ? 'pos' : 'vs-fail') + '">' + val + '</span>']);
       }).join('');
     } else {
       vs += '<div class="muted" style="font-size:11px">No daily value-screen snapshot — not a benchmark outperformer or batch pending.</div>';
