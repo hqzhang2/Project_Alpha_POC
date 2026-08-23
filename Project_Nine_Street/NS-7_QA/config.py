@@ -75,7 +75,8 @@ AT_FUNDAMENTALS_DB = pathlib.Path(
 AT_SP500_CACHE = pathlib.Path(
     os.environ.get("AT_SP500_CACHE", str(_AT_TERMINAL / "data" / "sp500.json"))
 )
-
+# v4.6 D1 MtM price store override (defaults to A_T's point-in-time store)
+D1_MTM_PRICES_DB = AT_FUNDAMENTALS_DB
 # ── Volume pipeline (U3) ────────────────────────────────────────────────
 # U3 needs a 20-day average daily volume. A_T's price store carries closes
 # only, so NS-7 keeps its own volume table (yfinance, same source as A_T).
