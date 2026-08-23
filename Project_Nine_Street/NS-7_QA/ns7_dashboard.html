@@ -105,7 +105,11 @@
   .detail .drow .v { font-weight: 600; font-variant-numeric: tabular-nums; }
   .detail .dtitle { font-size: 14px; font-weight: 800; margin-bottom: 8px; }
   .detail .dtitle .tk { color: #4ade80; }
-
+  /* PM rev: make the ticker symbol itself distinctive */
+  .detail .dtitle .tk {
+    font-size: 20px; letter-spacing: 1.5px; color: #ffd166;
+    text-shadow: 0 0 8px rgba(255,209,102,.35);
+  }
   .pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px;
     border-radius: 10px; margin-left: 6px; }
   .pill.yes { background: #14532d; color: #4ade80; }
@@ -450,7 +454,7 @@ async function showDetail(ticker) {
     }
 
     box.innerHTML =
-      '<div class="dtitle">' + esc(ticker) +
+      '<div class="dtitle"><span class="tk">' + esc(ticker) + '</span>' +
       '<button class="dclose" title="Close" onclick="closeDetail()">✕</button>' +
       ' ' + badge(d.league) + ' ' + compliant + '</div>' +
       sels + lg + ns2 + vs + qv + fx;

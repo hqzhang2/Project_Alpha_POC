@@ -203,6 +203,14 @@ def test_dashboard_hmm_advisory_reads_batch_snapshot():
     assert "} else if (d.ns2_signal) {" in _html
 
 
+def test_dashboard_detail_symbol_distinctive():
+    """PM rev: ticker symbol in the detail title is a styled .tk span
+    (larger, gold, letter-spaced) — distinctive from surrounding text."""
+    assert "'<div class=\"dtitle\"><span class=\"tk\">' + esc(ticker) + '</span>'" in _html
+    assert ".detail .dtitle .tk" in _html
+    assert "font-size: 20px" in _html and "#ffd166" in _html
+
+
 def test_dashboard_existing_sections_untouched():
     """The ONLY new detail section is Fundamental Selection — everything else
     keeps its exact markup, and the render order is sels → lg → ns2 → vs → qv → fx."""
