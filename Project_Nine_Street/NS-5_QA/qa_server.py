@@ -252,13 +252,6 @@ class Handler(BaseHTTPRequestHandler):
                 source = q.get("source", [None])[0]
                 result = _frontier_response(holdings, policy, source=source)
                 self._json(result)
-            elif self.path.startswith("/api/blend"):
-                # Sleeve-blend target portfolio (2b, DESIGN §4.3).
-                p = config.BLEND_PATH
-                if not p.exists():
-                    self._json({"error": "no blend yet — run sleeve_blend.py"}, 404)
-                else:
-                    self._json(json.loads(p.read_text()))
             elif self.path.startswith("/api/grade"):
                 self._json({"usage": "POST /api/grade JSON: {source: 'D1'|'NS8'|'NSETF'|'ALL'} "
                                       "or {holdings: {TICKER: weight}}",

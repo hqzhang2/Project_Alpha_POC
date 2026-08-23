@@ -40,6 +40,8 @@ def test_grade_posts_source():
     "portfolioSelect", "policySelect", "newPortfolio", "savePortfolio",
     "deletePortfolio", "onPortfolioSelect", "onPolicySelect",
     "collectRows", "Delete Portfolio",
+    # v4.5 Annex 2: Sleeve Blend panel + loadBlend migrated to NS-7 D1 basket
+    "Sleeve Blend", "blendBox", "loadBlend", "/api/blend",
 ])
 def test_removed_ui_elements_absent(gone):
     assert gone not in DASH
