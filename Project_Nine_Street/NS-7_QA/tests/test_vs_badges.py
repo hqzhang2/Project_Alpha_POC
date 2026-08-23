@@ -188,6 +188,21 @@ def test_dashboard_fundamental_selection_section():
     assert "snapGeneratedAt" in _html
 
 
+def test_dashboard_vs_header_no_badges_or_agreement():
+    """PM rev: the section header shows only 'Fundamental Selection · as of …'
+    — no pass badges, no agreement count (the rows are self-explanatory)."""
+    sec = _html[_html.index("dsec\">Fundamental Selection"):_html.index("</div>", _html.index("dsec\">Fundamental Selection"))]
+    assert "headBadges" not in sec and "vs-badge" not in sec
+    assert "agreement" not in sec and "/4" not in sec
+
+
+def test_dashboard_hmm_advisory_reads_batch_snapshot():
+    """Detail panel NS-2 section prefers the daily batch signal (KLAC showed a
+    wrong 'not on watchlist' note before); legacy cache is fallback only."""
+    assert "const vsH = d.vs && d.vs.hmm && d.vs.hmm.signal;" in _html
+    assert "} else if (d.ns2_signal) {" in _html
+
+
 def test_dashboard_existing_sections_untouched():
     """The ONLY new detail section is Fundamental Selection — everything else
     keeps its exact markup, and the render order is sels → lg → ns2 → vs → qv → fx."""
