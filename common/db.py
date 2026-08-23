@@ -705,7 +705,14 @@ def volume_coverage(ticker: str) -> tuple:
             cur.execute("SELECT MIN(date), MAX(date), COUNT(*) FROM ns7_volume WHERE ticker=%s",
                         (ticker.upper(),))
             row = cur.fetchone()
-        return (row[0], row[1], row[2]) if row else (None, None, 0)
+        if not row:
+            return (None, None, 0)
+        # psycopg2 returns datetime.date for DATE columns; the sqlite path and
+        # callers compare against iso strings — normalize to strings.
+        lo, hi = row[0], row[1]
+        return (lo.isoformat() if hasattr(lo, "isoformat") else lo,
+                hi.isoformat() if hasattr(hi, "isoformat") else hi,
+                row[2])
     except Exception:
         return (None, None, 0)
     finally:
