@@ -84,6 +84,18 @@ BENCH_CACHE = DATA_DIR / "bench_closes.json"
 NS2_SIGNAL_PATH = Path(
     "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-2_PROD/ns2_signal_cache.json")
 NS2_NO_CONVICTION = {"FLAT", "NO-EDGE", "WATCH"}
+# NS-2 methodology module (qa_server.py) — reused by vs_badge_refresh.py for
+# inline HMM computation (single source of truth; never NS-2's cache writer).
+NS2_MODULE_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-2_PROD/qa_server.py")
+
+# ── Daily value-screen + HMM badge snapshot (v4.4) ──────────────────────
+# Population: scored Major names outperforming BOTH SPY & QQQ (subset of the
+# Major league). Written once a day by vs_badge_refresh.py; the dashboard
+# renders pass pills + the Fundamental Selection detail section from it.
+VS_BADGES_PATH = DATA_DIR / "vs_pass_badges.json"
+VS_BADGE_MAX_AGE_HOURS = 26          # older than this → stale → render nothing
+AT_SCREENER_URL = "http://127.0.0.1:9098"   # A_T PROD screener
 
 # ── Walk-forward harness (G1 acceptance gate) ───────────────────────────
 WF_START = "2016-01-01"              # first rebalance month
