@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NS-7 Growth/Momentum Selection</title>
+<title>NS-7 DeltaOne Strategy</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -123,8 +123,8 @@
 <body>
 
 <div class="hdr">
-  <h1>NS-7 <span style="color:#4ade80">GROWTH/MOMENTUM SELECTION</span></h1>
-  <span class="sub">skip-month 126/21 · two-league 90d grace · quality veto</span>
+  <h1>NS-7 <span style="color:#4ade80">DELTAONE STRATEGY</span></h1>
+  <span class="sub">skip-month 126/21 · two-league 90d grace · quality veto · weighted D1 basket → NS-5</span>
   <span class="spacer"></span>
   <span class="asof" id="asOf">loading…</span>
 </div>
@@ -136,14 +136,16 @@
         <div class="note">eligible for momentum ranking</div></div>
       <div class="kpi"><div class="lab">Top-N pick</div><div class="val" id="kTop">–</div>
         <div class="note">#1 momentum name</div></div>
-      <div class="kpi"><div class="lab">Book size</div><div class="val" id="kBook">–</div>
-        <div class="note">top-N growth-sleeve feed → NS-5</div></div>
+      <div class="kpi"><div class="lab">D1 basket</div><div class="val" id="kBook">–</div>
+        <div class="note">weighted book → NS-5 sleeve</div></div>
       <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
         <div class="note">last pipeline refresh</div></div>
     </div>
 
     <div class="panel">
-      <h3>Selection — top-N momentum picks <span class="summary" id="selSummary"></span></h3>
+      <h3>Selection — top-N momentum picks
+        <button id="d1ModalBtn" onclick="openD1Modal()" style="float:right;background:#161b22;border:1px solid #243044;color:#4ade80;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">📈 D1 Basket vs SPY (1Y)</button>
+        <span class="summary" id="selSummary"></span></h3>
       <div class="filter-bar">
         <label class="filter-label"><input type="checkbox" id="benchFilter" onchange="renderSel()">
           Outperform <b>SPY &amp; QQQ</b> (same 126/21 window)</label>
@@ -151,7 +153,7 @@
       </div>
       <table id="selTable">
         <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
-          <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
+          <th class="num">Days on List</th><th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="league-legend">
@@ -219,6 +221,8 @@ async function loadAll() {
       api('/api/universe'), api('/api/select').catch(() => null)]);
     SEL = sel;
     await vsBadgeLoad();
+    api('/api/d1/tenure').then(t => { TENURE = (t && t.tenure) || {}; renderSel(); })
+                         .catch(() => {});
     renderKpis(uni, sel);
     renderSel();
     document.getElementById('asOf').textContent =
@@ -262,10 +266,12 @@ function renderSel() {
       : '') +
     vsPassPills(p.ticker) + '</td>' +
     '<td class="num">' + fmtMom(p.momentum) + '</td>' +
+    '<td class="num"><span class="tenure-badge" title="Days since joining Major league (resets on demotion)">' +
+      (TENURE[p.ticker] != null ? TENURE[p.ticker] + 'd' : '—') + '</span></td>' +
     '<td class="num">' + (p.outperforms_benchmarks
       ? '<span class="outp">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
     '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(p.ticker) + '\')">Why</button></td></tr>'
-  ).join('') : '<tr><td colspan="5" class="muted">' +
+  ).join('') : '<tr><td colspan="6" class="muted">' +
     (picks.length ? 'No picks outperformed both SPY and QQQ in this window.' :
      'No Major names yet — league probation (90d) running.') + '</td></tr>';
   renderOutperformers(bench);
@@ -299,6 +305,7 @@ function toggleOut() {
 
 // ── v4.4: value-screen pass pills (from the daily vs_pass_badges snapshot) ──
 let VSBADGES = {};   // {ticker: entry} — loaded once per loadAll cycle
+let TENURE = {};     // {ticker: days-on-Major} — v4.6 days-on-list badge
 let snapGeneratedAt = '';   // snapshot timestamp for the detail section header
 
 function vsBadgeLoad() {
@@ -470,6 +477,74 @@ function closeDetail() {
 
 loadAll();
 setInterval(loadAll, 60000);
+
+// ── v4.6: D1 basket vs SPY/VIX modal ─────────────────────────────────────
+let d1ChartInstance = null;
+function openD1Modal() {
+  document.getElementById('d1Modal').style.display = 'flex';
+  const meta = document.getElementById('d1ModalMeta');
+  meta.textContent = 'loading D1 series…';
+  api('/api/d1/series').then(function(d) {
+    if (d.error || !d.dates || !d.dates.length) {
+      meta.textContent = 'D1 series unavailable: ' + (d.error || 'no data');
+      return;
+    }
+    // growth of $100 for D1 and SPY; VIX raw on right axis
+    let g = 100, gs = 100, d1Series = [], spySeries = [];
+    const vixSeries = [];
+    for (let i = 0; i < d.dates.length; i++) {
+      if (i > 0) { g *= (1 + d.returns[i]); if (d.spy[i]) gs *= (1 + (d.spy[i]/d.spy[i-1] - 1)); }
+      d1Series.push(+g.toFixed(2));
+      spySeries.push(d.spy[i] ? +gs.toFixed(2) : null);
+      vixSeries.push(d.vix[i] != null ? +d.vix[i].toFixed(2) : null);
+    }
+    meta.textContent = d.dates[0] + ' → ' + d.dates[d.dates.length-1] +
+      ' · ' + d.dates.length + ' trading days · method: current-book MtM';
+    const ctx = document.getElementById('d1Chart').getContext('2d');
+    if (d1ChartInstance) d1ChartInstance.destroy();
+    d1ChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: d.dates, datasets: [
+        { label: 'DeltaOne Basket', data: d1Series, borderColor: '#4ade80',
+          backgroundColor: 'rgba(74,222,128,.08)', borderWidth: 2, pointRadius: 0,
+          fill: true, tension: .15 },
+        { label: 'SPY', data: spySeries, borderColor: '#60a5fa', borderWidth: 2,
+          pointRadius: 0, fill: false, tension: .15 },
+        { label: 'VIX', data: vixSeries, borderColor: '#f59e0b', borderWidth: 1.5,
+          pointRadius: 0, fill: false, tension: .2, yAxisID: 'y2', borderDash: [4,3] }
+      ]},
+      options: {
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } } },
+        scales: {
+          x: { ticks: { color: '#64748b', maxTicksLimit: 10 }, grid: { color: '#16202e' } },
+          y: { position: 'left', title: { display: true, text: 'Growth of $100', color: '#64748b' },
+               ticks: { color: '#64748b' }, grid: { color: '#16202e' } },
+          y2: { position: 'right', title: { display: true, text: 'VIX', color: '#f59e0b' },
+                ticks: { color: '#f59e0b' }, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+  }).catch(function(e) { meta.textContent = 'failed: ' + e.message; });
+}
+function closeD1Modal() {
+  document.getElementById('d1Modal').style.display = 'none';
+}
+document.getElementById('d1Modal').addEventListener('click', function(ev) {
+  if (ev.target === this) closeD1Modal();
+});
 </script>
+<!-- v4.6: D1 basket vs SPY/VIX 1-year modal (growth-of-$100 LEFT, VIX RIGHT) -->
+<div id="d1Modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#0d1117;border:1px solid #243044;border-radius:10px;width:min(960px,92vw);max-height:90vh;padding:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="font-size:14px;color:#e6edf3">DeltaOne Basket vs SPY · growth of $100 (1Y) <span style="color:#64748b;font-weight:400">· VIX right axis</span></h3>
+      <button onclick="closeD1Modal()" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer">✕</button>
+    </div>
+    <div style="height:420px"><canvas id="d1Chart"></canvas></div>
+    <div id="d1ModalMeta" style="font-size:11px;color:#64748b;margin-top:8px"></div>
+  </div>
+</div>
+
 </body>
 </html>

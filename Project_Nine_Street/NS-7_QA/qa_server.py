@@ -90,6 +90,12 @@ class NS7Handler(BaseHTTPRequestHandler):
             return self._select()
         if path == "/api/vsbadges":
             return self._vsbadges()
+        if path == "/api/d1":
+            return self._d1()
+        if path == "/api/d1/series":
+            return self._d1_series()
+        if path == "/api/d1/tenure":
+            return self._d1_tenure()
         if path.startswith("/api/leagues/"):
             ticker = path.split("/")[-1].strip().upper()
             if ticker:
@@ -147,6 +153,44 @@ class NS7Handler(BaseHTTPRequestHandler):
         """Daily badge snapshot (HMM + value screen) — {} when absent/stale."""
         snap = vs_badges.load_snapshot()
         self._json(snap or {"tickers": {}})
+
+    def _d1(self):
+        """v4.6: the DeltaOne basket doc — {} when absent (no basket yet)."""
+        import d1_basket
+        try:
+            self._json(json.loads(config.D1_BASKET_PATH.read_text()))
+        except Exception:
+            self._json({"error": "no d1_basket yet"})
+
+    def _d1_series(self):
+        """v4.6: D1 basket daily returns + SPY/VIX overlay for the 1-yr modal."""
+        try:
+            import d1_grading
+            rows = d1_grading.mark_to_market()
+            if rows is None:
+                self._json({"error": "no D1 return series"})
+                return
+            closes = d1_grading._load_closes(["SPY", "^VIX"])
+            spy = closes.get("SPY", {})
+            vix = {k: v for k, v in closes.get("^VIX", {}).items()}
+            self._json({
+                "dates": [r["date"] for r in rows[-252:]],
+                "returns": [r["return"] for r in rows[-252:]],
+                "spy": [spy.get(d) for d in rows[-252:]],
+                "vix": [vix.get(d) for d in rows[-252:]],
+            })
+        except Exception as exc:
+            self._json({"error": f"D1 series unavailable: {exc}"})
+
+    def _d1_tenure(self):
+        """v4.6: days-on-Major-league for current basket names (badge source)."""
+        import d1_basket
+        try:
+            doc = json.loads(config.D1_BASKET_PATH.read_text())
+            self._json({"as_of": doc.get("as_of"),
+                        "tenure": d1_basket.tenure_days(list(doc["weights"]))})
+        except Exception:
+            self._json({"error": "no d1_basket yet"})
 
     def _league_reason(self, row: dict, facts: dict, major_qual: bool) -> str:
         """Why this ticker is in its league — the drill-down headline."""
