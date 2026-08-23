@@ -57,6 +57,30 @@ def test_construction_panel_present():
     assert 'id="d1Table"' in DASH
 
 
+def test_construction_panel_below_full_list():
+    # PM ordering: Selection → Full list → D1 Portfolio Construction
+    assert DASH.index("Full list — outperforming") < DASH.index(
+        "D1 Portfolio Construction")
+
+
+def test_modal_button_in_construction_panel():
+    # PM: the 📈 modal button lives in the construction panel, not Selection
+    panel_start = DASH.index("D1 Portfolio Construction")
+    panel_end = DASH.index("id=\"d1Table\"", panel_start)
+    seg = DASH[panel_start:panel_end]
+    assert 'id="d1ModalBtn"' in seg
+    assert "openD1Modal()" in seg
+
+
+def test_apply_persists_basket_and_mtm():
+    assert "/api/d1/rebuild" in DASH
+    # the server-side rebuild writes the basket + refreshes MtM (save semantics)
+    import qa_server  # noqa: F401  (import guard: route exists)
+    src = Path(__file__).resolve().parent.parent.joinpath("qa_server.py").read_text()
+    assert "write_text(json.dumps(doc, indent=2))" in src
+    assert "persist_returns(rows)" in src
+
+
 def test_all_four_methods_selectable():
     for m in ("momentum_score", "rank_tilted", "risk_normalized", "tenure_aware"):
         assert f'value="{m}"' in DASH

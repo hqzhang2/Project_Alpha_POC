@@ -145,7 +145,6 @@
 
     <div class="panel">
       <h3>Selection — top-N momentum picks
-        <button id="d1ModalBtn" onclick="openD1Modal()" style="float:right;background:#161b22;border:1px solid #243044;color:#4ade80;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">📈 D1 Basket vs SPY (1Y)</button>
         <span class="summary" id="selSummary"></span></h3>
       <div class="filter-bar">
         <label class="filter-label"><input type="checkbox" id="benchFilter" onchange="renderSel()">
@@ -165,7 +164,27 @@
     </div>
 
     <div class="panel">
+      <h3>Full list — outperforming SPY &amp; QQQ
+        <span class="summary" id="outSummary"></span>
+        <button class="why-btn" id="outToggle" onclick="toggleOut()"
+                title="Expand / collapse">▸ Expand</button></h3>
+      <div id="outBody" style="display:none">
+        <table id="outTable">
+          <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
+            <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="league-legend">
+          Every momentum-scored Major name whose 126/21 skip-month return
+          exceeded BOTH benchmarks over the same window — the full outperform
+          universe beyond the top-N book.
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
       <h3>D1 Portfolio Construction
+        <button id="d1ModalBtn" onclick="openD1Modal()" style="float:right;background:#161b22;border:1px solid #243044;color:#4ade80;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">📈 D1 Basket vs SPY (1Y)</button>
         <span class="summary" id="d1Summary">no basket yet</span></h3>
       <div class="filter-bar" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
         <label class="filter-label">Method:
@@ -190,26 +209,8 @@
       </table>
       <div class="league-legend">
         The weighted D1 basket is the ONLY feed to NS-5 (raw ranked list is not a
-        handoff). Apply rebuilds d1_basket.json with the chosen method/n.
-      </div>
-    </div>
-
-    <div class="panel">
-      <h3>Full list — outperforming SPY &amp; QQQ
-        <span class="summary" id="outSummary"></span>
-        <button class="why-btn" id="outToggle" onclick="toggleOut()"
-                title="Expand / collapse">▸ Expand</button></h3>
-      <div id="outBody" style="display:none">
-        <table id="outTable">
-          <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
-            <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
-        <div class="league-legend">
-          Every momentum-scored Major name whose 126/21 skip-month return
-          exceeded BOTH benchmarks over the same window — the full outperform
-          universe beyond the top-N book.
-        </div>
+        handoff). Apply rebuilds d1_basket.json with the chosen method/n, marks
+        it to market into strategy_returns[ns7], and saves it as the NS-5 feed.
       </div>
     </div>
   </div>
