@@ -185,7 +185,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
   <div class="topbar">
     <div class="topbar-left">
-      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v4.4.0 | Last Updated: {last_updated}</div></div>
+      <div class="logo"><span>Trading Strategy Engine</span><div style="font-size: 9px; color: #8b949e; margin-left: 8px; white-space: nowrap;">v4.5.0 | Last Updated: {last_updated}</div></div>
       <div class="nav-tabs">
               <button class="nav-tab active" data-strategy="alpha" onclick="switchStrategy('alpha')"><span class="status-indicator" id="status-alpha"></span>Alpha Terminal</button>
               <button class="nav-tab" data-strategy="ns1" onclick="switchStrategy('ns1')"><span class="status-indicator" id="status-ns1"></span>NS-1</button>
