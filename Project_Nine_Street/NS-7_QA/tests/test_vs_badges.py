@@ -188,15 +188,19 @@ def test_dashboard_fundamental_selection_section():
     assert "snapGeneratedAt" in _html
 
 
-def test_dashboard_buffett_row_two_lines():
-    """PM rev (Buffett ONLY): line 1 = PASS + FCF conv; line 2 = ROE · D/E.
-    Other frameworks stay single-line; header keeps badges + agreement."""
-    assert "n === 'buffett'" in _html
-    assert "pick('FCF')" in _html and "pick('ROE')" in _html and "pick('D/E')" in _html
-    # Header still carries pass badges + agreement + timestamp (not stripped).
-    sec = _html[_html.index("dsec\">Fundamental Selection '"):]
-    sec = sec[:sec.index("</div>")]
-    assert "headBadges" in sec and "vsc.agreement" in sec
+def test_dashboard_vs_header_no_badges_or_agreement():
+    """PM rev: the section header shows only 'Fundamental Selection · as of …'
+    — no pass badges, no agreement count (the rows are self-explanatory)."""
+    sec = _html[_html.index("dsec\">Fundamental Selection"):_html.index("</div>", _html.index("dsec\">Fundamental Selection"))]
+    assert "headBadges" not in sec and "vs-badge" not in sec
+    assert "agreement" not in sec and "/4" not in sec
+
+
+def test_dashboard_hmm_advisory_reads_batch_snapshot():
+    """Detail panel NS-2 section prefers the daily batch signal (KLAC showed a
+    wrong 'not on watchlist' note before); legacy cache is fallback only."""
+    assert "const vsH = d.vs && d.vs.hmm && d.vs.hmm.signal;" in _html
+    assert "} else if (d.ns2_signal) {" in _html
 
 
 def test_dashboard_existing_sections_untouched():
