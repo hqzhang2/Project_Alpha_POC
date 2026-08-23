@@ -125,13 +125,21 @@ def _frontier_response(holdings=None, policy=None, force_refresh=False,
     if closes.empty:
         return {"error": "no price data for universe"}
 
-    fc = frontier.compute_frontier(closes, list(holdings.keys()))
+    try:
+        fc = frontier.compute_frontier(closes, list(holdings.keys()))
+    except Exception as exc:  # noqa: BLE001 — fail-open (e.g. sklearn missing)
+        log.exception("compute_frontier failed")
+        return {"error": f"frontier compute unavailable: {exc}"}
     if "error" in fc:
         return fc
 
     # Positions: portfolio, policy, and each asset (scatter points)
-    pos_portfolio = frontier.position_on_frontier(holdings, closes, list(holdings.keys()))
-    pos_policy = frontier.position_on_frontier(policy, closes, list(policy.keys()))
+    try:
+        pos_portfolio = frontier.position_on_frontier(holdings, closes, list(holdings.keys()))
+        pos_policy = frontier.position_on_frontier(policy, closes, list(policy.keys()))
+    except Exception as exc:  # noqa: BLE001 — fail-open
+        log.exception("position_on_frontier failed")
+        return {"error": f"frontier positions unavailable: {exc}"}
 
     assets = []
     for tk in fc["tickers"]:
@@ -406,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
                     result = _frontier_response(body.get("holdings"),
                                                 body.get("policy_weights"),
                                                 source=body.get("source"))
-                    self._json(result)
+                self._json(result)
             else:
                 self._json({"error": "not found"}, 404)
         except json.JSONDecodeError as exc:

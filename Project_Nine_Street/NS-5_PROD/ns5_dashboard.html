@@ -369,7 +369,9 @@ async function refreshLists() {
   sources.forEach(name => {
     const opt = document.createElement('option');
     opt.value = name;
-    opt.textContent = name + (name in avail ? (avail[name] ? ' ✓' : ' (stale)') : '');
+    // stale marker only — fresh needs no badge (the browser already marks
+    // the selected option natively, so a ✓ here renders as a double-check)
+    opt.textContent = name + (name in avail && !avail[name] ? ' (stale)' : '');
     if (!avail[name] && name !== 'ALL') opt.disabled = true;
     sel.appendChild(opt);
   });
