@@ -170,17 +170,37 @@ class NS7Handler(BaseHTTPRequestHandler):
             if rows is None:
                 self._json({"error": "no D1 return series"})
                 return
-            closes = d1_grading._load_closes(["SPY", "^VIX"])
-            spy = closes.get("SPY", {})
-            vix = {k: v for k, v in closes.get("^VIX", {}).items()}
+            # SPY: NS-7 bench cache; VIX: NS-ETF wf_closes (A_T store has neither)
+            spy = self._load_overlay(config.BENCH_CACHE, "SPY")
+            vix = self._load_overlay(
+                Path(__file__).resolve().parent.parent / "NS-ETF_QA" / "data"
+                / "wf_closes.json", "^VIX")
+            window = rows[-252:]
             self._json({
-                "dates": [r["date"] for r in rows[-252:]],
-                "returns": [r["return"] for r in rows[-252:]],
-                "spy": [spy.get(d) for d in rows[-252:]],
-                "vix": [vix.get(d) for d in rows[-252:]],
+                "dates": [r["date"] for r in window],
+                "returns": [r["return"] for r in window],
+                "spy": [spy.get(r["date"]) for r in window],
+                "vix": [vix.get(r["date"]) for r in window],
             })
         except Exception as exc:
             self._json({"error": f"D1 series unavailable: {exc}"})
+
+    @staticmethod
+    def _load_overlay(path, key):
+        """{date: value} from a bench/wf overlay JSON. {} fail-open."""
+        import json as _json
+        from pathlib import Path as _P
+        try:
+            doc = _json.loads(_P(path).read_text())
+            node = doc.get(key) if isinstance(doc, dict) else None
+            if isinstance(node, dict):                 # {date: close}
+                return {k: float(v) for k, v in node.items() if v is not None}
+            if isinstance(node, list):                 # [[date, close], ...]
+                return {row[0]: float(row[1]) for row in node
+                        if row and len(row) > 1 and row[1] is not None}
+        except Exception:
+            pass
+        return {}
 
     def _d1_tenure(self):
         """v4.6: days-on-Major-league for current basket names (badge source)."""
