@@ -119,7 +119,7 @@
   .err { color: #f87171; font-size: 12px; padding: 10px; }
   .muted { color: #64748b; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 </head>
 <body>
 
@@ -582,9 +582,47 @@ function applyD1() {
     document.getElementById('err').textContent = 'rebuild failed: ' + e.message;
   });
 }
-
-// ── v4.6: D1 basket vs SPY/VIX modal ─────────────────────────────────────
+// ── v4.6: D1 basket vs SPY/VIX modal — Plotly, NS-ETF style ──────────────
 let d1ChartInstance = null;
+const d1Crosshair = {
+  type: 'line', xref: 'x', yref: 'paper',
+  x0: null, x1: null, y0: 0, y1: 1,
+  line: { color: '#8b949e', width: 1, dash: 'dot' }, visible: false,
+};
+const d1Layout = {
+  paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+  font: { color: '#e6edf3', size: 11, family: '-apple-system,Menlo,monospace' },
+  margin: { l: 55, r: 55, t: 8, b: 28 },
+  showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0 },
+  hovermode: 'x unified',
+  // PM spec: LEFT = growth of $100 (D1/SPY), RIGHT = VIX spot/avg.
+  yaxis: { side: 'left', tickprefix: '$',
+           title: { text: 'Growth of $100', font: { size: 10 } },
+           gridcolor: '#30363d' },
+  yaxis2: { overlaying: 'y', side: 'right', gridcolor: 'transparent',
+            title: { text: 'VIX', font: { color: '#f85149', size: 10 } },
+            tickfont: { color: '#f85149', size: 10 }, rangemode: 'tozero' },
+  xaxis: { gridcolor: '#30363d', tickfont: { color: '#8b949e' } },
+  shapes: [d1Crosshair],
+};
+function wireD1Crosshair() {
+  const el = document.getElementById('d1Chart');
+  if (el.on && !el._crosshairWired) {
+    el._crosshairWired = true;
+    el.on('plotly_hover', ev => {
+      d1Crosshair.x0 = d1Crosshair.x1 =
+        ev.xs ? ev.xs[ev.pointindex || 0] || ev.xs[0] : null;
+      d1Crosshair.visible = d1Crosshair.x0 != null;
+      Plotly.relayout('d1Chart', { 'shapes[0].x0': d1Crosshair.x0,
+        'shapes[0].x1': d1Crosshair.x1,
+        'shapes[0].visible': d1Crosshair.visible });
+    });
+    el.on('plotly_unhover', () => {
+      d1Crosshair.visible = false;
+      Plotly.relayout('d1Chart', { 'shapes[0].visible': false });
+    });
+  }
+}
 function openD1Modal() {
   document.getElementById('d1Modal').style.display = 'flex';
   const meta = document.getElementById('d1ModalMeta');
@@ -594,44 +632,46 @@ function openD1Modal() {
       meta.textContent = 'D1 series unavailable: ' + (d.error || 'no data');
       return;
     }
-    // growth of $100 for D1 and SPY; VIX raw on right axis
+    // growth of $100 for D1 and SPY; VIX spot + SMA on right axis
     let g = 100, gs = 100, d1Series = [], spySeries = [];
-    const vixSeries = [];
+    const vixSeries = [], vixSma = [];
+    const window_ = config_vix_ma_window();
     for (let i = 0; i < d.dates.length; i++) {
       if (i > 0) { g *= (1 + d.returns[i]); if (d.spy[i]) gs *= (1 + (d.spy[i]/d.spy[i-1] - 1)); }
       d1Series.push(+g.toFixed(2));
       spySeries.push(d.spy[i] ? +gs.toFixed(2) : null);
-      vixSeries.push(d.vix[i] != null ? +d.vix[i].toFixed(2) : null);
+      vixSeries.push(d.vix[i] != null ? +(+d.vix[i]).toFixed(2) : null);
+      // forward-looking SMA-20 over past values only (NS-1/NS-ETF pattern)
+      const chunk = [];
+      for (let j = Math.max(0, i - window_ + 1); j <= i; j++) {
+        if (d.vix[j] != null) chunk.push(+d.vix[j]);
+      }
+      vixSma.push(chunk.length >= Math.max(5, window_/4)
+        ? +(chunk.reduce((a,b)=>a+b,0)/chunk.length).toFixed(2) : null);
     }
     meta.textContent = d.dates[0] + ' → ' + d.dates[d.dates.length-1] +
       ' · ' + d.dates.length + ' trading days · method: current-book MtM';
-    const ctx = document.getElementById('d1Chart').getContext('2d');
-    if (d1ChartInstance) d1ChartInstance.destroy();
-    d1ChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: { labels: d.dates, datasets: [
-        { label: 'DeltaOne Basket', data: d1Series, borderColor: '#4ade80',
-          backgroundColor: 'rgba(74,222,128,.08)', borderWidth: 2, pointRadius: 0,
-          fill: true, tension: .15 },
-        { label: 'SPY', data: spySeries, borderColor: '#60a5fa', borderWidth: 2,
-          pointRadius: 0, fill: false, tension: .15 },
-        { label: 'VIX', data: vixSeries, borderColor: '#f59e0b', borderWidth: 1.5,
-          pointRadius: 0, fill: false, tension: .2, yAxisID: 'y2', borderDash: [4,3] }
-      ]},
-      options: {
-        interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } } },
-        scales: {
-          x: { ticks: { color: '#64748b', maxTicksLimit: 10 }, grid: { color: '#16202e' } },
-          y: { position: 'left', title: { display: true, text: 'Growth of $100', color: '#64748b' },
-               ticks: { color: '#64748b' }, grid: { color: '#16202e' } },
-          y2: { position: 'right', title: { display: true, text: 'VIX', color: '#f59e0b' },
-                ticks: { color: '#f59e0b' }, grid: { drawOnChartArea: false } }
-        }
-      }
-    });
+    const traces = [
+      { x: d.dates, y: d1Series, name: 'DeltaOne Basket', type: 'scatter',
+        mode: 'lines', yaxis: 'y', line: { color: '#3fb950', width: 2 } },
+      { x: d.dates, y: spySeries, name: 'SPY', type: 'scatter', mode: 'lines',
+        yaxis: 'y', line: { color: '#8b949e', width: 1.4 } },
+    ];
+    const hasVix = vixSeries.some(v => v !== null);
+    if (hasVix) {
+      traces.push({ x: d.dates, y: vixSeries, name: 'VIX spot',
+        type: 'scatter', mode: 'lines', yaxis: 'y2',
+        line: { color: '#f85149', width: 1, dash: 'dot' } });
+      traces.push({ x: d.dates, y: vixSma, name: 'VIX SMA',
+        type: 'scatter', mode: 'lines', yaxis: 'y2',
+        line: { color: '#d29922', width: 1, dash: 'dash' } });
+    }
+    Plotly.react('d1Chart', traces, d1Layout,
+                 { responsive: true, displayModeBar: false });
+    wireD1Crosshair();
   }).catch(function(e) { meta.textContent = 'failed: ' + e.message; });
 }
+function config_vix_ma_window() { return 20; }
 function closeD1Modal() {
   document.getElementById('d1Modal').style.display = 'none';
 }
@@ -639,14 +679,15 @@ document.getElementById('d1Modal').addEventListener('click', function(ev) {
   if (ev.target === this) closeD1Modal();
 });
 </script>
-<!-- v4.6: D1 basket vs SPY/VIX 1-year modal (growth-of-$100 LEFT, VIX RIGHT) -->
+<!-- v4.6: D1 basket vs SPY/VIX 1-year modal — Plotly, NS-ETF style
+     (growth-$100 LEFT / VIX spot+SMA RIGHT, hovermode x-unified, crosshair) -->
 <div id="d1Modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:#0d1117;border:1px solid #243044;border-radius:10px;width:min(960px,92vw);max-height:90vh;padding:18px">
+  <div style="background:#161b22;border:1px solid #243044;border-radius:10px;width:min(960px,92vw);max-height:90vh;padding:18px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <h3 style="font-size:14px;color:#e6edf3">DeltaOne Basket vs SPY · growth of $100 (1Y) <span style="color:#64748b;font-weight:400">· VIX right axis</span></h3>
       <button onclick="closeD1Modal()" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer">✕</button>
     </div>
-    <div style="height:420px"><canvas id="d1Chart"></canvas></div>
+    <div id="d1Chart" style="height:420px"></div>
     <div id="d1ModalMeta" style="font-size:11px;color:#64748b;margin-top:8px"></div>
   </div>
 </div>

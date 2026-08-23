@@ -40,8 +40,8 @@ def test_modal_elements_present():
 
 
 def test_modal_axis_ownership():
-    # growth-of-$100 LEFT, VIX RIGHT (PM-corrected axis mapping)
-    assert "'y2'" in DASH and "position: 'right'" in DASH
+    # growth-of-$100 LEFT, VIX RIGHT (PM-corrected axis mapping) — Plotly style
+    assert "yaxis2" in DASH and "side: 'right'" in DASH
     assert "Growth of $100" in DASH and "VIX" in DASH
 
 
@@ -68,8 +68,20 @@ def test_apply_rebuild_wired():
 
 
 def test_chartjs_loaded_for_modal():
-    # the modal cannot render without Chart.js (regression: modal was blank)
-    assert "chart.umd.min.js" in DASH or "chart.js" in DASH.lower()
+    # NS-ETF-style charting: Plotly (crosshair + x-unified hover), not Chart.js
+    assert "plotly-2.32.0.min.js" in DASH
+    assert "chart.umd" not in DASH.lower()
+
+
+def test_plotly_styling_matches_nsetf():
+    # crosshair shape + x-unified hover + dark plot bg (NS-ETF layout pattern)
+    assert "d1Crosshair" in DASH
+    assert "hovermode: 'x unified'" in DASH
+    assert "plot_bgcolor: '#161b22'" in DASH
+
+
+def test_vix_sma_trace_present():
+    assert "VIX SMA" in DASH and "'y2'" in DASH
 
 
 def test_render_and_load_d1_called():
