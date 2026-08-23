@@ -734,7 +734,7 @@ function openD1Modal() {
     meta.textContent = d.dates[0] + ' → ' + d.dates[d.dates.length-1] +
       ' · ' + d.dates.length + ' trading days · method: current-book MtM';
     const traces = [
-      { x: d.dates, y: d1Series, name: 'DeltaOne Basket', type: 'scatter',
+      { x: d.dates, y: d1Series, name: 'DeltaOne', type: 'scatter',
         mode: 'lines', yaxis: 'y', line: { color: '#3fb950', width: 2 } },
       { x: d.dates, y: spySeries, name: 'SPY', type: 'scatter', mode: 'lines',
         yaxis: 'y', line: { color: '#8b949e', width: 1.4 } },
