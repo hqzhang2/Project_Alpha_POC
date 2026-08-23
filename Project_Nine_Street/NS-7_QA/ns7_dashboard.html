@@ -138,8 +138,6 @@
         <div class="note">eligible for momentum ranking</div></div>
       <div class="kpi"><div class="lab">D1 Basket</div><div class="val" id="kTop" style="font-size:15px">–</div>
         <div class="note" id="kTopNote">weighted book → NS-5</div></div>
-      <div class="kpi"><div class="lab">Basket Stats</div><div class="val" id="kBook" style="font-size:15px">–</div>
-        <div class="note" id="kBookNote">effN · maxW · n</div></div>
       <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
         <div class="note">last pipeline refresh</div></div>
     </div>
@@ -201,8 +199,8 @@
                  style="width:60px;background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 4px;font-size:11px;text-align:right"></label>
         <button class="why-btn" id="d1ApplyBtn" onclick="applyD1()"
                 style="background:#16a34a;color:white;border:none">Apply → rebuild basket</button>
-        <button id="d1ModalBtn" onclick="openD1Modal()" style="background:#161b22;border:1px solid #243044;color:#4ade80;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">📈 D1 Basket vs SPY (1Y)</button>
         <span class="filter-count" id="d1Stats"></span>
+        <button id="d1ModalBtn" onclick="openD1Modal()" style="background:#161b22;border:1px solid #243044;color:#4ade80;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">📈 D1 Basket vs SPY (1Y)</button>
       </div>
       <table id="d1Table">
         <thead><tr><th>Ticker</th><th class="num">Weight</th><th class="num">Days on List</th></tr></thead>
@@ -254,7 +252,11 @@ async function loadAll() {
       api('/api/universe'), api('/api/select').catch(() => null)]);
     SEL = sel;
     await vsBadgeLoad();
-    api('/api/d1/tenure').then(t => { TENURE = (t && t.tenure) || {}; renderSel(); })
+    api('/api/d1/tenure').then(t => {
+      TENURE = (t && t.tenure) || {};
+      renderSel();
+      renderD1();   // v4.6: construction table also shows days-on-list
+    })
                          .catch(() => {});
     renderKpis(uni, sel);
     renderSel();
@@ -268,9 +270,8 @@ async function loadAll() {
 function renderKpis(uni, sel) {
   const c = uni.counts || {};
   document.getElementById('kMajor').textContent = c.major || 0;
-  const picks = (sel && sel.selections) || [];
   // v4.6: Top-N pick tile replaced by D1 basket info —
-  //   big line = weighting methodology, small line = effN · maxW · n
+  //   big line = methodology, small line = effN · maxW · n (single tile)
   const kTop = document.getElementById('kTop');
   const kTopNote = document.getElementById('kTopNote');
   if (D1) {
@@ -281,15 +282,13 @@ function renderKpis(uni, sel) {
       tenure_aware: 'Tenure aware',
     };
     kTop.textContent = labels[D1.method] || D1.method || '–';
-    kTopNote.textContent = 'D1 weighted book → NS-5';
-    document.getElementById('kBook').textContent =
+    kTopNote.textContent =
       'effN ' + (D1.eff_n ?? '—') + ' · maxW ' +
       (D1.max_weight != null ? (D1.max_weight * 100).toFixed(1) + '%' : '—') +
       ' · n ' + (D1.top_n ?? '—');
   } else {
     kTop.textContent = '–';
     kTopNote.textContent = 'no D1 basket yet';
-    document.getElementById('kBook').textContent = '–';
   }
   document.getElementById('kAsOf').textContent = uni.as_of || '–';
 }
