@@ -316,7 +316,8 @@ def update_leagues(facts_by_ticker: Dict[str, Dict], as_of: str,
         store.upsert_league(ticker, row["league"],
                             row["consecutive_compliant"],
                             row["consecutive_noncompliant"],
-                            row["first_seen"], row["last_seen"])
+                            row["first_seen"], row["last_seen"],
+                            row.get("major_since"))
     return counts
 
 
