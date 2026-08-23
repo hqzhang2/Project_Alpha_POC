@@ -60,6 +60,14 @@
   .lags { color: #64748b; }
   .ns2-flag { font-size: 9px; font-weight: 700; color: #fbbf24; border: 1px solid #fbbf24;
     border-radius: 3px; padding: 0 3px; margin-left: 5px; vertical-align: 1px; }
+  .vs-badge { display: inline-block; font-size: 9px; font-weight: 700; color: #86efac;
+    background: rgba(74,222,128,.08); border: 1px solid rgba(74,222,128,.35);
+    border-radius: 3px; padding: 0 4px; margin-left: 5px; vertical-align: 1px;
+    letter-spacing: .3px; }
+  .vs-hmm { display: inline-block; font-size: 9px; font-weight: 700;
+    background: rgba(255,255,255,.04); border: 1px solid #888;
+    border-radius: 3px; padding: 0 4px; margin-left: 5px; vertical-align: 1px; }
+  .vs-fail { color: #f87171; }
 
   .dsec { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;
     letter-spacing: .6px; margin: 14px 0 4px; padding-bottom: 3px; border-bottom: 1px solid #1f2937; }
@@ -97,7 +105,11 @@
   .detail .drow .v { font-weight: 600; font-variant-numeric: tabular-nums; }
   .detail .dtitle { font-size: 14px; font-weight: 800; margin-bottom: 8px; }
   .detail .dtitle .tk { color: #4ade80; }
-
+  /* PM rev: make the ticker symbol itself distinctive */
+  .detail .dtitle .tk {
+    font-size: 20px; letter-spacing: 1.5px; color: #ffd166;
+    text-shadow: 0 0 8px rgba(255,209,102,.35);
+  }
   .pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px;
     border-radius: 10px; margin-left: 6px; }
   .pill.yes { background: #14532d; color: #4ade80; }
@@ -206,6 +218,7 @@ async function loadAll() {
     const [uni, sel] = await Promise.all([
       api('/api/universe'), api('/api/select').catch(() => null)]);
     SEL = sel;
+    await vsBadgeLoad();
     renderKpis(uni, sel);
     renderSel();
     document.getElementById('asOf').textContent =
@@ -242,9 +255,12 @@ function renderSel() {
   tbody.innerHTML = shown.length ? shown.map(p =>
     '<tr class="clickable" onclick="showDetail(\'' + esc(p.ticker) + '\')">' +
     '<td>' + p.rank + '</td><td><b>' + esc(p.ticker) + '</b>' +
-    (p.ns2_advisory
+    // Legacy amber advisory flag only when the daily batch has no HMM for this
+    // name (batch snapshot is the source of truth for benchmark outperformers).
+    (p.ns2_advisory && !(VSBADGES[p.ticker] && VSBADGES[p.ticker].hmm && VSBADGES[p.ticker].hmm.signal)
       ? '<span class="ns2-flag" title="NS-2 HMM signal: ' + esc(p.ns2_signal || '') + ' (advisory)">' + esc(p.ns2_signal) + '</span>'
-      : '') + '</td>' +
+      : '') +
+    vsPassPills(p.ticker) + '</td>' +
     '<td class="num">' + fmtMom(p.momentum) + '</td>' +
     '<td class="num">' + (p.outperforms_benchmarks
       ? '<span class="outp">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
@@ -264,7 +280,7 @@ function renderOutperformers(bench) {
     rows.length + ' of ' + all.length + ' scored outperform both';
   tbody.innerHTML = rows.length ? rows.map(s =>
     '<tr class="clickable" onclick="showDetail(\'' + esc(s.ticker) + '\')">' +
-    '<td>' + s.rank + '</td><td><b>' + esc(s.ticker) + '</b></td>' +
+    '<td>' + s.rank + '</td><td><b>' + esc(s.ticker) + '</b>' + vsPassPills(s.ticker) + '</td>' +
     '<td class="num">' + fmtMom(s.momentum) + '</td>' +
     '<td class="num"><span class="outp">✓ BOTH</span></td>' +
     '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(s.ticker) + '\')">Why</button></td></tr>'
@@ -279,6 +295,41 @@ function toggleOut() {
   const open = body.style.display !== 'none';
   body.style.display = open ? 'none' : 'block';
   btn.textContent = open ? '▸ Expand' : '▾ Collapse';
+}
+
+// ── v4.4: value-screen pass pills (from the daily vs_pass_badges snapshot) ──
+let VSBADGES = {};   // {ticker: entry} — loaded once per loadAll cycle
+let snapGeneratedAt = '';   // snapshot timestamp for the detail section header
+
+function vsBadgeLoad() {
+  return api('/api/vsbadges').then(d => {
+    VSBADGES = (d && d.tickers) || {};
+    snapGeneratedAt = (d && d.generated_at) || '';
+  }).catch(() => { VSBADGES = {}; snapGeneratedAt = ''; });   // fail-open: no snapshot → no pills
+}
+
+const VS_FRAMEWORKS = ['graham', 'greenblatt', 'lynch', 'buffett'];
+
+function vsPassPills(ticker) {
+  const e = VSBADGES[ticker];
+  if (!e) return '';
+  const fw = (e.value_screen && e.value_screen.frameworks) || {};
+  const passed = VS_FRAMEWORKS.filter(n => fw[n] && fw[n].pass);
+  const passHtml = passed.map(n =>
+    '<span class="vs-badge" title="' + n + ' passed (daily snapshot)">' + n.toUpperCase() + '</span>'
+  ).join('');
+  return vsHmmPill(ticker) + passHtml;
+}
+
+// HMM signal pill (batch-computed, all benchmark outperformers): every signal
+// incl. NO-EDGE, colored by the canonical NS-2 SIGNAL_COLORS from the snapshot.
+function vsHmmPill(ticker) {
+  const h = VSBADGES[ticker] && VSBADGES[ticker].hmm;
+  if (!h || !h.signal) return '';
+  return '<span class="vs-hmm" style="color:' + esc(h.color || '#888') +
+    ';border-color:' + esc(h.color || '#888') + '" title="NS-2 HMM (daily batch)' +
+    (h.gate && h.gate.verdict ? ' · WF ' + esc(h.gate.verdict) : '') + '">' +
+    esc(h.signal) + '</span>';
 }
 
 async function showDetail(ticker) {
@@ -346,8 +397,19 @@ async function showDetail(ticker) {
       r(['Snapshot age', f.snapshot_age_days != null ? f.snapshot_age_days + 'd' : '—']);
 
     // ── NS-2 HMM (advisory) ────────────────────────────────────────────
+    // v4.4: the daily batch snapshot is the source of truth for benchmark
+    // outperformers; the legacy watchlist note only shows when the batch
+    // has no HMM for this name.
+    const vsH = d.vs && d.vs.hmm && d.vs.hmm.signal;
     let ns2 = '<div class="dsec">NS-2 HMM (advisory)</div>';
-    if (d.ns2_signal) {
+    if (vsH) {
+      ns2 += '<span style="color:' + esc(d.vs.hmm.color || '#888') + ';font-weight:700">' + esc(vsH) + '</span>' +
+        (d.vs.hmm.gate && d.vs.hmm.gate.verdict
+          ? '<span class="muted" style="font-size:11px;margin-left:8px">walk-forward ' +
+            esc(d.vs.hmm.gate.verdict) +
+            (d.vs.hmm.gate.profit_factor != null ? ' · PF ' + d.vs.hmm.gate.profit_factor : '') + '</span>'
+          : '');
+    } else if (d.ns2_signal) {
       ns2 += (d.ns2_advisory
         ? '<span class="ns2-flag" title="No conviction — PM review">' + esc(d.ns2_signal) + '</span>'
         : '<span class="outp">' + esc(d.ns2_signal) + '</span>') +
@@ -360,11 +422,42 @@ async function showDetail(ticker) {
       ns2 += '<div class="muted" style="font-size:11px">Not on the NS-2 watchlist — neutral.</div>';
     }
 
+    // ── v4.4: FUNDAMENTAL SELECTION (daily value-screen snapshot) ──────
+    let vs = '<div class="dsec">Fundamental Selection</div>';
+    const vse = d.vs;
+    if (vse && vse.value_screen && vse.value_screen.agreement != null) {
+      const vsc = vse.value_screen;
+      const passed = VS_FRAMEWORKS.filter(n => vsc.frameworks[n] && vsc.frameworks[n].pass);
+      const headBadges = passed.map(n =>
+        '<span class="vs-badge">' + n.toUpperCase() + '</span>').join('');
+      vs = '<div class="dsec">Fundamental Selection' +
+        '<span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px;">as of ' +
+        esc((snapGeneratedAt || '').slice(0, 16).replace('T', ' ') || '—') + '</span></div>';
+      vs += VS_FRAMEWORKS.map(n => {
+        const f = vsc.frameworks[n] || {};
+        const ok = !!f.pass;
+        // Buffett only (PM rev): line 1 = PASS + FCF conv; line 2 = ROE · D/E.
+        let val = ok ? 'PASS' : 'FAIL';
+        if (n === 'buffett' && f.metric) {
+          const parts = f.metric.split(' · ');
+          const pick = pfx => parts.find(p => p.indexOf(pfx) === 0) || '';
+          val += ' · ' + esc(pick('FCF')) + '<br>' +
+            [pick('ROE'), pick('D/E')].filter(Boolean).map(esc).join(' · ');
+        } else if (f.metric) {
+          val += ' · ' + esc(f.metric);
+        }
+        return r(['<span style="text-transform:capitalize">' + n + '</span>',
+          '<span class="' + (ok ? 'pos' : 'vs-fail') + '">' + val + '</span>']);
+      }).join('');
+    } else {
+      vs += '<div class="muted" style="font-size:11px">No daily value-screen snapshot — not a benchmark outperformer or batch pending.</div>';
+    }
+
     box.innerHTML =
-      '<div class="dtitle">' + esc(ticker) +
+      '<div class="dtitle"><span class="tk">' + esc(ticker) + '</span>' +
       '<button class="dclose" title="Close" onclick="closeDetail()">✕</button>' +
       ' ' + badge(d.league) + ' ' + compliant + '</div>' +
-      sels + lg + ns2 + qv + fx;
+      sels + lg + ns2 + vs + qv + fx;
   } catch (e) {
     box.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
   }
