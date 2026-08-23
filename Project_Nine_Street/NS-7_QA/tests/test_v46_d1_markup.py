@@ -47,3 +47,30 @@ def test_modal_axis_ownership():
 
 def test_no_legacy_title():
     assert "GROWTH/MOMENTUM SELECTION" not in DASH
+
+
+# ── D1 portfolio construction panel ─────────────────────────────────────
+def test_construction_panel_present():
+    assert "D1 Portfolio Construction" in DASH
+    assert 'id="d1Method"' in DASH
+    assert 'id="d1N"' in DASH
+    assert 'id="d1Table"' in DASH
+
+
+def test_all_four_methods_selectable():
+    for m in ("momentum_score", "rank_tilted", "risk_normalized", "tenure_aware"):
+        assert f'value="{m}"' in DASH
+
+
+def test_apply_rebuild_wired():
+    assert "applyD1()" in DASH
+    assert "/api/d1/rebuild" in DASH
+
+
+def test_chartjs_loaded_for_modal():
+    # the modal cannot render without Chart.js (regression: modal was blank)
+    assert "chart.umd.min.js" in DASH or "chart.js" in DASH.lower()
+
+
+def test_render_and_load_d1_called():
+    assert "renderD1()" in DASH and "loadD1();" in DASH

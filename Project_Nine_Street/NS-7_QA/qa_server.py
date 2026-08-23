@@ -102,6 +102,36 @@ class NS7Handler(BaseHTTPRequestHandler):
                 return self._league_detail(ticker)
         self._json({"error": f"not found: {path}"}, 404)
 
+    def do_POST(self):
+        """v4.6: rebuild the D1 basket with a PM-chosen method/n."""
+        path = self.path.split("?")[0]
+        try:
+            if path != "/api/d1/rebuild":
+                self._json({"error": f"not found: {path}"}, 404); return
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            method = body.get("method") or config.D1_WEIGHT_METHOD
+            n = body.get("n")
+            n = int(n) if n else config.BASKET_TOP_N
+            if not 1 <= n <= 100:
+                self._json({"error": "n must be 1..100"}, 400); return
+
+            import d1_basket, d1_grading
+            doc = d1_basket.build_basket(method=method, n=n)
+            if doc is None:
+                self._json({"error": "no selection available"}, 400); return
+            Path(config.D1_BASKET_PATH).write_text(json.dumps(doc, indent=2))
+            rows = d1_grading.mark_to_market()      # refresh the stream too
+            if rows is not None:
+                d1_grading.persist_returns(rows)
+            doc["mtm_written"] = rows is not None
+            self._json(doc)
+        except ValueError as exc:
+            self._json({"error": str(exc)}, 400)
+        except Exception as exc:
+            log.exception("d1 rebuild failed")
+            self._json({"error": str(exc)}, 500)
+
     # ── Handlers ─────────────────────────────────────────────────────────
     def _health(self):
         last = store.get_meta("last_refresh")

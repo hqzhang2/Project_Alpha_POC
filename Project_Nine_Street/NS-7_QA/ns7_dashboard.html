@@ -119,6 +119,7 @@
   .err { color: #f87171; font-size: 12px; padding: 10px; }
   .muted { color: #64748b; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -160,6 +161,36 @@
         Top-N growth-sleeve feed → NS-5 frontier → NS-6. Signal only — NS-7
         never weights; NS-6 owns drawdown. Check the filter to show only picks
         that outperformed BOTH SPY and QQQ over the same period.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>D1 Portfolio Construction
+        <span class="summary" id="d1Summary">no basket yet</span></h3>
+      <div class="filter-bar" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <label class="filter-label">Method:
+          <select id="d1Method" onchange="renderD1()"
+                  style="background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 6px;font-size:11px">
+            <option value="momentum_score">Momentum score</option>
+            <option value="rank_tilted">Rank tilted</option>
+            <option value="risk_normalized">Risk normalized</option>
+            <option value="tenure_aware">Tenure aware</option>
+          </select></label>
+        <label class="filter-label">n:
+          <input type="number" id="d1N" min="5" max="50" step="5" value="20"
+                 onchange="renderD1()"
+                 style="width:60px;background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 4px;font-size:11px;text-align:right"></label>
+        <button class="why-btn" id="d1ApplyBtn" onclick="applyD1()"
+                style="background:#16a34a;color:white;border:none">Apply → rebuild basket</button>
+        <span class="filter-count" id="d1Stats"></span>
+      </div>
+      <table id="d1Table">
+        <thead><tr><th>Ticker</th><th class="num">Weight</th><th class="num">Days on List</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="league-legend">
+        The weighted D1 basket is the ONLY feed to NS-5 (raw ranked list is not a
+        handoff). Apply rebuilds d1_basket.json with the chosen method/n.
       </div>
     </div>
 
@@ -477,6 +508,80 @@ function closeDetail() {
 
 loadAll();
 setInterval(loadAll, 60000);
+loadD1();
+
+// ── v4.6: D1 portfolio construction (method/n selection + weighted book) ──
+let D1 = null;   // current basket doc
+let D1_PENDING = null;  // {method, n} chosen but not yet applied
+
+function loadD1() {
+  api('/api/d1').then(function(d) {
+    D1 = (d && !d.error) ? d : null;
+    if (D1) {
+      document.getElementById('d1Method').value = D1.method || 'momentum_score';
+      document.getElementById('d1N').value = D1.top_n || config_n_default();
+    }
+    renderD1();
+  }).catch(function() { renderD1(); });
+}
+function config_n_default() { return 20; }
+
+function d1Selection() {
+  return {
+    method: document.getElementById('d1Method').value,
+    n: parseInt(document.getElementById('d1N').value, 10) || 20,
+  };
+}
+
+function pendingChange() {
+  if (!D1) return false;
+  var s = d1Selection();
+  return s.method !== D1.method || s.n !== D1.top_n;
+}
+
+function renderD1() {
+  const tbody = document.querySelector('#d1Table tbody');
+  const stats = document.getElementById('d1Stats');
+  const sum = document.getElementById('d1Summary');
+  if (!D1) {
+    sum.textContent = 'no basket yet';
+    stats.textContent = '';
+    tbody.innerHTML = '<tr><td colspan="3" class="muted">No basket — press Apply to construct one.</td></tr>';
+    return;
+  }
+  const ten = TENURE || {};
+  const entries = Object.entries(D1.weights).sort((a, b) => b[1] - a[1]);
+  tbody.innerHTML = entries.map(([t, w]) =>
+    '<tr><td><b>' + esc(t) + '</b></td>' +
+    '<td class="num">' + (w * 100).toFixed(2) + '%</td>' +
+    '<td class="num"><span class="tenure-badge">' +
+      (ten[t] != null ? ten[t] + 'd' : '—') + '</span></td></tr>'
+  ).join('');
+  stats.textContent = 'effN ' + D1.eff_n + ' · maxW ' +
+    (D1.max_weight * 100).toFixed(1) + '% · n ' + D1.top_n;
+  sum.textContent = D1.method + ' · as of ' + (D1.as_of || '—') +
+    (pendingChange() ? ' · UNSAVED changes — press Apply' : '');
+}
+
+function applyD1() {
+  const btn = document.getElementById('d1ApplyBtn');
+  const s = d1Selection();
+  btn.disabled = true; btn.textContent = 'Rebuilding…';
+  api('/api/d1/rebuild', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({method: s.method, n: s.n})
+  }).then(function(d) {
+    btn.disabled = false; btn.textContent = 'Apply → rebuild basket';
+    if (d.error) { document.getElementById('err').textContent =
+      'rebuild failed: ' + d.error; return; }
+    D1 = d;
+    loadAll();          // refresh tenure badges for the new names
+  }).catch(function(e) {
+    btn.disabled = false; btn.textContent = 'Apply → rebuild basket';
+    document.getElementById('err').textContent = 'rebuild failed: ' + e.message;
+  });
+}
 
 // ── v4.6: D1 basket vs SPY/VIX modal ─────────────────────────────────────
 let d1ChartInstance = null;
