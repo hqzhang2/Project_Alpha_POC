@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS league (
     consecutive_compliant     INTEGER NOT NULL DEFAULT 0,
     consecutive_noncompliant  INTEGER NOT NULL DEFAULT 0,
     first_seen      TEXT NOT NULL,      -- ISO date the ticker entered tracking
-    last_seen       TEXT NOT NULL       -- ISO date of the last transition
+    last_seen       TEXT NOT NULL,      -- ISO date of the last transition
+    major_since     TEXT                -- ISO date of the current Major stint start
 );
 
 CREATE TABLE IF NOT EXISTS volume (
@@ -80,6 +81,10 @@ def init_db() -> None:
     conn = sqlite3.connect(str(DB_PATH))
     try:
         conn.executescript(_SCHEMA)
+        # v4.6 migration: pre-existing DBs lack the tenure anchor column
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(league)")]
+        if "major_since" not in cols:
+            conn.execute("ALTER TABLE league ADD COLUMN major_since TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -91,25 +96,39 @@ def _connect() -> sqlite3.Connection:
 
 def upsert_league(ticker: str, league: str, consecutive_compliant: int,
                   consecutive_noncompliant: int, first_seen: str,
-                  last_seen: str) -> None:
-    """INSERT OR REPLACE one ticker's league row. Idempotent."""
+                  last_seen: str, major_since: str = None) -> None:
+    """INSERT OR REPLACE one ticker's league row. Idempotent.
+
+    major_since: ISO date of the current Major stint start. None keeps the
+    existing value (COALESCE on the PG path) so unchanged days don't reset it.
+    """
     if _use_pg():
         try:
             import common.db
             common.db.upsert_league(ticker, league, consecutive_compliant,
-                                    consecutive_noncompliant, first_seen, last_seen)
+                                    consecutive_noncompliant, first_seen, last_seen,
+                                    major_since)
         except Exception:
             pass  # fall through to sqlite
         return
     conn = _connect()
     try:
+        # INSERT...SELECT so COALESCE can reference the existing row's
+        # major_since (a VALUES clause cannot — 'no such column').
         conn.execute(
-            """INSERT OR REPLACE INTO league
+            """INSERT INTO league
                (ticker, league, consecutive_compliant, consecutive_noncompliant,
-                first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+                first_seen, last_seen, major_since)
+               SELECT ?, ?, ?, ?, ?, ?, ?
+               WHERE true
+               ON CONFLICT(ticker) DO UPDATE SET
+                 league=excluded.league,
+                 consecutive_compliant=excluded.consecutive_compliant,
+                 consecutive_noncompliant=excluded.consecutive_noncompliant,
+                 first_seen=excluded.first_seen, last_seen=excluded.last_seen,
+                 major_since=COALESCE(excluded.major_since, league.major_since)""",
             (ticker.upper(), league, consecutive_compliant,
-             consecutive_noncompliant, first_seen, last_seen),
+             consecutive_noncompliant, first_seen, last_seen, major_since),
         )
         conn.commit()
     finally:

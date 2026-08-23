@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NS-7 Growth/Momentum Selection</title>
+<title>NS-7 DeltaOne Strategy</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -13,6 +13,7 @@
   .hdr {
     display: flex; align-items: center; gap: 12px; padding: 12px 24px;
     background: #111827; border-bottom: 1px solid #1f2937;
+    position: sticky; top: 0; z-index: 100;   /* v4.6: header stays put on scroll */
   }
   .hdr h1 { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
   .hdr .sub { font-size: 11px; color: #64748b; }
@@ -119,12 +120,13 @@
   .err { color: #f87171; font-size: 12px; padding: 10px; }
   .muted { color: #64748b; }
 </style>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 </head>
 <body>
 
 <div class="hdr">
-  <h1>NS-7 <span style="color:#4ade80">GROWTH/MOMENTUM SELECTION</span></h1>
-  <span class="sub">skip-month 126/21 · two-league 90d grace · quality veto</span>
+  <h1>NS-7 <span style="color:#4ade80">DELTAONE STRATEGY</span></h1>
+  <span class="sub">skip-month 126/21 · two-league 90d grace · quality veto · weighted D1 basket → NS-5</span>
   <span class="spacer"></span>
   <span class="asof" id="asOf">loading…</span>
 </div>
@@ -134,8 +136,8 @@
     <div class="kpis">
       <div class="kpi"><div class="lab">Major (active)</div><div class="val" id="kMajor">–</div>
         <div class="note">eligible for momentum ranking</div></div>
-      <div class="kpi"><div class="lab">Top-N pick</div><div class="val" id="kTop">–</div>
-        <div class="note">#1 momentum name</div></div>
+      <div class="kpi"><div class="lab">D1 Basket</div><div class="val" id="kTop">–</div>
+        <div class="note" id="kTopNote">weighted book → NS-5</div></div>
       <div class="kpi"><div class="lab">Book size</div><div class="val" id="kBook">–</div>
         <div class="note">top-N growth-sleeve feed → NS-5</div></div>
       <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
@@ -143,7 +145,8 @@
     </div>
 
     <div class="panel">
-      <h3>Selection — top-N momentum picks <span class="summary" id="selSummary"></span></h3>
+      <h3>Selection — top-N momentum picks
+        <span class="summary" id="selSummary"></span></h3>
       <div class="filter-bar">
         <label class="filter-label"><input type="checkbox" id="benchFilter" onchange="renderSel()">
           Outperform <b>SPY &amp; QQQ</b> (same 126/21 window)</label>
@@ -151,7 +154,7 @@
       </div>
       <table id="selTable">
         <thead><tr><th>Rank</th><th>Ticker</th><th class="num">Momentum (6m skip)</th>
-          <th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
+          <th class="num">Days on List</th><th class="num">Vs SPY/QQQ</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="league-legend">
@@ -179,10 +182,45 @@
         </div>
       </div>
     </div>
+
+    <div class="panel">
+      <h3>D1 Portfolio Construction
+        <span class="summary" id="d1Summary">no basket yet</span></h3>
+      <div class="filter-bar" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <label class="filter-label">Method:
+          <select id="d1Method" onchange="renderD1()"
+                  style="background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 6px;font-size:11px">
+            <option value="momentum_score">Momentum score</option>
+            <option value="rank_tilted">Rank tilted</option>
+            <option value="risk_normalized">Risk Normalized</option>
+            <option value="tenure_aware">Tenure aware</option>
+          </select></label>
+        <label class="filter-label">n:
+          <input type="number" id="d1N" min="5" max="50" step="5" value="20"
+                 onchange="renderD1()"
+                 style="width:60px;background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 4px;font-size:11px;text-align:right"></label>
+        <button class="why-btn" id="d1ApplyBtn" onclick="applyD1()"
+                style="background:#16a34a;color:white;border:none">Apply → rebuild basket</button>
+        <span class="filter-count" id="d1Stats"></span>
+        <button id="d1ModalBtn" onclick="openD1Modal()" style="background:#161b22;border:1px solid #243044;color:#4ade80;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">📈 D1 Basket vs SPY (1Y)</button>
+      </div>
+      <table id="d1Table">
+        <thead><tr>
+          <th style="width:26px"><input type="checkbox" id="d1SelectAll" onchange="onD1SelectAll()" checked></th>
+          <th>Ticker</th><th class="num">Weight</th><th class="num">Days on List</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="league-legend">
+        The weighted D1 basket is the ONLY feed to NS-5 (raw ranked list is not a
+        handoff). Apply rebuilds d1_basket.json with the chosen method/n, marks
+        it to market into strategy_returns[ns7], and saves it as the NS-5 feed.
+      </div>
+    </div>
   </div>
 
   <div class="rail">
-    <div class="panel">
+    <div class="panel" style="background:transparent;border:none;padding:0 0 14px">
       <h3>Ticker detail</h3>
       <div id="detail" class="detail muted">Click any ticker for league tenure + live facts.</div>
     </div>
@@ -219,6 +257,12 @@ async function loadAll() {
       api('/api/universe'), api('/api/select').catch(() => null)]);
     SEL = sel;
     await vsBadgeLoad();
+    api('/api/d1/tenure').then(t => {
+      TENURE = (t && t.tenure) || {};
+      renderSel();
+      renderD1();   // v4.6: construction table also shows days-on-list
+    })
+                         .catch(() => {});
     renderKpis(uni, sel);
     renderSel();
     document.getElementById('asOf').textContent =
@@ -231,8 +275,26 @@ async function loadAll() {
 function renderKpis(uni, sel) {
   const c = uni.counts || {};
   document.getElementById('kMajor').textContent = c.major || 0;
-  const picks = (sel && sel.selections) || [];
-  document.getElementById('kTop').textContent = picks.length ? picks[0].ticker : '–';
+  // v4.6: Top-N pick tile replaced by D1 basket info —
+  //   big line = methodology, small line = effN · maxW · n (single tile)
+  const kTop = document.getElementById('kTop');
+  const kTopNote = document.getElementById('kTopNote');
+  if (D1) {
+    const labels = {
+      momentum_score: 'Momentum Score',
+      rank_tilted: 'Rank Tilted',
+      risk_normalized: 'Risk Normalized',
+      tenure_aware: 'Tenure Aware',
+    };
+    kTop.textContent = labels[D1.method] || D1.method || '–';
+    kTopNote.textContent =
+      'effN ' + (D1.eff_n ?? '—') + ' · maxW ' +
+      (D1.max_weight != null ? (D1.max_weight * 100).toFixed(1) + '%' : '—') +
+      ' · n ' + (D1.top_n ?? '—');
+  } else {
+    kTop.textContent = '–';
+    kTopNote.textContent = 'no D1 basket yet';
+  }
   document.getElementById('kBook').textContent = (sel && sel.top_n) || '–';
   document.getElementById('kAsOf').textContent = uni.as_of || '–';
 }
@@ -262,10 +324,12 @@ function renderSel() {
       : '') +
     vsPassPills(p.ticker) + '</td>' +
     '<td class="num">' + fmtMom(p.momentum) + '</td>' +
+    '<td class="num"><span class="tenure-badge" title="Days since joining Major league (resets on demotion)">' +
+      (TENURE[p.ticker] != null ? TENURE[p.ticker] + 'd' : '—') + '</span></td>' +
     '<td class="num">' + (p.outperforms_benchmarks
       ? '<span class="outp">✓ BOTH</span>' : '<span class="lags">—</span>') + '</td>' +
     '<td><button class="why-btn" onclick="event.stopPropagation(); showDetail(\'' + esc(p.ticker) + '\')">Why</button></td></tr>'
-  ).join('') : '<tr><td colspan="5" class="muted">' +
+  ).join('') : '<tr><td colspan="6" class="muted">' +
     (picks.length ? 'No picks outperformed both SPY and QQQ in this window.' :
      'No Major names yet — league probation (90d) running.') + '</td></tr>';
   renderOutperformers(bench);
@@ -299,6 +363,7 @@ function toggleOut() {
 
 // ── v4.4: value-screen pass pills (from the daily vs_pass_badges snapshot) ──
 let VSBADGES = {};   // {ticker: entry} — loaded once per loadAll cycle
+let TENURE = {};     // {ticker: days-on-Major} — v4.6 days-on-list badge
 let snapGeneratedAt = '';   // snapshot timestamp for the detail section header
 
 function vsBadgeLoad() {
@@ -470,6 +535,244 @@ function closeDetail() {
 
 loadAll();
 setInterval(loadAll, 60000);
+loadD1();
+
+// ── v4.6: D1 portfolio construction (method/n selection + weighted book) ──
+let D1 = null;   // current basket doc
+let D1_SELECT = null;  // Set of checked tickers; null = all selected
+let D1_PENDING = null;  // {method, n} chosen but not yet applied
+
+function loadD1() {
+  api('/api/d1').then(function(d) {
+    D1 = (d && !d.error) ? d : null;
+    if (D1) {
+      document.getElementById('d1Method').value = D1.method || 'momentum_score';
+      document.getElementById('d1N').value = D1.top_n || config_n_default();
+    }
+    renderD1();
+    renderKpis(SEL ? {} : null, SEL);   // refresh the methodology/stats KPI tiles
+  }).catch(function() { renderD1(); });
+}
+function config_n_default() { return 20; }
+
+function d1Selection() {
+  return {
+    method: document.getElementById('d1Method').value,
+    n: parseInt(document.getElementById('d1N').value, 10) || 20,
+  };
+}
+
+function pendingChange() {
+  if (!D1) return false;
+  var s = d1Selection();
+  return s.method !== D1.method || s.n !== D1.top_n;
+}
+
+function renderD1() {
+  const tbody = document.querySelector('#d1Table tbody');
+  const stats = document.getElementById('d1Stats');
+  const sum = document.getElementById('d1Summary');
+  if (!D1) {
+    sum.textContent = 'no basket yet';
+    stats.textContent = '';
+    tbody.innerHTML = '<tr><td colspan="4" class="muted">No basket — press Apply to construct one.</td></tr>';
+    document.getElementById('d1SelectAll').checked = true;
+    return;
+  }
+  const ten = TENURE || {};
+  const entries = Object.entries(D1.weights).sort((a, b) => b[1] - a[1]);
+  // Filtered book: checked names only; excluded ones show '–' (0%).
+  const selected = d1SelectedTickers(entries.map(e => e[0]));
+  const checkedSet = new Set(selected);
+  // Renormalize checked weights to 100% of the surviving book.
+  const totalChecked = selected.reduce((s, t) => s + D1.weights[t], 0);
+  tbody.innerHTML = entries.map(([t, w]) => {
+    const on = checkedSet.has(t);
+    const wgt = on && totalChecked > 0 ? (w / totalChecked) : 0;
+    return '<tr>' +
+      '<td><input type="checkbox" class="d1-row-check" data-tk="' + esc(t) +
+        '" onchange="onD1RowCheck()" ' + (on ? 'checked' : '') + '></td>' +
+      '<td><b>' + esc(t) + '</b>' + vsPassPills(t) + '</td>' +
+      '<td class="num">' + (on ? (wgt * 100).toFixed(2) + '%' : '<span class="dash">–</span>') + '</td>' +
+      '<td class="num"><span class="tenure-badge">' +
+        (ten[t] != null ? ten[t] + 'd' : '—') + '</span></td></tr>';
+  }).join('');
+  // book size + stats from the checked subset
+  const maxW = selected.length && totalChecked > 0
+    ? Math.max(...selected.map(t => D1.weights[t] / totalChecked)) : 0;
+  stats.textContent = 'effN ' + effNChecked(selected, totalChecked) +
+    ' · maxW ' + (maxW * 100).toFixed(1) + '% · n ' + selected.length +
+    (selected.length !== entries.length ? ' (' + entries.length + ' ranked)' : '');
+  sum.textContent = D1.method + ' · as of ' + (D1.as_of || '—') +
+    (pendingChange() ? ' · UNSAVED changes — press Apply' : '');
+  // master header reflects mixed state
+  updateD1SelectAll();
+}
+
+function d1SelectedTickers(all) {
+  if (D1_SELECT == null) return all.slice();
+  return all.filter(t => D1_SELECT.has(t));
+}
+
+function effNChecked(selected, totalChecked) {
+  if (!selected.length || totalChecked <= 0) return '—';
+  const s = selected.reduce((acc, t) => acc + (D1.weights[t] / totalChecked) ** 2, 0);
+  return s > 0 ? (1 / s).toFixed(2) : '—';
+}
+
+function onD1RowCheck() {
+  const rows = Array.from(document.querySelectorAll('#d1Table .d1-row-check'));
+  const all = Object.keys(D1.weights);
+  const checked = new Set(rows.filter(r => r.checked).map(r => r.dataset.tk));
+  // compact: all checked → null; none → empty set; else the checked set
+  D1_SELECT = checked.size === all.length ? null : checked;
+  renderD1();
+}
+
+function onD1SelectAll() {
+  const on = document.getElementById('d1SelectAll').checked;
+  D1_SELECT = on ? null : new Set();   // null = all; empty set = none
+  renderD1();
+}
+
+function updateD1SelectAll() {
+  const el = document.getElementById('d1SelectAll');
+  const rows = document.querySelectorAll('#d1Table .d1-row-check');
+  const on = Array.from(rows).filter(r => r.checked).length;
+  el.checked = on === rows.length && rows.length > 0;
+  el.indeterminate = on > 0 && on < rows.length;
+}
+
+function applyD1() {
+  const btn = document.getElementById('d1ApplyBtn');
+  const s = d1Selection();
+  btn.disabled = true; btn.textContent = 'Rebuilding…';
+  const keep = D1 ? d1SelectedTickers(Object.keys(D1.weights)) : null;
+  api('/api/d1/rebuild', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({method: s.method, n: s.n, keep: keep})
+  }).then(function(d) {
+    btn.disabled = false; btn.textContent = 'Apply → rebuild basket';
+    if (d.error) { document.getElementById('err').textContent =
+      'rebuild failed: ' + d.error; return; }
+    D1 = d;
+    D1_SELECT = null;          // rebuilt book: all selected
+    loadAll();                 // refresh tenure badges for the new names
+  }).catch(function(e) {
+    btn.disabled = false; btn.textContent = 'Apply → rebuild basket';
+    document.getElementById('err').textContent = 'rebuild failed: ' + e.message;
+  });
+}
+// ── v4.6: D1 basket vs SPY/VIX modal — Plotly, NS-ETF style ──────────────
+let d1ChartInstance = null;
+const d1Crosshair = {
+  type: 'line', xref: 'x', yref: 'paper',
+  x0: null, x1: null, y0: 0, y1: 1,
+  line: { color: '#8b949e', width: 1, dash: 'dot' }, visible: false,
+};
+const d1Layout = {
+  paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+  font: { color: '#e6edf3', size: 11, family: '-apple-system,Menlo,monospace' },
+  margin: { l: 55, r: 55, t: 8, b: 28 },
+  showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0 },
+  hovermode: 'x unified',
+  // PM spec: LEFT = growth of $100 (D1/SPY), RIGHT = VIX spot/avg.
+  yaxis: { side: 'left', tickprefix: '$',
+           title: { text: 'Growth of $100', font: { size: 10 } },
+           gridcolor: '#30363d' },
+  yaxis2: { overlaying: 'y', side: 'right', gridcolor: 'transparent',
+            title: { text: 'VIX', font: { color: '#f85149', size: 10 } },
+            tickfont: { color: '#f85149', size: 10 }, rangemode: 'tozero' },
+  xaxis: { gridcolor: '#30363d', tickfont: { color: '#8b949e' } },
+  shapes: [d1Crosshair],
+};
+function wireD1Crosshair() {
+  const el = document.getElementById('d1Chart');
+  if (el.on && !el._crosshairWired) {
+    el._crosshairWired = true;
+    el.on('plotly_hover', ev => {
+      d1Crosshair.x0 = d1Crosshair.x1 =
+        ev.xs ? ev.xs[ev.pointindex || 0] || ev.xs[0] : null;
+      d1Crosshair.visible = d1Crosshair.x0 != null;
+      Plotly.relayout('d1Chart', { 'shapes[0].x0': d1Crosshair.x0,
+        'shapes[0].x1': d1Crosshair.x1,
+        'shapes[0].visible': d1Crosshair.visible });
+    });
+    el.on('plotly_unhover', () => {
+      d1Crosshair.visible = false;
+      Plotly.relayout('d1Chart', { 'shapes[0].visible': false });
+    });
+  }
+}
+function openD1Modal() {
+  document.getElementById('d1Modal').style.display = 'flex';
+  const meta = document.getElementById('d1ModalMeta');
+  meta.textContent = 'loading D1 series…';
+  api('/api/d1/series').then(function(d) {
+    if (d.error || !d.dates || !d.dates.length) {
+      meta.textContent = 'D1 series unavailable: ' + (d.error || 'no data');
+      return;
+    }
+    // growth of $100 for D1 and SPY; VIX spot + SMA on right axis
+    let g = 100, gs = 100, d1Series = [], spySeries = [];
+    const vixSeries = [], vixSma = [];
+    const window_ = config_vix_ma_window();
+    for (let i = 0; i < d.dates.length; i++) {
+      if (i > 0) { g *= (1 + d.returns[i]); if (d.spy[i]) gs *= (1 + (d.spy[i]/d.spy[i-1] - 1)); }
+      d1Series.push(+g.toFixed(2));
+      spySeries.push(d.spy[i] ? +gs.toFixed(2) : null);
+      vixSeries.push(d.vix[i] != null ? +(+d.vix[i]).toFixed(2) : null);
+      // forward-looking SMA-20 over past values only (NS-1/NS-ETF pattern)
+      const chunk = [];
+      for (let j = Math.max(0, i - window_ + 1); j <= i; j++) {
+        if (d.vix[j] != null) chunk.push(+d.vix[j]);
+      }
+      vixSma.push(chunk.length >= Math.max(5, window_/4)
+        ? +(chunk.reduce((a,b)=>a+b,0)/chunk.length).toFixed(2) : null);
+    }
+    meta.textContent = d.dates[0] + ' → ' + d.dates[d.dates.length-1] +
+      ' · ' + d.dates.length + ' trading days · method: current-book MtM';
+    const traces = [
+      { x: d.dates, y: d1Series, name: 'DeltaOne', type: 'scatter',
+        mode: 'lines', yaxis: 'y', line: { color: '#3fb950', width: 2 } },
+      { x: d.dates, y: spySeries, name: 'SPY', type: 'scatter', mode: 'lines',
+        yaxis: 'y', line: { color: '#8b949e', width: 1.4 } },
+    ];
+    const hasVix = vixSeries.some(v => v !== null);
+    if (hasVix) {
+      traces.push({ x: d.dates, y: vixSeries, name: 'VIX spot',
+        type: 'scatter', mode: 'lines', yaxis: 'y2',
+        line: { color: '#f85149', width: 1, dash: 'dot' } });
+      traces.push({ x: d.dates, y: vixSma, name: 'VIX SMA',
+        type: 'scatter', mode: 'lines', yaxis: 'y2',
+        line: { color: '#d29922', width: 1, dash: 'dash' } });
+    }
+    Plotly.react('d1Chart', traces, d1Layout,
+                 { responsive: true, displayModeBar: false });
+    wireD1Crosshair();
+  }).catch(function(e) { meta.textContent = 'failed: ' + e.message; });
+}
+function config_vix_ma_window() { return 20; }
+function closeD1Modal() {
+  document.getElementById('d1Modal').style.display = 'none';
+}
+document.getElementById('d1Modal').addEventListener('click', function(ev) {
+  if (ev.target === this) closeD1Modal();
+});
 </script>
+<!-- v4.6: D1 basket vs SPY/VIX 1-year modal — Plotly, NS-ETF style
+     (growth-$100 LEFT / VIX spot+SMA RIGHT, hovermode x-unified, crosshair) -->
+<div id="d1Modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#161b22;border:1px solid #243044;border-radius:10px;width:min(960px,92vw);max-height:90vh;padding:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="font-size:14px;color:#e6edf3">DeltaOne vs SPY · growth of $100 (1Y) <span style="color:#64748b;font-weight:400">· VIX right axis</span></h3>
+      <button onclick="closeD1Modal()" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer">✕</button>
+    </div>
+    <div id="d1Chart" style="height:420px"></div>
+    <div id="d1ModalMeta" style="font-size:11px;color:#64748b;margin-top:8px"></div>
+  </div>
+</div>
+
 </body>
 </html>
