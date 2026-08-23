@@ -138,6 +138,8 @@
         <div class="note">eligible for momentum ranking</div></div>
       <div class="kpi"><div class="lab">D1 Basket</div><div class="val" id="kTop">–</div>
         <div class="note" id="kTopNote">weighted book → NS-5</div></div>
+      <div class="kpi"><div class="lab">Book size</div><div class="val" id="kBook">–</div>
+        <div class="note">top-N growth-sleeve feed → NS-5</div></div>
       <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
         <div class="note">last pipeline refresh</div></div>
     </div>
@@ -290,6 +292,7 @@ function renderKpis(uni, sel) {
     kTop.textContent = '–';
     kTopNote.textContent = 'no D1 basket yet';
   }
+  document.getElementById('kBook').textContent = (sel && sel.top_n) || '–';
   document.getElementById('kAsOf').textContent = uni.as_of || '–';
 }
 
