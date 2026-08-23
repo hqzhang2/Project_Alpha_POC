@@ -100,6 +100,14 @@
     border-radius: 5px; padding: 6px 8px; font-size: 12.5px; margin-bottom: 6px;
   }
   .rail select:focus, .rail input:focus { border-color: #60a5fa; outline: none; }
+  /* v4.5 feed-source dropdown — dark OMON theme */
+  .rail #sourceSelect {
+    background: #0d1117; border-color: #30363d; color: #e6edf3;
+    font-weight: 700; letter-spacing: .4px;
+  }
+  .rail #sourceSelect option {
+    background: #161b22; color: #e6edf3;
+  }
   .name-row { display: flex; gap: 6px; }
   .name-row input { flex: 1; }
   .icon-btn {
@@ -236,34 +244,9 @@
 
   <!-- Right rail -->
   <div class="rail">
-    <h4>Portfolio</h4>
-    <select id="portfolioSelect" onchange="onPortfolioSelect()"></select>
-    <div class="name-row">
-      <input type="text" id="portfolioName" placeholder="Portfolio name (required)">
-      <button class="icon-btn" title="Add row" onclick="addRow()">+</button>
-      <button class="icon-btn danger" title="Remove last row" onclick="removeRow()">−</button>
-    </div>
-    <table class="editor">
-      <thead><tr><th>Ticker</th><th>Shares</th><th title="Account type: Tx=taxable, IRA, Roth, 401k">Acct</th><th title="Distribution character: Q=qualified, O=ordinary, R=ROC, 1256=sec1256">Char</th><th></th></tr></thead>
-      <tbody id="holdingsBody"></tbody>
-    </table>
-    <div class="btn-row">
-      <button class="btn" onclick="cancelEdit()">Cancel</button>
-      <button class="btn" onclick="newPortfolio()">New Portfolio</button>
-      <button class="btn primary" onclick="savePortfolio()">Save</button>
-    </div>
-    <button class="btn danger btn-danger-wide" onclick="deletePortfolio()">Delete Portfolio</button>
-
-    <details style="margin:8px 0" id="lotDetails">
-      <summary style="font-size:11px;color:#64748b;cursor:pointer;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Tax Lots ▾</summary>
-      <div style="font-size:10px;color:#64748b;margin:4px 0 6px">Lot tracking enables TLH (harvest candidates) and basis erosion monitoring. Leave empty if unknown — tax axis grades N/A on those sub-axes (fail-open).</div>
-      <div id="lotsEditor"></div>
-      <button class="btn" onclick="addLot()" style="margin-top:4px">+ Add Lot</button>
-    </details>
-
-    <h4>Policy</h4>
-    <select id="policySelect" onchange="onPolicySelect()"></select>
-    <div class="policy-json" id="policyDetail">Select a policy…</div>
+    <h4>Source</h4>
+    <select id="sourceSelect" onchange="onSourceSelect()"></select>
+    <div class="meta" id="sourceMeta" style="margin:6px 0 0"></div>
 
     <label style="display:flex;align-items:center;gap:6px;margin:8px 0;font-size:12px;color:#94a3b8;cursor:pointer;user-select:none">
       <input type="checkbox" id="taxToggle" checked> Include tax analysis
@@ -298,7 +281,7 @@
       </div>
     </details>
 
-    <button class="btn primary" id="gradeBtn" style="margin-top:8px" onclick="grade()">Grade Portfolio</button>
+    <button class="btn primary" id="gradeBtn" style="margin-top:8px" onclick="grade()">Grade Source</button>
 
     <h4>Tweaks · <span id="tweakCount">0</span></h4>
     <ul class="tweaks" id="tweaks"></ul>
@@ -312,10 +295,6 @@
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let portfolios = [];
-let policies = [];
-let currentPortfolio = null;
-let rows = [];
 let radarChart = null;
 let frontierChart = null;
 let lastFrontier = null;   // last /api/frontier payload (for KPI vol tile)
@@ -377,224 +356,46 @@ async function api(url, opts) {
 }
 
 // ---------------------------------------------------------------------------
-// Portfolio CRUD (unchanged behavior)
+// Grade source (v4.5 — D1 / NS8 / NSETF / ALL from GET /api/sources)
 // ---------------------------------------------------------------------------
+let currentSource = null;
+
 async function refreshLists() {
-  const p = await api('/api/portfolios');
-  const pol = await api('/api/policies');
-  portfolios = p.portfolios || [];
-  policies = pol.policies || [];
-  const sel = document.getElementById('portfolioSelect');
+  const s = await api('/api/sources');
+  const sources = s.sources || ['D1', 'NS8', 'NSETF', 'ALL'];
+  const avail = s.available || {};
+  const sel = document.getElementById('sourceSelect');
   sel.innerHTML = '';
-  portfolios.forEach(n => {
+  sources.forEach(name => {
     const opt = document.createElement('option');
-    opt.value = n; opt.textContent = n;
+    opt.value = name;
+    opt.textContent = name + (name in avail ? (avail[name] ? ' ✓' : ' (stale)') : '');
+    if (!avail[name] && name !== 'ALL') opt.disabled = true;
     sel.appendChild(opt);
   });
-  const polSel = document.getElementById('policySelect');
-  polSel.innerHTML = '';
-  policies.forEach(n => {
-    const opt = document.createElement('option');
-    opt.value = n; opt.textContent = n;
-    polSel.appendChild(opt);
-  });
-  if (portfolios.length) {
-    sel.value = currentPortfolio || portfolios[0];
-    currentPortfolio = sel.value;
-    await loadPortfolio(currentPortfolio);
-  } else {
-    currentPortfolio = null;
-    rows = [{ticker: '', shares: ''}];
-    document.getElementById('portfolioName').value = '';
-    renderRows();
+  if (!sources.includes(currentSource)) {
+    // default: first available single source, else ALL
+    currentSource = sources.find(n => avail[n]) ||
+                    sources.find(n => n !== 'ALL') || 'ALL';
   }
-  if (policies.length) {
-    polSel.value = policies[0];
-    await showPolicy(policies[0]);
-  }
+  sel.value = currentSource;
+  updateSourceMeta(avail);
 }
 
-async function loadPortfolio(name) {
-  const d = await api('/api/portfolios?name=' + encodeURIComponent(name));
-  document.getElementById('portfolioName').value = d.name;
-  lotRows = [];
-  rows = Object.entries(d.holdings || {}).map(([tk, v]) => {
-    if (typeof v === 'number') return {ticker: tk, shares: v, account: 'taxable', character: 'qualified'};
-    const lots = v.lots || [];
-    lots.forEach(l => lotRows.push({ticker: tk, date: l.date, shares: l.shares, cost_per_share: l.cost_per_share}));
-    return {ticker: tk, shares: v.shares || 0, account: v.account || 'taxable', character: v.character || 'qualified'};
-  });
-  if (!rows.length) rows = [{ticker: '', shares: '', account: 'taxable', character: 'qualified'}];
-  renderRows();
-  renderLots();
+function updateSourceMeta(avail) {
+  const parts = Object.keys(avail).map(k =>
+    k + ': ' + (avail[k] ? 'fresh' : 'stale/absent'));
+  const el = document.getElementById('sourceMeta');
+  if (el) el.textContent = parts.join(' · ');
 }
 
-function renderRows() {
-  const tb = document.getElementById('holdingsBody');
-  tb.innerHTML = '';
-  rows.forEach((r, i) => {
-    const tr = document.createElement('tr');
-    const acctOpts = [['taxable','Tx'],['ira','IRA'],['roth','Roth'],['401k','401k']]
-      .map(p => '<option value="' + p[0] + '"' + ((r.account || 'taxable') === p[0] ? ' selected' : '') + '>' + p[1] + '</option>').join('');
-    const charOpts = [['qualified','Q'],['ordinary','O'],['roc','R'],['sec1256','1256']]
-      .map(p => '<option value="' + p[0] + '"' + ((r.character || 'qualified') === p[0] ? ' selected' : '') + '>' + p[1] + '</option>').join('');
-    tr.innerHTML =
-      '<td><input type="text" value="' + esc(r.ticker) + '" placeholder="TICKER" ' +
-        'oninput="rows[' + i + '].ticker=this.value.toUpperCase()"></td>' +
-      '<td><input type="number" min="0" step="any" value="' + esc(r.shares) + '" ' +
-        'placeholder="0" oninput="rows[' + i + '].shares=this.value"></td>' +
-      '<td><select onchange="rows[' + i + '].account=this.value" style="width:100%;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:4px;padding:3px 2px;font-size:10px">' + acctOpts + '</select></td>' +
-      '<td><select onchange="rows[' + i + '].character=this.value" style="width:100%;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:4px;padding:3px 2px;font-size:11px">' + charOpts + '</select></td>' +
-      '<td class="del"><button class="icon-btn danger" title="Remove row" onclick="removeRowAt(' + i + ')">×</button></td>';
-    tb.appendChild(tr);
-  });
+async function onSourceSelect() {
+  const sel = document.getElementById('sourceSelect');
+  currentSource = sel.value || null;
 }
 
-function addRow() { rows.push({ticker: '', shares: '', account: 'taxable', character: 'qualified'}); renderRows(); }
-function removeRow() { if (!rows.length) return; rows.pop(); renderRows(); }
-function removeRowAt(i) { rows.splice(i, 1); renderRows(); }
-
-// ---------------------------------------------------------------------------
-// Tax lots (store v2 metadata — TLH + basis erosion inputs)
-// ---------------------------------------------------------------------------
-let lotRows = [];  // [{ticker, date, shares, cost_per_share}]
-
-function renderLots() {
-  const tb = document.getElementById('lotsEditor');
-  tb.innerHTML = '';
-  if (!lotRows.length) {
-    tb.innerHTML = '<div style="color:#64748b;font-size:11px;padding:6px">No lots recorded. Click + Add Lot, then fill date / shares / cost per share.</div>';
-    return;
-  }
-  var table = '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>' +
-    '<th style="color:#64748b;text-align:left;padding:2px 4px">Ticker</th>' +
-    '<th style="color:#64748b;text-align:left;padding:2px 4px">Date</th>' +
-    '<th style="color:#64748b;text-align:right;padding:2px 4px">Shares</th>' +
-    '<th style="color:#64748b;text-align:right;padding:2px 4px">Cost/Share</th>' +
-    '<th></th></tr></thead><tbody>';
-  lotRows.forEach(function(l, i) {
-    table += '<tr><td>' + esc(l.ticker) + '</td>' +
-      '<td><input type="date" value="' + esc(l.date) + '" onchange="lotRows[' + i + '].date=this.value" style="width:100%;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:3px;padding:2px 4px;font-size:10px"></td>' +
-      '<td><input type="number" min="0" step="any" value="' + esc(l.shares) + '" onchange="lotRows[' + i + '].shares=Number(this.value)" style="width:60px;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:3px;padding:2px 4px;font-size:10px;text-align:right"></td>' +
-      '<td><input type="number" min="0" step="0.01" value="' + esc(l.cost_per_share) + '" onchange="lotRows[' + i + '].cost_per_share=Number(this.value)" style="width:70px;background:#0b0f17;border:1px solid #1c2634;color:#e6edf3;border-radius:3px;padding:2px 4px;font-size:10px;text-align:right"></td>' +
-      '<td><button class="icon-btn danger" style="width:18px;height:18px;font-size:10px" onclick="removeLot(' + i + ')">x</button></td></tr>';
-  });
-  table += '</tbody></table>';
-  tb.innerHTML = table;
-}
-
-function addLot() {
-  var tk = '';
-  var first = rows.find(r => (r.ticker || '').trim());
-  if (first) tk = first.ticker.trim().toUpperCase();
-  if (!tk) { alert('Add a ticker in the holdings table first.'); return; }
-  lotRows.push({ticker: tk, date: '', shares: '', cost_per_share: ''});
-  renderLots();
-}
-
-function removeLot(i) {
-  if (!confirm('Remove this lot?')) return;
-  lotRows.splice(i, 1);
-  renderLots();
-}
-
-function collectRows() {
-  return rows
-    .filter(r => (r.ticker || '').trim() && r.shares !== '' && Number(r.shares) > 0)
-    .map(r => {
-      const pos = {ticker: r.ticker.trim().toUpperCase(), shares: Number(r.shares)};
-      if (r.account && r.account !== 'taxable') pos.account = r.account;
-      const tk = r.ticker.trim().toUpperCase();
-      const tickerLots = lotRows
-        .filter(l => l.ticker === tk && l.date && Number(l.shares) > 0 && Number(l.cost_per_share) > 0)
-        .map(l => ({date: l.date, shares: Number(l.shares), cost_per_share: Number(l.cost_per_share)}));
-      if (tickerLots.length) pos.lots = tickerLots;
-      return pos;
-    });
-}
-
-async function savePortfolio() {
-  const name = document.getElementById('portfolioName').value.trim();
-  if (!name) { document.getElementById('err').textContent = 'Portfolio name is required.'; return; }
-  const holdings = collectRows();
-  if (!holdings.length) { document.getElementById('err').textContent = 'Add at least one ticker with positive shares.'; return; }
-  const h = {};
-  holdings.forEach(r => {
-    const entry = {shares: r.shares};
-    if (r.account) entry.account = r.account;
-    if (r.lots && r.lots.length) entry.lots = r.lots;
-    h[r.ticker] = entry;
-  });
-  if (!confirm('Save portfolio "' + name + '"?')) return;
-  try {
-    await api('/api/portfolios', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name: name, holdings: h, rename_from: currentPortfolio})
-    });
-    currentPortfolio = name;
-    document.getElementById('err').textContent = '';
-    await refreshLists();
-  } catch (e) {
-    document.getElementById('err').textContent = 'Save failed: ' + e.message;
-  }
-}
-
-async function cancelEdit() {
-  if (!confirm('Discard unsaved changes?')) return;
-  document.getElementById('err').textContent = '';
-  if (currentPortfolio) await loadPortfolio(currentPortfolio);
-  else { rows = [{ticker: '', shares: '', account: 'taxable', character: 'qualified'}]; lotRows = []; renderRows(); renderLots(); }
-}
-
-// Reset the editor to a blank state so a NEW portfolio can be created.
-function newPortfolio() {
-  if (!confirm('Start a new portfolio? Unsaved changes will be discarded.')) return;
-  currentPortfolio = null;
-  document.getElementById('portfolioSelect').value = '';
-  document.getElementById('portfolioName').value = '';
-  document.getElementById('err').textContent = '';
-  rows = [{ticker: '', shares: '', account: 'taxable', character: 'qualified'}];
-  lotRows = [];
-  renderRows();
-  renderLots();
-  document.getElementById('portfolioName').focus();
-}
-
-async function deletePortfolio() {
-  if (!currentPortfolio) return;
-  if (!confirm('Delete portfolio "' + currentPortfolio + '"?')) return;
-  await api('/api/portfolios?name=' + encodeURIComponent(currentPortfolio), {method: 'DELETE'});
-  currentPortfolio = null;
-  await refreshLists();
-}
-
-async function onPortfolioSelect() {
-  const sel = document.getElementById('portfolioSelect');
-  if (!sel.value) { currentPortfolio = null; rows = [{ticker:'',shares:''}]; renderRows(); return; }
-  await loadPortfolio(sel.value);
-  currentPortfolio = sel.value;
-}
-
-// ---------------------------------------------------------------------------
-// Policy
-// ---------------------------------------------------------------------------
-async function showPolicy(name) {
-  const d = await api('/api/policies?name=' + encodeURIComponent(name));
-  document.getElementById('policyDetail').textContent = JSON.stringify(d.weights, null, 2);
-}
-async function onPolicySelect() {
-  const sel = document.getElementById('policySelect');
-  if (sel.value) await showPolicy(sel.value);
-}
-
-function selectedPortfolioName() {
-  const sel = document.getElementById('portfolioSelect');
-  return sel.value || null;
-}
-function selectedPolicyName() {
-  const sel = document.getElementById('policySelect');
-  return sel.value || null;
+function selectedSource() {
+  return document.getElementById('sourceSelect').value || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -995,12 +796,10 @@ async function grade() {
   btn.disabled = true;
   document.getElementById('err').textContent = '';
   try {
-    const pname = selectedPortfolioName();
-    const polname = selectedPolicyName();
-    if (!pname) throw new Error('Select a portfolio first.');
-    if (!polname) throw new Error('Select a policy first.');
+    const source = selectedSource();
+    if (!source) throw new Error('Select a feed source first.');
     var axes = ['concentration', 'drift'];
-    var body = {holdings: pname, policy_weights: polname};
+    var body = {source: source};
     if (document.getElementById('taxToggle').checked) {
       var taxBody = {};
       // Editable tax profile overrides (only when changed from TAX_DEFAULTS)
@@ -1011,14 +810,6 @@ async function grade() {
       if (Math.abs(fb - 0.37) > 0.001) taxBody.federal_bracket = fb;
       if (Math.abs(sr) > 0.0005) taxBody.state_rate = sr;
       if (!niit) taxBody.niit = false;
-      // Per-ticker distribution character overrides (non-default only)
-      var chars = {};
-      rows.forEach(function(r) {
-        if (r.ticker && r.character && r.character !== 'qualified') {
-          chars[r.ticker.trim().toUpperCase()] = {character: r.character};
-        }
-      });
-      if (Object.keys(chars).length > 0) taxBody.distribution_character = chars;
       body.tax = Object.keys(taxBody).length > 0 ? taxBody : true;
       axes.push('tax');
     }
@@ -1058,13 +849,12 @@ async function grade() {
 async function loadFrontier() {
   var meta = document.getElementById('frontierMeta');
   try {
-    var pname = selectedPortfolioName();
-    var polname = selectedPolicyName();
-    if (!pname || !polname) { meta.textContent = 'frontier: select portfolio and policy'; return; }
+    var source = selectedSource();
+    if (!source) { meta.textContent = 'frontier: select a feed source'; return; }
     var res = await fetch('/api/frontier', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({holdings: pname, policy_weights: polname})
+      body: JSON.stringify({source: source})
     });
     var d = await res.json();
     if (!res.ok || d.error) { meta.textContent = 'frontier: ' + (d.error || ('HTTP ' + res.status)); return; }
