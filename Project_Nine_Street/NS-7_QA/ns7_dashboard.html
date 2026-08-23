@@ -136,7 +136,7 @@
     <div class="kpis">
       <div class="kpi"><div class="lab">Major (active)</div><div class="val" id="kMajor">–</div>
         <div class="note">eligible for momentum ranking</div></div>
-      <div class="kpi"><div class="lab">D1 Basket</div><div class="val" id="kTop" style="font-size:15px">–</div>
+      <div class="kpi"><div class="lab">D1 Basket</div><div class="val" id="kTop">–</div>
         <div class="note" id="kTopNote">weighted book → NS-5</div></div>
       <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
         <div class="note">last pipeline refresh</div></div>
@@ -190,7 +190,7 @@
                   style="background:#0b0f17;border:1px solid #243044;color:#e6edf3;border-radius:4px;padding:3px 6px;font-size:11px">
             <option value="momentum_score">Momentum score</option>
             <option value="rank_tilted">Rank tilted</option>
-            <option value="risk_normalized">Risk normalized</option>
+            <option value="risk_normalized">Risk Normalized</option>
             <option value="tenure_aware">Tenure aware</option>
           </select></label>
         <label class="filter-label">n:
@@ -276,10 +276,10 @@ function renderKpis(uni, sel) {
   const kTopNote = document.getElementById('kTopNote');
   if (D1) {
     const labels = {
-      momentum_score: 'Momentum score',
-      rank_tilted: 'Rank tilted',
-      risk_normalized: 'Risk normalized',
-      tenure_aware: 'Tenure aware',
+      momentum_score: 'Momentum Score',
+      rank_tilted: 'Rank Tilted',
+      risk_normalized: 'Risk Normalized',
+      tenure_aware: 'Tenure Aware',
     };
     kTop.textContent = labels[D1.method] || D1.method || '–';
     kTopNote.textContent =
