@@ -35,6 +35,9 @@ ENV = os.environ.get("ENV", "QA")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("ns7.qa_server")
 
+# v4.6: 60s cache for the estimated D1 series (repeated modal opens).
+_D1_SERIES_CACHE = {"data": None, "ts": 0.0}
+
 
 def _serve_dashboard(handler):
     """Serve ns7_dashboard.html (the portal-facing UI)."""
@@ -90,11 +93,65 @@ class NS7Handler(BaseHTTPRequestHandler):
             return self._select()
         if path == "/api/vsbadges":
             return self._vsbadges()
+        if path == "/api/d1":
+            return self._d1()
+        if path == "/api/d1/series":
+            return self._d1_series()
+        if path == "/api/d1/tenure":
+            return self._d1_tenure()
         if path.startswith("/api/leagues/"):
             ticker = path.split("/")[-1].strip().upper()
             if ticker:
                 return self._league_detail(ticker)
         self._json({"error": f"not found: {path}"}, 404)
+
+    def do_POST(self):
+        """v4.6: rebuild the D1 basket with a PM-chosen method/n."""
+        path = self.path.split("?")[0]
+        try:
+            if path != "/api/d1/rebuild":
+                self._json({"error": f"not found: {path}"}, 404); return
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            method = body.get("method") or config.D1_WEIGHT_METHOD
+            n = body.get("n")
+            n = int(n) if n else config.BASKET_TOP_N
+            if not 1 <= n <= 100:
+                self._json({"error": "n must be 1..100"}, 400); return
+
+            import d1_basket, d1_grading
+            closes = d1_basket._load_basket_closes()
+            doc = d1_basket.build_basket(method=method, n=n,
+                                         closes_by_ticker=closes)
+            if doc is None:
+                self._json({"error": "no selection available"}, 400); return
+            # v4.6: optional manual stock filter — only `keep` names survive,
+            # remaining weights renormalized to 100% (0% → excluded → '–').
+            keep = body.get("keep")
+            if keep:
+                keep_set = {str(t).strip().upper() for t in keep}
+                original_n = len(doc["weights"])
+                kept = {t: w for t, w in doc["weights"].items() if t in keep_set}
+                if not kept:
+                    self._json({"error": "no kept names remain in basket"}, 400); return
+                total = sum(kept.values())
+                doc["weights"] = {t: round(w / total, 6) for t, w in kept.items()}
+                doc["top_n"] = len(doc["weights"])
+                doc["eff_n"] = round(
+                    1.0 / sum((w) ** 2 for w in doc["weights"].values()), 2)
+                doc["max_weight"] = round(max(doc["weights"].values()), 6)
+                doc["filtered_from"] = original_n
+            Path(config.D1_BASKET_PATH).write_text(json.dumps(doc, indent=2))
+            rows = d1_grading.mark_to_market()      # refresh the stream too
+            if rows is not None:
+                d1_grading.persist_returns(rows)
+            doc["mtm_written"] = rows is not None
+            self._json(doc)
+        except ValueError as exc:
+            self._json({"error": str(exc)}, 400)
+        except Exception as exc:
+            log.exception("d1 rebuild failed")
+            self._json({"error": str(exc)}, 500)
 
     # ── Handlers ─────────────────────────────────────────────────────────
     def _health(self):
@@ -147,6 +204,78 @@ class NS7Handler(BaseHTTPRequestHandler):
         """Daily badge snapshot (HMM + value screen) — {} when absent/stale."""
         snap = vs_badges.load_snapshot()
         self._json(snap or {"tickers": {}})
+
+    def _d1(self):
+        """v4.6: the DeltaOne basket doc — {} when absent (no basket yet)."""
+        import d1_basket
+        try:
+            self._json(json.loads(config.D1_BASKET_PATH.read_text()))
+        except Exception:
+            self._json({"error": "no d1_basket yet"})
+
+    def _d1_series(self):
+        """v4.6: D1 basket daily returns + SPY/VIX overlay for the 1-yr modal.
+
+        Uses the FULL overlap window (from_as_of=False) — this is the
+        *estimated* current-book curve, explicitly labeled, NOT the realized
+        strategy_returns stream. Cached 60s so repeated modal opens don't
+        recompute the price queries.
+        """
+        import time
+        now = time.time()
+        if (_D1_SERIES_CACHE["data"] is not None
+                and now - _D1_SERIES_CACHE["ts"] < 60):
+            self._json(_D1_SERIES_CACHE["data"]); return
+        try:
+            import d1_grading
+            rows = d1_grading.mark_to_market(from_as_of=False)
+            if rows is None:
+                self._json({"error": "no D1 return series"})
+                return
+            # SPY: NS-7 bench cache; VIX: NS-ETF wf_closes (A_T store has neither)
+            spy = self._load_overlay(config.BENCH_CACHE, "SPY")
+            vix = self._load_overlay(
+                Path(__file__).resolve().parent.parent / "NS-ETF_QA" / "data"
+                / "wf_closes.json", "^VIX")
+            window = rows[-252:]
+            payload = {
+                "dates": [r["date"] for r in window],
+                "returns": [r["return"] for r in window],
+                "spy": [spy.get(r["date"]) for r in window],
+                "vix": [vix.get(r["date"]) for r in window],
+                "estimated": True,   # current-book weights over history
+            }
+            _D1_SERIES_CACHE["data"], _D1_SERIES_CACHE["ts"] = payload, now
+            self._json(payload)
+        except Exception as exc:
+            self._json({"error": f"D1 series unavailable: {exc}"})
+
+    @staticmethod
+    def _load_overlay(path, key):
+        """{date: value} from a bench/wf overlay JSON. {} fail-open."""
+        import json as _json
+        from pathlib import Path as _P
+        try:
+            doc = _json.loads(_P(path).read_text())
+            node = doc.get(key) if isinstance(doc, dict) else None
+            if isinstance(node, dict):                 # {date: close}
+                return {k: float(v) for k, v in node.items() if v is not None}
+            if isinstance(node, list):                 # [[date, close], ...]
+                return {row[0]: float(row[1]) for row in node
+                        if row and len(row) > 1 and row[1] is not None}
+        except Exception:
+            pass
+        return {}
+
+    def _d1_tenure(self):
+        """v4.6: days-on-Major-league for current basket names (badge source)."""
+        import d1_basket
+        try:
+            doc = json.loads(config.D1_BASKET_PATH.read_text())
+            self._json({"as_of": doc.get("as_of"),
+                        "tenure": d1_basket.tenure_days(list(doc["weights"]))})
+        except Exception:
+            self._json({"error": "no d1_basket yet"})
 
     def _league_reason(self, row: dict, facts: dict, major_qual: bool) -> str:
         """Why this ticker is in its league — the drill-down headline."""

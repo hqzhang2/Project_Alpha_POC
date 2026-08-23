@@ -39,6 +39,16 @@ TOP_N = 20                                          # top-N Major names selected
 # stays in the book instead of being trimmed on a transient rank wobble.
 TURNOVER_BAND = 10
 
+# ── v4.6 DeltaOne (D1) basket construction ──────────────────────────────
+BASKET_TOP_N = 20              # PM-editable basket size (default 20; 5/10/50 ok)
+D1_WEIGHT_METHOD = "momentum_score"   # momentum_score | rank_tilted |
+                                      # risk_normalized | tenure_aware
+D1_RANK_TILT_GEOMETRIC = False # rank_tilted: linear inverse-rank (default)
+                               # or geometric 2^(-rank)
+D1_MAX_NAME_W = 0.08           # per-name cap (baseball, enforced at basket)
+COMPOSED_MIN_EFF_N = 15        # reported diagnostic floor (NS-5/NS-PC share)
+
+
 # ── Guardrail caps (§5) ─────────────────────────────────────────────────
 MAX_POSITION_WEIGHT = 0.08                          # G4: 8% per name
 MIN_EFFECTIVE_N = 15                                # G4: min effective-N
@@ -48,6 +58,12 @@ MAX_SECTOR_WEIGHT = 0.40                            # G4: 40% sector cap
 import pathlib
 DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
 DB_PATH = DATA_DIR / "ns7.db"
+
+# ── v4.6 D1 basket output + tenure_aware decay ─────────────────────────
+D1_BASKET_PATH = DATA_DIR / "d1_basket.json"
+D1_TENURE_FRESH_DAYS = 63        # full weight ≤ 3 months since Major entry
+D1_TENURE_LONG_TOOTH_DAYS = 252  # min factor from 1 year onward
+D1_TENURE_MIN_FACTOR = 0.5       # long-tooth weight factor (never zeroed)
 
 # ── A_T data sources (READ-ONLY — NS-7 never writes to A_T stores) ─────
 # NS-7 consumes A_T's point-in-time store via direct SQLite reads (decoupled
