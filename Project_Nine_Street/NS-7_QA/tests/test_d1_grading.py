@@ -24,7 +24,8 @@ if _REPO_ROOT not in sys.path:
 @pytest.fixture
 def _env(tmp_path, monkeypatch):
     """Temp basket + temp price store; persist captured instead of written."""
-    basket = {"strategy": "deltaone", "weights": {"A": 0.6, "B": 0.4}}
+    basket = {"strategy": "deltaone", "as_of": "2026-08-10",
+              "weights": {"A": 0.6, "B": 0.4}}
     bp = tmp_path / "d1_basket.json"
     bp.write_text(json.dumps(basket))
     monkeypatch.setattr(config, "D1_BASKET_PATH", bp)
@@ -44,10 +45,10 @@ def _env(tmp_path, monkeypatch):
     return tmp_path, pdb
 
 
-# ── weighted daily returns ───────────────────────────────────────────────
+# ── weighted daily returns (from_as_of=False: full overlap window) ───────
 def test_basket_daily_returns_weighted(_env):
     tmp, pdb = _env
-    rows = dg.mark_to_market(db_path=pdb)
+    rows = dg.mark_to_market(db_path=pdb, from_as_of=False)
     assert rows is not None and len(rows) == 2
     # day2: 0.6*+10% + 0.4*0% = +6%
     assert rows[0]["return"] == pytest.approx(0.06, abs=1e-8)
@@ -67,7 +68,7 @@ def test_partial_book_dates_excluded(_env):
     conn.close()
     basket = {"weights": {"A": 0.5, "B": 0.5}}
     (tmp / "d1_basket.json").write_text(json.dumps(basket))
-    rows = dg.mark_to_market(db_path=pdb)
+    rows = dg.mark_to_market(db_path=pdb, from_as_of=False)
     assert len(rows) == 2                       # C not in weights → ignored
 
 
@@ -75,7 +76,7 @@ def test_no_common_dates_fail_open(_env):
     tmp, _ = _env
     (tmp / "d1_basket.json").write_text(
         json.dumps({"weights": {"A": 0.5, "ZZZ": 0.5}}))   # ZZZ has no prices
-    assert dg.mark_to_market(db_path=tmp / "prices.db") is None
+    assert dg.mark_to_market(db_path=tmp / "prices.db", from_as_of=False) is None
 
 
 def test_missing_basket_fail_open(tmp_path):
@@ -86,6 +87,30 @@ def test_empty_weights_fail_open(tmp_path):
     bp = tmp_path / "d1_basket.json"
     bp.write_text(json.dumps({"weights": {}}))
     assert dg.mark_to_market(basket_path=bp) is None
+
+
+# ── look-ahead gating (from_as_of=True) ──────────────────────────────────
+def test_from_as_of_gates_to_book_lifetime(_env):
+    tmp, pdb = _env
+    # prices run 08-10..08-12; basket as_of=08-10 → realized = from 08-10 only
+    rows = dg.mark_to_market(db_path=pdb, from_as_of=True)
+    assert rows is not None and len(rows) == 2
+    assert rows[0]["date"] >= "2026-08-10"
+
+
+def test_from_as_of_no_post_as_of_closes_is_none(_env):
+    tmp, pdb = _env
+    # basket as_of AFTER all prices → nothing realized yet → None (no look-ahead)
+    (tmp / "d1_basket.json").write_text(json.dumps(
+        {"as_of": "2026-08-20", "weights": {"A": 0.6, "B": 0.4}}))
+    assert dg.mark_to_market(db_path=pdb, from_as_of=True) is None
+
+
+def test_from_as_of_missing_as_of_refuses(_env):
+    tmp, pdb = _env
+    (tmp / "d1_basket.json").write_text(json.dumps(
+        {"weights": {"A": 0.6, "B": 0.4}}))   # no as_of → cannot gate → refuse
+    assert dg.mark_to_market(db_path=pdb, from_as_of=True) is None
 
 
 # ── persistence ──────────────────────────────────────────────────────────
@@ -112,5 +137,6 @@ def test_main_end_to_end(_env, monkeypatch, capsys):
     seen = {}
     monkeypatch.setattr(db, "write_strategy_returns",
                         lambda sid, rows: seen.update(n=len(rows)) or True)
+    # _env basket as_of=08-10, prices 08-10..08-12 → main writes 2 realized rows
     assert dg.main() == 0
     assert seen["n"] == 2

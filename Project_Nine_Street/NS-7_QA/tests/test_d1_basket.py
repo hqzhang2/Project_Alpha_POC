@@ -86,6 +86,15 @@ def test_risk_normalized_no_data_falls_back_equal():
     assert w["X"] == w["Y"] == 1.0
 
 
+def test_risk_normalized_missing_vol_keeps_full_book():
+    # Only Y has usable vol → Y is inverse-vol weighted, X is neutral (1.0);
+    # BOTH names stay (book is not silently shrunk).
+    closes = {"Y": list(range(100, 170))}
+    w = d1.weight_basket([{"ticker": "X"}, {"ticker": "Y"}],
+                         "risk_normalized", closes_by_ticker=closes)
+    assert set(w) == {"X", "Y"}
+
+
 # ── tenure_aware ─────────────────────────────────────────────────────────
 def test_tenure_aware_decays_long_tooth():
     cands = _cands(4)
@@ -152,6 +161,25 @@ def test_build_basket_thin_pool(_cfg):
     (_cfg / "selection.json").write_text(json.dumps(sel))
     doc = d1.build_basket()
     assert doc["top_n"] == 8               # pool thinner than n → take what exists
+
+
+def test_build_basket_drops_zero_weight_names(_cfg):
+    # momentum_score with a negative-momentum name in top-n → it must NOT
+    # appear in the book (top_n/effN reflect only actually-held names).
+    cands = [{"ticker": "T0", "momentum": 2.0, "rank": 1},
+             {"ticker": "NEG", "momentum": -1.0, "rank": 2}]
+    sel = {"as_of": "2026-08-22", "scores": cands}
+    (_cfg / "selection.json").write_text(json.dumps(sel))
+    doc = d1.build_basket(n=2)
+    assert "NEG" not in doc["weights"]
+    assert doc["top_n"] == 1
+    assert abs(sum(doc["weights"].values()) - 1.0) < 1e-6
+
+
+def test_top_candidates_rank_fallback():
+    # scores without a 'rank' key → fail-open to list order, no KeyError
+    scored = [{"ticker": "A"}, {"ticker": "B"}, {"ticker": "C"}]
+    assert [c["ticker"] for c in d1.top_candidates(scored, n=2)] == ["A", "B"]
 
 
 def test_main_writes_file(_cfg, capsys):

@@ -59,38 +59,36 @@ def top_candidates(scores: List[dict], n: Optional[int] = None) -> List[dict]:
     """Top-n scored names by ascending rank (n = config.BASKET_TOP_N default).
 
     Takes whatever is available if the pool is thinner than n (PM decision
-    §3b: fixed editable n, thin pool → thin basket, never padded).
+    §3b: fixed editable n, thin pool → thin basket, never padded). Fail-open
+    on a missing rank: falls back to list order rather than raising.
     """
     n = n if n is not None else config.BASKET_TOP_N
-    return sorted(scores, key=lambda s: s["rank"])[:n]
+    key = (lambda s: s["rank"]) if all("rank" in s for s in scores) \
+        else (lambda s: float("inf"))
+    return sorted(scores, key=key)[:n]
 
 
 # ── Tenure ────────────────────────────────────────────────────────────────
 def tenure_days(tickers: List[str]) -> Dict[str, Optional[int]]:
     """Days since each ticker's last Major-league entry; None if not found.
 
-    Reads common.db ns7_league (PG via _use_pg seam, sqlite fallback).
-    last_seen on a 'major' row == the date it became Major (reset on demotion
-    is inherent: re-entry writes a fresh last_seen). Fail-open → None.
+    Uses common.db.get_league() (the public centralized-DB seam, PG-first with
+    sqlite fallback) — never raw SQL against private connections. last_seen on
+    a 'major' row == the date it became Major (reset on demotion is inherent:
+    re-entry writes a fresh last_seen). Fail-open → None.
     """
     out: Dict[str, Optional[int]] = {t: None for t in tickers}
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
         import common.db as db
-        conn = db._connect() if hasattr(db, "_connect") else None
-        if conn is None:
-            return out
         today = date.today()
-        with conn.cursor() as cur:
-            for t in tickers:
-                cur.execute(
-                    "SELECT league, last_seen FROM ns7_league WHERE ticker=%s",
-                    (t.upper(),))
-                row = cur.fetchone()
-                if row and row[0] == "major":
-                    seen = row[1][:10] if isinstance(row[1], str) else str(row[1])[:10]
-                    out[t] = max(0, (today - date.fromisoformat(seen)).days)
-        conn.close()
+        for t in tickers:
+            row = db.get_league(t.upper())
+            if row and row.get("league") == "major":
+                seen = row.get("last_seen")
+                if seen:
+                    s = seen[:10] if isinstance(seen, str) else str(seen)[:10]
+                    out[t] = max(0, (today - date.fromisoformat(s)).days)
     except Exception as exc:  # noqa: BLE001
         log.warning("tenure lookup failed (%s) — tenure treated as unknown", exc)
     return out
@@ -145,12 +143,23 @@ def weight_basket(cands: List[dict],
 
     if method == "risk_normalized":
         sig = _risk_sigma(closes_by_ticker or {}, tickers)
-        usable = {t: s for t, s in sig.items() if s == s and s > 0}  # drop NaN/0
-        if not usable:
+        # Missing/NaN vol for a name → neutral weight 1.0 (keep the full book,
+        # same semantics as momentum_score's fallback — a thin book is not
+        # silently shrunk). Only an ALL-missing book falls back to equal weight.
+        w = {}
+        have_any = False
+        for t in tickers:
+            s = sig.get(t)
+            if s and s == s and s > 0:
+                w[t] = 1.0 / s
+                have_any = True
+            else:
+                w[t] = 1.0
+        if not have_any:
             log.warning("no usable vol series — risk_normalized falls back to "
                         "equal weight")
-            return {t: 1.0 for t in tickers}
-        return {t: 1.0 / usable[t] for t in usable}
+            w = {t: 1.0 for t in tickers}
+        return w
 
     if method == "tenure_aware":
         base = weight_basket(cands, "momentum_score")
@@ -242,6 +251,11 @@ def build_basket(selection: Optional[Dict] = None,
         tenure = tenure_days([c["ticker"] for c in cands])
 
     raw = weight_basket(cands, method, closes_by_ticker, tenure)
+    # Drop non-positive weights (momentum floor can yield 0.0) so top_n/eff_n
+    # reflect only the actually-held names, not zeros.
+    raw = {t: w for t, w in raw.items() if w and w > 0}
+    if not raw:
+        return None
     weights = apply_guardrails(raw, config.D1_MAX_NAME_W)
 
     return {
@@ -262,7 +276,12 @@ def build_basket(selection: Optional[Dict] = None,
 
 
 def main() -> int:
-    doc = build_basket()
+    # risk_normalized needs per-ticker closes — load them up front so the
+    # live path computes real inverse-vol weights (not the equal-weight
+    # fallback). Fail-open: missing closes → {} → risk_normalized still works
+    # as equal-weight rather than crashing.
+    closes = _load_basket_closes()
+    doc = build_basket(closes_by_ticker=closes)
     if doc is None:
         log.error("no selection available — no basket written")
         return 1
@@ -272,6 +291,26 @@ def main() -> int:
     print(f"D1 basket {doc['as_of']}: method={doc['method']} n={doc['top_n']} "
           f"effN={doc['eff_n']} maxW={doc['max_weight']:.1%} → {path}")
     return 0
+
+
+def _load_basket_closes(cands: Optional[List[dict]] = None) -> Dict[str, List[float]]:
+    """{ticker: [closes asc]} for the current top-n selection (risk_normalized).
+
+    Reuses d1_grading's A_T price read. Fail-open → {} on any error.
+    """
+    if cands is None:
+        sel = load_selection()
+        if sel is None:
+            return {}
+        cands = top_candidates(sel["scores"])
+    try:
+        import d1_grading
+        d = d1_grading._load_closes([c["ticker"] for c in cands])
+        return {t: sorted(closes.values()) for t, closes in d.items()}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("basket closes unavailable (%s) — risk_normalized may fall "
+                    "back to equal weight", exc)
+        return {}
 
 
 if __name__ == "__main__":

@@ -50,8 +50,12 @@ def apply_scheme(scheme: str,
     else:
         raise ValueError(f"unknown scheme '{scheme}'")
 
-    if scheme == "equal_weight" or scheme == "tenure_aware":
+    if scheme == "equal_weight":
         w = {t: 1.0 for t in tickers}
+    elif scheme == "tenure_aware":
+        # must match the shipped d1_basket.weight_basket('tenure_aware'):
+        # a momentum_score base, then the recency overlay.
+        w = apply_scheme("momentum_score", picks, vol_by_ticker)
     elif scheme == "momentum_score":
         raw = {p["ticker"]: max(float(p.get("momentum", 0.0)), 0.0) for p in picks}
         if sum(raw.values()) <= 0:

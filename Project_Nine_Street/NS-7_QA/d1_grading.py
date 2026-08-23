@@ -83,8 +83,17 @@ def basket_daily_returns(weights: Dict[str, float],
 
 
 def mark_to_market(basket_path: Optional[Path] = None,
-                   db_path: Optional[Path] = None) -> Optional[List[Dict]]:
-    """Read d1_basket.json → weighted daily returns. None if no basket."""
+                   db_path: Optional[Path] = None,
+                   from_as_of: bool = True) -> Optional[List[Dict]]:
+    """Read d1_basket.json → weighted daily returns. None if no basket.
+
+    `from_as_of`: when True (default), returns are computed only from the
+    basket's as_of date FORWARD — the current-book weights are applied only to
+    the period the book actually held, so the strategy_returns stream is
+    REALIZED P&L, not a look-ahead backtest of today's picks over history.
+    When False, returns the full overlap window (used by the chart/modal,
+    which explicitly labels it estimated).
+    """
     p = Path(basket_path or config.D1_BASKET_PATH)
     db_default = db_path or getattr(config, "D1_MTM_PRICES_DB", None) \
         or config.AT_FUNDAMENTALS_DB
@@ -101,6 +110,15 @@ def mark_to_market(basket_path: Optional[Path] = None,
     if not rows:
         log.warning("no overlapping price history — no returns computed")
         return None
+    if from_as_of:
+        as_of = (doc.get("as_of") or "")[:10]
+        if not as_of:
+            log.warning("basket has no as_of — refusing look-ahead MtM")
+            return None
+        rows = [r for r in rows if r["date"] >= as_of]
+        if not rows:
+            log.warning("no returns on/after basket as_of %s — nothing to write", as_of)
+            return None
     return rows
 
 

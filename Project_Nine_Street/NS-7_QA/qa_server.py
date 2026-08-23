@@ -35,6 +35,9 @@ ENV = os.environ.get("ENV", "QA")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("ns7.qa_server")
 
+# v4.6: 60s cache for the estimated D1 series (repeated modal opens).
+_D1_SERIES_CACHE = {"data": None, "ts": 0.0}
+
 
 def _serve_dashboard(handler):
     """Serve ns7_dashboard.html (the portal-facing UI)."""
@@ -117,7 +120,9 @@ class NS7Handler(BaseHTTPRequestHandler):
                 self._json({"error": "n must be 1..100"}, 400); return
 
             import d1_basket, d1_grading
-            doc = d1_basket.build_basket(method=method, n=n)
+            closes = d1_basket._load_basket_closes()
+            doc = d1_basket.build_basket(method=method, n=n,
+                                         closes_by_ticker=closes)
             if doc is None:
                 self._json({"error": "no selection available"}, 400); return
             Path(config.D1_BASKET_PATH).write_text(json.dumps(doc, indent=2))
@@ -193,10 +198,21 @@ class NS7Handler(BaseHTTPRequestHandler):
             self._json({"error": "no d1_basket yet"})
 
     def _d1_series(self):
-        """v4.6: D1 basket daily returns + SPY/VIX overlay for the 1-yr modal."""
+        """v4.6: D1 basket daily returns + SPY/VIX overlay for the 1-yr modal.
+
+        Uses the FULL overlap window (from_as_of=False) — this is the
+        *estimated* current-book curve, explicitly labeled, NOT the realized
+        strategy_returns stream. Cached 60s so repeated modal opens don't
+        recompute the price queries.
+        """
+        import time
+        now = time.time()
+        if (_D1_SERIES_CACHE["data"] is not None
+                and now - _D1_SERIES_CACHE["ts"] < 60):
+            self._json(_D1_SERIES_CACHE["data"]); return
         try:
             import d1_grading
-            rows = d1_grading.mark_to_market()
+            rows = d1_grading.mark_to_market(from_as_of=False)
             if rows is None:
                 self._json({"error": "no D1 return series"})
                 return
@@ -206,12 +222,15 @@ class NS7Handler(BaseHTTPRequestHandler):
                 Path(__file__).resolve().parent.parent / "NS-ETF_QA" / "data"
                 / "wf_closes.json", "^VIX")
             window = rows[-252:]
-            self._json({
+            payload = {
                 "dates": [r["date"] for r in window],
                 "returns": [r["return"] for r in window],
                 "spy": [spy.get(r["date"]) for r in window],
                 "vix": [vix.get(r["date"]) for r in window],
-            })
+                "estimated": True,   # current-book weights over history
+            }
+            _D1_SERIES_CACHE["data"], _D1_SERIES_CACHE["ts"] = payload, now
+            self._json(payload)
         except Exception as exc:
             self._json({"error": f"D1 series unavailable: {exc}"})
 
