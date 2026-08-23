@@ -70,12 +70,13 @@ def top_candidates(scores: List[dict], n: Optional[int] = None) -> List[dict]:
 
 # ── Tenure ────────────────────────────────────────────────────────────────
 def tenure_days(tickers: List[str]) -> Dict[str, Optional[int]]:
-    """Days since each ticker's last Major-league entry; None if not found.
+    """Days since each ticker's current Major stint began; None if not Major.
 
-    Uses common.db.get_league() (the public centralized-DB seam, PG-first with
-    sqlite fallback) — never raw SQL against private connections. last_seen on
-    a 'major' row == the date it became Major (reset on demotion is inherent:
-    re-entry writes a fresh last_seen). Fail-open → None.
+    Reads common.db.get_league() (public centralized-DB seam). The anchor is
+    the major_since column — stamped on entering/promoting INTO Major and
+    cleared on demotion (PM rule: reset to 0 when a name drops to Minor).
+    Falls back to first_seen for legacy rows predating major_since.
+    Fail-open → None.
     """
     out: Dict[str, Optional[int]] = {t: None for t in tickers}
     try:
@@ -84,11 +85,13 @@ def tenure_days(tickers: List[str]) -> Dict[str, Optional[int]]:
         today = date.today()
         for t in tickers:
             row = db.get_league(t.upper())
-            if row and row.get("league") == "major":
-                seen = row.get("last_seen")
-                if seen:
-                    s = seen[:10] if isinstance(seen, str) else str(seen)[:10]
-                    out[t] = max(0, (today - date.fromisoformat(s)).days)
+            if not row or row.get("league") != "major":
+                continue
+            anchor = row.get("major_since") or row.get("first_seen")
+            if not anchor:
+                continue
+            s = anchor[:10] if isinstance(anchor, str) else str(anchor)[:10]
+            out[t] = max(0, (today - date.fromisoformat(s)).days)
     except Exception as exc:  # noqa: BLE001
         log.warning("tenure lookup failed (%s) — tenure treated as unknown", exc)
     return out
