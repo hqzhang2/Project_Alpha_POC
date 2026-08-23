@@ -13,6 +13,7 @@
   .hdr {
     display: flex; align-items: center; gap: 12px; padding: 12px 24px;
     background: #111827; border-bottom: 1px solid #1f2937;
+    position: sticky; top: 0; z-index: 100;   /* v4.6: header stays put on scroll */
   }
   .hdr h1 { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
   .hdr .sub { font-size: 11px; color: #64748b; }
@@ -216,7 +217,7 @@
   </div>
 
   <div class="rail">
-    <div class="panel">
+    <div class="panel" style="background:transparent;border:none;padding:0 0 14px">
       <h3>Ticker detail</h3>
       <div id="detail" class="detail muted">Click any ticker for league tenure + live facts.</div>
     </div>

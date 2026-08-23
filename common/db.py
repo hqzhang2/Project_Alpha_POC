@@ -555,7 +555,8 @@ def _jsonb(v: Any) -> Any:
 
 # ── NS-7 league / volume / selection / meta (mirrors NS-7_QA/store.py) ────
 def upsert_league(ticker: str, league: str, consecutive_compliant: int,
-                  consecutive_noncompliant: int, first_seen: str, last_seen: str) -> bool:
+                  consecutive_noncompliant: int, first_seen: str, last_seen: str,
+                  major_since: str = None) -> bool:
     conn = _connect()
     if conn is None:
         return False
@@ -563,13 +564,15 @@ def upsert_league(ticker: str, league: str, consecutive_compliant: int,
         with conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO ns7_league (ticker, league, consecutive_compliant, "
-                " consecutive_noncompliant, first_seen, last_seen) "
-                "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (ticker) DO UPDATE SET "
+                " consecutive_noncompliant, first_seen, last_seen, major_since) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (ticker) DO UPDATE SET "
                 " league=EXCLUDED.league, consecutive_compliant=EXCLUDED.consecutive_compliant, "
                 " consecutive_noncompliant=EXCLUDED.consecutive_noncompliant, "
-                " first_seen=EXCLUDED.first_seen, last_seen=EXCLUDED.last_seen",
+                " first_seen=EXCLUDED.first_seen, last_seen=EXCLUDED.last_seen, "
+                # COALESCE: a None major_since keeps the existing stint start
+                " major_since=COALESCE(EXCLUDED.major_since, ns7_league.major_since)",
                 (ticker.upper(), league, consecutive_compliant,
-                 consecutive_noncompliant, first_seen, last_seen))
+                 consecutive_noncompliant, first_seen, last_seen, major_since))
         return True
     except Exception:
         return False

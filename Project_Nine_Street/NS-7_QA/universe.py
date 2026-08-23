@@ -200,7 +200,9 @@ def apply_daily(state: Dict[str, Dict], facts_by_ticker: Dict[str, Dict],
                 "ticker": ticker, "league": league,
                 "consecutive_compliant": 0 if league == config.LEAGUE_MAJOR else 1,
                 "consecutive_noncompliant": 0,
-                "first_seen": as_of, "last_seen": as_of}
+                "first_seen": as_of, "last_seen": as_of,
+                # v4.6: tenure anchor — the day this stint became Major
+                "major_since": as_of if league == config.LEAGUE_MAJOR else None}
             counts["fresh"] += 1
             counts["tracked"] += 1
             continue
@@ -214,7 +216,8 @@ def apply_daily(state: Dict[str, Dict], facts_by_ticker: Dict[str, Dict],
                 "ticker": ticker, "league": league,
                 "consecutive_compliant": 0 if league == config.LEAGUE_MAJOR else 1,
                 "consecutive_noncompliant": 0,
-                "first_seen": as_of, "last_seen": as_of}
+                "first_seen": as_of, "last_seen": as_of,
+                "major_since": as_of if league == config.LEAGUE_MAJOR else None}
             counts["readmitted"] += 1
             counts["tracked"] += 1
             continue
@@ -238,7 +241,10 @@ def apply_daily(state: Dict[str, Dict], facts_by_ticker: Dict[str, Dict],
             new_state[ticker] = {
                 "ticker": ticker, "league": next_league,
                 "consecutive_compliant": new_cc, "consecutive_noncompliant": new_nc,
-                "first_seen": row["first_seen"], "last_seen": as_of}
+                "first_seen": row["first_seen"], "last_seen": as_of,
+                # demotion clears the tenure anchor; staying Major keeps it
+                "major_since": row.get("major_since")
+                               if next_league == config.LEAGUE_MAJOR else None}
             continue
 
         # ── Normal transition (tracked major/minor) ──────────────────────
@@ -252,8 +258,16 @@ def apply_daily(state: Dict[str, Dict], facts_by_ticker: Dict[str, Dict],
         else:
             counts["unchanged"] += 1
         counts["tracked"] += 1
+        # v4.6 tenure anchor: stamped when entering/promoting INTO Major,
+        # cleared on demotion; unchanged-Major days preserve it.
+        if next_league == config.LEAGUE_MAJOR:
+            major_since = (row.get("major_since") or as_of) \
+                if row["league"] == config.LEAGUE_MAJOR else as_of
+        else:
+            major_since = None
         new_state[ticker] = {
             "ticker": ticker, "league": next_league,
             "consecutive_compliant": new_cc, "consecutive_noncompliant": new_nc,
-            "first_seen": row["first_seen"], "last_seen": as_of}
+            "first_seen": row["first_seen"], "last_seen": as_of,
+            "major_since": major_since}
     return new_state, counts

@@ -128,7 +128,8 @@ CREATE TABLE IF NOT EXISTS ns7_league (
     consecutive_compliant    INTEGER NOT NULL DEFAULT 0,
     consecutive_noncompliant INTEGER NOT NULL DEFAULT 0,
     first_seen               TEXT NOT NULL,
-    last_seen                TEXT NOT NULL
+    last_seen                TEXT NOT NULL,
+    major_since              TEXT
 );
 CREATE TABLE IF NOT EXISTS ns7_volume (
     ticker VARCHAR(16) NOT NULL,
