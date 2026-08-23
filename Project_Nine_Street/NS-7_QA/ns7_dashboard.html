@@ -135,10 +135,10 @@
     <div class="kpis">
       <div class="kpi"><div class="lab">Major (active)</div><div class="val" id="kMajor">–</div>
         <div class="note">eligible for momentum ranking</div></div>
-      <div class="kpi"><div class="lab">Top-N pick</div><div class="val" id="kTop">–</div>
-        <div class="note">#1 momentum name</div></div>
-      <div class="kpi"><div class="lab">D1 basket</div><div class="val" id="kBook">–</div>
-        <div class="note">weighted book → NS-5 sleeve</div></div>
+      <div class="kpi"><div class="lab">D1 Basket</div><div class="val" id="kTop" style="font-size:15px">–</div>
+        <div class="note" id="kTopNote">weighted book → NS-5</div></div>
+      <div class="kpi"><div class="lab">Basket Stats</div><div class="val" id="kBook" style="font-size:15px">–</div>
+        <div class="note" id="kBookNote">effN · maxW · n</div></div>
       <div class="kpi"><div class="lab">As of</div><div class="val" id="kAsOf" style="font-size:15px; padding-top:5px;">–</div>
         <div class="note">last pipeline refresh</div></div>
     </div>
@@ -268,8 +268,28 @@ function renderKpis(uni, sel) {
   const c = uni.counts || {};
   document.getElementById('kMajor').textContent = c.major || 0;
   const picks = (sel && sel.selections) || [];
-  document.getElementById('kTop').textContent = picks.length ? picks[0].ticker : '–';
-  document.getElementById('kBook').textContent = (sel && sel.top_n) || '–';
+  // v4.6: Top-N pick tile replaced by D1 basket info —
+  //   big line = weighting methodology, small line = effN · maxW · n
+  const kTop = document.getElementById('kTop');
+  const kTopNote = document.getElementById('kTopNote');
+  if (D1) {
+    const labels = {
+      momentum_score: 'Momentum score',
+      rank_tilted: 'Rank tilted',
+      risk_normalized: 'Risk normalized',
+      tenure_aware: 'Tenure aware',
+    };
+    kTop.textContent = labels[D1.method] || D1.method || '–';
+    kTopNote.textContent = 'D1 weighted book → NS-5';
+    document.getElementById('kBook').textContent =
+      'effN ' + (D1.eff_n ?? '—') + ' · maxW ' +
+      (D1.max_weight != null ? (D1.max_weight * 100).toFixed(1) + '%' : '—') +
+      ' · n ' + (D1.top_n ?? '—');
+  } else {
+    kTop.textContent = '–';
+    kTopNote.textContent = 'no D1 basket yet';
+    document.getElementById('kBook').textContent = '–';
+  }
   document.getElementById('kAsOf').textContent = uni.as_of || '–';
 }
 
@@ -523,6 +543,7 @@ function loadD1() {
       document.getElementById('d1N').value = D1.top_n || config_n_default();
     }
     renderD1();
+    renderKpis(SEL ? {} : null, SEL);   // refresh the methodology/stats KPI tiles
   }).catch(function() { renderD1(); });
 }
 function config_n_default() { return 20; }
