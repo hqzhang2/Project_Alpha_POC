@@ -592,7 +592,7 @@ function renderD1() {
     return '<tr>' +
       '<td><input type="checkbox" class="d1-row-check" data-tk="' + esc(t) +
         '" onchange="onD1RowCheck()" ' + (on ? 'checked' : '') + '></td>' +
-      '<td><b>' + esc(t) + '</b></td>' +
+      '<td><b>' + esc(t) + '</b>' + vsPassPills(t) + '</td>' +
       '<td class="num">' + (on ? (wgt * 100).toFixed(2) + '%' : '<span class="dash">–</span>') + '</td>' +
       '<td class="num"><span class="tenure-badge">' +
         (ten[t] != null ? ten[t] + 'd' : '—') + '</span></td></tr>';
