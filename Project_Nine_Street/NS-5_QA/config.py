@@ -89,3 +89,15 @@ ETF_SLEEVE_SHARE = {"growth": 0.10, "defensive": 0.25}   # PM dial
 NSETF_SIGNALS_PATH = Path(
     "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-ETF_QA/data/signals.json")
 BLEND_PATH = DATA_DIR / "sleeve_blend.json"
+
+# ── v4.5 feed sources (NS-5 grades D1 / NS8 / NSETF / ALL) ──────────────
+# Each source is a weighted book NS-5 can grade on its own (single) or merged
+# (ALL). Fail-open: missing/stale source contributes nothing.
+D1_BASKET_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-7_QA/data/d1_basket.json")
+NS8_SIGNALS_PATH = Path(
+    "/Users/chuck/Project_Alpha_POC/Project_Nine_Street/NS-8_QA/data/signals.json")
+# Feed staleness (days): a source older than this is treated as absent.
+FEED_STALE_DAYS = 5
+# Valid source keys for the grade dropdown (single sources + the ALL merge).
+FEED_SOURCES = ("D1", "NS8", "NSETF", "ALL")

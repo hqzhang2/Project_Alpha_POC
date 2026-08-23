@@ -253,3 +253,23 @@ env -i HOME=$HOME /usr/bin/python3 -m pytest tests/ -q    # 133 tests, all synth
 | 3.5 — Composite merger | ✅ `eed8bcd` |
 | 4 — Tweak list + tests + acceptance gate + docs | ✅ `ce029f5` (this doc) |
 | 5 — Deployment (QA launchd + smoke) | pending |
+
+## v4.5 — Feed-source grading (2026-08-23)
+
+NS-5 grades **feed-derived books**, not stored portfolios:
+
+- **Source dropdown** (D1 / NS8 / NSETF / ALL) replaces the portfolio/policy
+  selectors. Sources resolve via `feed_sources.py` (DPF-owned): D1 =
+  NS-7 DeltaOne basket (`d1_basket.json`, arrives with v4.6), NS8 = NS-8
+  signals, NSETF = NS-ETF signals; ALL = overlap-summed merge of the fresh
+  sources. Staleness fail-open (>5 days → absent); a stale/absent source
+  returns 400 from `/api/grade` and `/api/frontier`.
+- **Removed:** Hyperscaler static portfolio, portfolio CRUD
+  (New/Save/Delete), policy CRUD, `seed_if_missing()`. `portfolio_store.py`
+  remains on disk only as a legacy import for the tax axis's v2 position
+  normalization.
+- **New endpoints:** `GET /api/sources` (dropdown + freshness),
+  `{source}` accepted by POST `/api/grade` and POST `/api/frontier`.
+- **Policy selection: deferred to a separate session** (PM decision).
+- Tests: `tests/test_feed_sources.py` (construction logic),
+  `tests/test_v45_feed_surface.py` (markup + route invariants).

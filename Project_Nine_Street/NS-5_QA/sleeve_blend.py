@@ -1,5 +1,11 @@
 """sleeve_blend.py — NS-5 joint-universe construction (2b, DESIGN §4.3).
 
+DEPRECATED in v4.5 — migrates to NS-7 as D1 basket construction
+(research_ns5_feed_v45.md Annex 2). Kept running headless ONLY because
+NS-PC's compose() still reads data/sleeve_blend.json; the dashboard panel
+and /api/blend endpoint are removed. Dies in v4.6 Stage 3 once
+d1_basket.json is live.
+
 The PM-facing target portfolio: growth sleeve (NS-7 momentum top-N) ∪ value
 sleeve (A_T 4-framework agreement ≥ 2), sized by the regime-conditional tilt
 (GDP×CPI axis, read from common.regime_store — R1/R2 growth, R3/R4 defensive).
