@@ -22,6 +22,7 @@ ASSET_WEIGHT = 0.20                 # fixed-weight path (v1); ignored by inverse
 
 # ── Sizing / signal (R8) ────────────────────────────────────────────────
 SIZING_METHOD = "inverse_vol"       # "fixed" (v1) | "inverse_vol" (default)
+VOL_RETURN_WINDOW = 61              # trailing closes → returns for ex-ante vol (60 rets)
 SIGNAL_METHOD = "sma"               # "sma" (default) | "sign12m"
 VOL_DELTA = 60 / 61                 # EWMA center-of-mass = 60 days (MOP eq. 1)
 VOL_ANN = 261                       # trading days/year for ex-ante vol
@@ -43,6 +44,7 @@ LOOKBACK_DAYS = 252 + SMA_WINDOW    # enough for warm SMA
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DB_PATH = DATA_DIR / "ns8.db"
 SIGNALS_PATH = DATA_DIR / "signals.json"
+HIST_CLOSES_PATH = DATA_DIR / "ns8_hist_closes.json"
 TRANCHE_STATE_PATH = DATA_DIR / "tranche_state.json"
 AUDIT_LOG_PATH = DATA_DIR / "audit_log.jsonl"
 
