@@ -142,6 +142,11 @@ class NS7Handler(BaseHTTPRequestHandler):
                 doc["max_weight"] = round(max(doc["weights"].values()), 6)
                 doc["filtered_from"] = original_n
             Path(config.D1_BASKET_PATH).write_text(json.dumps(doc, indent=2))
+            # v4.8: persist PM intent so headless rebuilds (daily 17:30 refresh,
+            # deploys) reproduce THIS book instead of resetting to config
+            # defaults. keep=None means all-selected (no filter).
+            d1_basket.save_overrides(method, n, keep if keep else None)
+            doc["overrides_written"] = True
             rows = d1_grading.mark_to_market()      # refresh the stream too
             if rows is not None:
                 d1_grading.persist_returns(rows)
@@ -206,12 +211,19 @@ class NS7Handler(BaseHTTPRequestHandler):
         self._json(snap or {"tickers": {}})
 
     def _d1(self):
-        """v4.6: the DeltaOne basket doc — {} when absent (no basket yet)."""
+        """v4.6: the DeltaOne basket doc — {} when absent (no basket yet).
+        v4.8: attach the PM-intent overrides doc (keep list hydrates the
+        construction checkboxes; method/n are already in the basket)."""
         import d1_basket
         try:
-            self._json(json.loads(config.D1_BASKET_PATH.read_text()))
+            doc = json.loads(config.D1_BASKET_PATH.read_text())
         except Exception:
-            self._json({"error": "no d1_basket yet"})
+            self._json({"error": "no d1_basket yet"}); return
+        ov = d1_basket.load_overrides()
+        if ov:
+            doc["overrides"] = {"keep": ov.get("keep"),
+                                "as_of": ov.get("as_of")}
+        self._json(doc)
 
     def _d1_series(self):
         """v4.6: D1 basket daily returns + SPY/VIX overlay for the 1-yr modal.

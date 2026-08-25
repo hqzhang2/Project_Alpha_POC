@@ -548,6 +548,11 @@ function loadD1() {
     if (D1) {
       document.getElementById('d1Method').value = D1.method || 'momentum_score';
       document.getElementById('d1N').value = D1.top_n || config_n_default();
+      // v4.8: hydrate checkbox selection from persisted PM intent.
+      // keep=null → all selected; keep=[...] → only those tickers checked.
+      const keep = D1.overrides && Array.isArray(D1.overrides.keep)
+        ? new Set(D1.overrides.keep) : null;
+      D1_SELECT = keep ? keep : null;
     }
     renderD1();
     renderKpis(SEL ? {} : null, SEL);   // refresh the methodology/stats KPI tiles
