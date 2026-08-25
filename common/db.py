@@ -381,6 +381,13 @@ def upsert_drawdown(date: str, spy_dd, portfolio_dd, budget, remaining,
             pass
 
 
+def _normalize_dates(row: Dict[str, Any]) -> Dict[str, Any]:
+    """psycopg2 returns datetime.date for DATE columns; the sqlite path and
+    callers compare against iso strings — normalize to strings (v4.1 lesson)."""
+    return {k: v.isoformat() if hasattr(v, "isoformat") else v
+            for k, v in row.items()}
+
+
 def latest_drawdown() -> Optional[Dict[str, Any]]:
     """Most recent drawdown row (dict) or None. Mirrors store.latest()."""
     conn = _connect()
@@ -390,7 +397,7 @@ def latest_drawdown() -> Optional[Dict[str, Any]]:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM drawdown_log ORDER BY date DESC LIMIT 1")
             row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_dates(dict(row)) if row else None
     except Exception:
         return None
     finally:
@@ -408,7 +415,7 @@ def query_drawdown(days: int = 30) -> List[Dict[str, Any]]:
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM drawdown_log ORDER BY date DESC LIMIT %s", (days,))
-            return [dict(r) for r in cur.fetchall()]
+            return [_normalize_dates(dict(r)) for r in cur.fetchall()]
     except Exception:
         return []
     finally:

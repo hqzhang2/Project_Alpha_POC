@@ -229,6 +229,37 @@ def effective_n(weights: Dict[str, float]) -> float:
     return 1.0 / sum((w / s) ** 2 for w in weights.values())
 
 
+def load_overrides() -> Dict:
+    """v4.8: load the PM-intent overrides file (dashboard Apply output).
+
+    Precedence: overrides → config defaults. Missing/corrupt → {} (fail-open,
+    config defaults apply). Shape: {method, top_n, keep, as_of, generated_at}.
+    """
+    path = Path(config.DATA_DIR) / "d1_overrides.json"
+    try:
+        doc = json.loads(path.read_text())
+        return doc if isinstance(doc, dict) else {}
+    except Exception:  # noqa: BLE001 — fail-open to config defaults
+        return {}
+
+
+def save_overrides(method: Optional[str], top_n: Optional[int],
+                   keep: Optional[list]) -> Dict:
+    """v4.8: persist PM intent (full-replace on each dashboard Apply)."""
+    doc = {
+        "as_of": datetime.now().strftime("%Y-%m-%d"),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "method": method,
+        "top_n": int(top_n) if top_n else None,
+        "keep": sorted({str(t).strip().upper() for t in keep}) if keep else None,
+        "source": "dashboard_apply",
+    }
+    path = Path(config.DATA_DIR) / "d1_overrides.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, indent=2))
+    return doc
+
+
 def build_basket(selection: Optional[Dict] = None,
                  method: Optional[str] = None,
                  n: Optional[int] = None,
@@ -241,7 +272,12 @@ def build_basket(selection: Optional[Dict] = None,
     sel = selection if selection is not None else load_selection()
     if sel is None:
         return None
-    method = method or config.D1_WEIGHT_METHOD
+    # v4.8: PM intent overrides (dashboard Apply) take precedence over config
+    # defaults so headless rebuilds reproduce the PM's chosen book instead of
+    # silently resetting it. Explicit args still win (server passes them).
+    overrides = load_overrides()
+    method = method or overrides.get("method") or config.D1_WEIGHT_METHOD
+    n = n if n is not None else overrides.get("top_n")
     if method not in WEIGHT_METHODS:
         raise ValueError(f"unknown method '{method}'")
 

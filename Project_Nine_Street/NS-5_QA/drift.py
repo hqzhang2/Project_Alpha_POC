@@ -422,8 +422,8 @@ def generate_drift_tweaks(levels: Dict[str, dict], theta: dict) -> List[dict]:
             "recommended_action": "revisit target allocation — the frontier has shifted. " + "; ".join(actions),
             "rationale": (
                 f"trailing 2yr frontier differs from long-run frontier. "
-                f"Sharpe: {fd.get('sharpe_trailing', 0):.3f} (trailing) vs "
-                f"{fd.get('sharpe_long_run', 0):.3f} (long-run). "
+                f"Sharpe: {fd.get('sharpe_trailing') or 0:.3f} (trailing) vs "
+                f"{fd.get('sharpe_long_run') or 0:.3f} (long-run). "
                 f"The μ, Σ the policy was built on no longer describe these assets."
             ),
         })
