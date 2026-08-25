@@ -293,23 +293,28 @@ def get_audit_log(limit: int = 100) -> List[Dict[str, Any]]:
 
 # ── Export ──────────────────────────────────────────────────────────────
 
-def export_signals_json() -> None:
-    """Export latest signal to JSON file for NS-5 consumption.
+def export_signals_json(doc: Optional[Dict[str, Any]] = None) -> None:
+    """Export the signal document to JSON file for NS-5 consumption.
 
-    NS-DB: also write the signal document to `strategy_output` (service=ns8,
+    v4.7: `doc` is the ENRICHED document from pipeline (feed-contract metadata
+    — service/strategy/method/guardrails/eff_n/gross_risk_exposure). When not
+    supplied, falls back to the latest DB row (legacy shape, no metadata).
+
+    NS-DB: also write the full document to `strategy_output` (service=ns8,
     kind=signals) so cross-service consumers read from Postgres, not the JSON
     file. The file write is kept as a backward-compat artifact. Fail-open.
     """
-    signal = get_latest_signal()
-    if not signal:
+    if doc is None:
+        doc = get_latest_signal()
+    if not doc:
         return
     try:
-        config.SIGNALS_PATH.write_text(json.dumps(signal, indent=2, default=str))
+        config.SIGNALS_PATH.write_text(json.dumps(doc, indent=2, default=str))
     except Exception:
         pass  # fail-open
     try:
         import common.db
-        as_of = signal.get("as_of")
-        common.db.write_strategy_output("ns8", "signals", signal, as_of=as_of)
+        as_of = doc.get("as_of")
+        common.db.write_strategy_output("ns8", "signals", doc, as_of=as_of)
     except Exception:
         pass  # fail-open

@@ -139,6 +139,11 @@
     </div>
 
     <div class="card">
+      <h3>Book Construction (v4.7)</h3>
+      <div id="construction-content" class="loading">Loading...</div>
+    </div>
+
+    <div class="card">
       <h3>Tranche Schedule</h3>
       <div id="tranche-content" class="loading">Loading...</div>
     </div>
@@ -217,6 +222,35 @@ function renderWeights(doc) {
   tbody.innerHTML = html;
 }
 
+function renderConstruction(doc) {
+  const container = document.getElementById('construction-content');
+  if (!doc || !doc.method) {
+    container.innerHTML = '<div class="loading">No construction metadata</div>';
+    return;
+  }
+  const methodLabel = doc.method === 'inverse_vol' ? 'Inverse Volatility' : 'Fixed Weight';
+  const signalLabel = doc.signal_method === 'sign12m' ? '12-Month Sign' : 'SMA Trend';
+  const gre = (doc.gross_risk_exposure * 100).toFixed(1) + '%';
+  const rows = [
+    ['Method', methodLabel],
+    ['Signal', signalLabel],
+    ['Gross Risk Exposure', gre],
+    ['Eff. N (Risky)', doc.eff_n != null ? doc.eff_n.toFixed(2) : '—'],
+    ['Max Weight', (doc.max_weight * 100).toFixed(1) + '%'],
+  ];
+  let html = '';
+  rows.forEach(([label, value]) => {
+    html += `<div class="metric">
+      <span class="metric-label">${label}</span>
+      <span class="metric-value neutral">${value}</span>
+    </div>`;
+  });
+  html += `<div class="signal-row" style="margin-top:8px;color:#8888a0;">
+    <span>As Of</span><span>${doc.as_of || '—'}</span>
+  </div>`;
+  container.innerHTML = html;
+}
+
 function renderTranche(doc) {
   const container = document.getElementById('tranche-content');
   if (!doc || !doc.tranche) {
@@ -276,6 +310,7 @@ async function loadSignals() {
   if (doc) {
     renderSignals(doc);
     renderWeights(doc);
+    renderConstruction(doc);
     renderTranche(doc);
   }
 }
