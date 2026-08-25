@@ -126,16 +126,40 @@ def build_signal_document(
     as_of: str,
     signals: Dict[str, int],
     weights: Dict[str, float],
-    version: int = 1
+    version: int = 1,
+    vols: Optional[Dict[str, Optional[float]]] = None
 ) -> Dict:
-    """Build the full signal document for persistence/API."""
+    """Build the full signal document for persistence/API.
+
+    v4.7 feed contract (research_ns8_feed_v47.md §3): enriched to d1_basket
+    parity with construction metadata so NS-5/grading see method-tagged books.
+    """
     from datetime import datetime
+    cash = config.CASH_PROXY
+    risky_w = {t: w for t, w in weights.items() if t != cash and w > 0}
+    eff_n = round(1.0 / sum(w * w for w in risky_w.values()), 2) if risky_w else 0.0
+    max_weight = round(max(weights.values()), 6) if weights else 0.0
     return {
         "as_of": as_of,
         "signals": signals,
         "weights": weights,
         "version": version,
-        "generated_at": datetime.now().isoformat(timespec="seconds")
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        # ── v4.7 feed-contract metadata (recorded, not enforced) ─────────
+        "service": "NS-8",
+        "strategy": "tactical_aa",
+        "method": config.SIZING_METHOD,          # inverse_vol | fixed
+        "signal_method": config.SIGNAL_METHOD,   # sma | sign12m
+        "guardrails": {
+            "max_weight": 0.35,
+            "min_eff_n": 2,
+            "cash_floor_pct": 0.0,
+        },
+        "eff_n": eff_n,                          # Herfindahl, RISKY-only
+        "max_weight": max_weight,
+        "gross_risk_exposure": round(1.0 - weights.get(cash, 0.0), 6),
+        "exante_vol": {t: (round(v, 6) if v else None)
+                       for t, v in (vols or {}).items()},
     }
 
 

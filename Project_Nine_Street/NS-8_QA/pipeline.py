@@ -5,10 +5,33 @@ Orchestrates: fetch prices → generate signals → tranche scheduling → persi
 import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-
 import config
 import signals
 import store
+import vol
+
+
+def _daily_returns_from_closes(
+    closes_by_ticker: Dict[str, List[float]],
+    window: int = 61,
+) -> Dict[str, List[float]]:
+    """Derive daily returns (oldest-first) from daily closes (oldest-first).
+
+    Uses the trailing `window + 1` closes per ticker — enough observations for
+    the EWMA ex-ante vol (`vol.exante_vol`). No lookahead: only closes at or
+    before as_of are ever passed in by `run_refresh`. Mirrors the shape of
+    walkforward._daily_returns_upto so live sizing == validated sizing.
+    """
+    out: Dict[str, List[float]] = {}
+    for t, closes in (closes_by_ticker or {}).items():
+        tail = list(closes)[-(window + 1):]
+        rets = []
+        for prev, cur in zip(tail, tail[1:]):
+            if prev:
+                rets.append(cur / prev - 1.0)
+        if len(rets) >= 3:          # ewma_var needs >= 3 obs to estimate
+            out[t] = rets
+    return out
 
 
 def fetch_prices_yfinance(
@@ -134,7 +157,20 @@ def run_refresh(
     # 2. Generate signals (risky assets only)
     risky_prices = {t: prices[t] for t in config.RISKY_ASSETS if t in prices}
     sigs = signals.generate_signals(risky_prices)
-    weights = signals.compute_weights(sigs)
+
+    # v4.7: size with the SAME function the walk-forward harness validates
+    # (live == validated). inverse-vol needs ex-ante vols from DAILY RETURNS,
+    # so derive returns from closes first (the live path previously had no
+    # closes→returns step — see research_ns8_feed_v47.md §4 CRITICAL detail).
+    if config.SIZING_METHOD == "inverse_vol":
+        rets = _daily_returns_from_closes(
+            risky_prices, window=config.VOL_RETURN_WINDOW)
+        vols: Optional[Dict[str, Optional[float]]] = {
+            t: vol.exante_vol(rets.get(t, [])) for t in config.RISKY_ASSETS}
+        weights = signals.compute_weights_inverse_vol(sigs, vols)
+    else:  # "fixed" (v1 legacy, explicitly configured)
+        vols = None
+        weights = signals.compute_weights(sigs)
 
     # 3. Tranche scheduling
     tranche_dates = get_tranche_rebalance_dates(as_of, config.TRANCHES)
@@ -150,7 +186,8 @@ def run_refresh(
     store.update_tranche_rebalance(current_tranche, tranche_dates[current_tranche], as_of)
 
     # 4. Build and persist document
-    doc = signals.build_signal_document(as_of, sigs, weights, version=1)
+    doc = signals.build_signal_document(as_of, sigs, weights, version=1,
+                                        vols=vols if config.SIZING_METHOD == "inverse_vol" else None)
     doc["tranche"] = {
         "current": current_tranche,
         "schedule": tranche_dates,
@@ -160,7 +197,10 @@ def run_refresh(
     store.upsert_signal(
         as_of, sigs, weights, doc["version"], doc["generated_at"]
     )
-    store.export_signals_json()
+    # v4.7: export the ENRICHED document (feed-contract metadata lives only in
+    # the doc — the ns8_signals table has fixed columns). export_signals_json
+    # mirrors the full doc to data/signals.json AND strategy_output (JSONB).
+    store.export_signals_json(doc=doc)
 
     return doc
 
