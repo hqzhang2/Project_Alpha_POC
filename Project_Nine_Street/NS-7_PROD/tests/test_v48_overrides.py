@@ -95,3 +95,29 @@ def test_build_basket_falls_back_to_config_without_overrides(
     _fake_selection(monkeypatch)
     doc = d1_basket.build_basket()                 # no file at all
     assert doc["method"] == config.D1_WEIGHT_METHOD
+
+
+# ── apply_keep (v4.9) ─────────────────────────────────────────────────────
+def test_apply_keep_none_is_no_filter():
+    w = {"A": 0.6, "B": 0.4}
+    out, err = d1_basket.apply_keep(w, None)
+    assert err is None and out == w
+
+
+def test_apply_keep_empty_list_rejected():
+    # v4.9: "select none" must NOT silently coerce to all-selected.
+    out, err = d1_basket.apply_keep({"A": 0.6, "B": 0.4}, [])
+    assert out == {} and "empty" in err
+
+
+def test_apply_keep_filters_and_renormalizes():
+    out, err = d1_basket.apply_keep({"A": 0.6, "B": 0.4, "C": 0.0}, ["a", "b"])
+    assert err is None
+    assert set(out) == {"A", "B"}
+    assert abs(sum(out.values()) - 1.0) < 1e-6
+    assert out["A"] == pytest.approx(0.6, abs=1e-6)   # 0.6/(0.6+0.4)
+
+
+def test_apply_keep_no_matching_names_rejected():
+    out, err = d1_basket.apply_keep({"A": 0.6, "B": 0.4}, ["ZZZ"])
+    assert out == {} and "no kept names" in err

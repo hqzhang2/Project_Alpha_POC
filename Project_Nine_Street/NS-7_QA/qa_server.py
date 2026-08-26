@@ -127,15 +127,15 @@ class NS7Handler(BaseHTTPRequestHandler):
                 self._json({"error": "no selection available"}, 400); return
             # v4.6: optional manual stock filter — only `keep` names survive,
             # remaining weights renormalized to 100% (0% → excluded → '–').
+            # v4.9: keep=absent/null → all selected; keep=[] → rejected (an
+            # empty basket), via the shared pure helper apply_keep.
             keep = body.get("keep")
-            if keep:
-                keep_set = {str(t).strip().upper() for t in keep}
+            if keep is not None:
+                kept_w, err = d1_basket.apply_keep(doc["weights"], keep)
+                if err:
+                    self._json({"error": err}, 400); return
                 original_n = len(doc["weights"])
-                kept = {t: w for t, w in doc["weights"].items() if t in keep_set}
-                if not kept:
-                    self._json({"error": "no kept names remain in basket"}, 400); return
-                total = sum(kept.values())
-                doc["weights"] = {t: round(w / total, 6) for t, w in kept.items()}
+                doc["weights"] = kept_w
                 doc["top_n"] = len(doc["weights"])
                 doc["eff_n"] = round(
                     1.0 / sum((w) ** 2 for w in doc["weights"].values()), 2)
@@ -146,7 +146,6 @@ class NS7Handler(BaseHTTPRequestHandler):
             # deploys) reproduce THIS book instead of resetting to config
             # defaults. keep=None means all-selected (no filter).
             d1_basket.save_overrides(method, n, keep if keep else None)
-            doc["overrides_written"] = True
             rows = d1_grading.mark_to_market()      # refresh the stream too
             if rows is not None:
                 d1_grading.persist_returns(rows)
