@@ -113,7 +113,18 @@ class NS8Handler(BaseHTTPRequestHandler):
         })
 
     def _signals(self):
-        signal = store.get_latest_signal()
+        # v4.9: prefer the ENRICHED signals.json (feed-contract metadata —
+        # method/guardrails/eff_n/gross_risk_exposure) so the dashboard's Book
+        # Construction card populates. Fall back to the DB row (legacy shape).
+        signal = None
+        try:
+            doc = json.loads(config.SIGNALS_PATH.read_text())
+            if isinstance(doc, dict) and doc.get("weights"):
+                signal = doc
+        except Exception:  # noqa: BLE001 — fail-open to DB row
+            signal = None
+        if signal is None:
+            signal = store.get_latest_signal()
         if not signal:
             return self._json({
                 "error": "No signals generated yet. POST /api/rebalance first.",

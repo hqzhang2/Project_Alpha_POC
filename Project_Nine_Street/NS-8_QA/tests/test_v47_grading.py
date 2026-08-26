@@ -43,6 +43,28 @@ def test_book_daily_returns_includes_cash_leg():
     assert rows[0]["source"] == "ns8_book_mtm"
 
 
+def test_book_daily_returns_skips_zero_prev_close(caplog):
+    # v4.9: a zero/missing prev close must NOT raise ZeroDivisionError — the
+    # day is dropped (fail-open), never corrupting the stream.
+    import logging
+    caplog.set_level(logging.WARNING, logger="ns8.ns8_grading")
+    closes = {"SPY": {"2026-08-21": 0.0, "2026-08-22": 110.0}}
+    rows = g.book_daily_returns({"SPY": 1.0}, closes)
+    assert rows == []                       # the 0.0->110 day dropped
+    assert "no valid prev close" in caplog.text
+
+
+def test_book_daily_returns_truncation_is_logged(caplog):
+    # SHV shorter than SPY → common window truncated; must log, not crash.
+    import logging
+    caplog.set_level(logging.INFO, logger="ns8.ns8_grading")
+    closes = {"SPY": {"d1": 100, "d2": 110, "d3": 121},
+              "SHV": {"d2": 50, "d3": 50.5}}
+    rows = g.book_daily_returns({"SPY": 0.5, "SHV": 0.5}, closes)
+    assert len(rows) == 1                   # only d2->d3 (common)
+    assert "truncated" in caplog.text
+
+
 def test_mark_to_market_realized_only_from_as_of(tmp_path):
     cache = _write_cache(tmp_path)          # history starts 2026-08-20
     book = _write_book(tmp_path, {"SPY": 1.0}, as_of="2026-08-21")
