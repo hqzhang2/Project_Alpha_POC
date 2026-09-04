@@ -48,6 +48,7 @@ STRATEGIES = {
     'nsx':   {'name': 'NS-X (Strategy Alloc)', 'path': 'nsx_dashboard.html', 'prod': 9290, 'qa': 9291},
     'nsetf': {'name': 'NS-ETF (Combined ETF)', 'path': 'nsetf_dashboard.html', 'prod': 9292, 'qa': 9293},
     'nspc':  {'name': 'NS-PC (Portfolio Ctor)', 'path': 'nspc_dashboard.html', 'prod': 9300, 'qa': 9301},
+    'nsupro': {'name': 'NS-UPRO (Covered Call)', 'path': '', 'prod': 9310, 'qa': 9311},
 }
 
 # HTML Template with all braces escaped for Python .format()
@@ -199,6 +200,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <button class="nav-tab" data-strategy="nsetf" onclick="switchStrategy('nsetf')"><span class="status-indicator" id="status-nsetf"></span>NS-ETF</button>
               <button class="nav-tab" data-strategy="nsx" onclick="switchStrategy('nsx')"><span class="status-indicator" id="status-nsx"></span>NS-X</button>
               <button class="nav-tab" data-strategy="nspc" onclick="switchStrategy('nspc')"><span class="status-indicator" id="status-nspc"></span>NS-PC</button>
+              <button class="nav-tab" data-strategy="nsupro" onclick="switchStrategy('nsupro')"><span class="status-indicator" id="status-nsupro"></span>NS-UPRO</button>
             </div>
     </div>
     <div class="env-toggle">
