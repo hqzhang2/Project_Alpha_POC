@@ -59,7 +59,14 @@ def _load_closes_from_cache(
 def book_daily_returns(weights: Dict[str, float],
                        closes_by_ticker: Dict[str, Dict[str, float]]
                        ) -> List[Dict[str, Any]]:
-    """Weighted daily returns over dates where EVERY weighted ticker has a price."""
+    """Weighted daily returns over dates where EVERY weighted ticker has a price.
+
+    Only dates where every weighted ticker (INCL. the SHV cash leg) is priceable
+    are used — no partial books. A ticker whose series is shorter (e.g. SHV's
+    cache) therefore truncates the common window; that is intentional and
+    logged so the stream isn't misread as covering the full period. A zero or
+    missing prev close skips that day's return (no ZeroDivisionError).
+    """
     if not weights:
         return []
     common_dates = None
@@ -69,12 +76,26 @@ def book_daily_returns(weights: Dict[str, float],
     if not common_dates:
         return []
     days = sorted(common_dates)
+    if weights and days:
+        full = None
+        for t in weights:
+            s = set(closes_by_ticker.get(t, {}).keys())
+            full = s if full is None else (full | s)
+        if full and len(days) < len(full):
+            log.info("MtM window truncated to %d days (common prices); "
+                     "full union %d — SHV/partial series limit", len(days), len(full))
     rows: List[Dict[str, Any]] = []
     for prev, cur in zip(days, days[1:]):
         r = 0.0
         for t, w in weights.items():
             px = closes_by_ticker[t]
+            if not px.get(prev):
+                log.warning("skip %s->%s: no valid prev close for %s", prev, cur, t)
+                r = None
+                break
             r += w * (px[cur] / px[prev] - 1.0)
+        if r is None:
+            continue  # fail-open: drop this day rather than corrupt it
         rows.append({"date": cur, "return": round(r, 8),
                      "source": "ns8_book_mtm"})
     return rows
