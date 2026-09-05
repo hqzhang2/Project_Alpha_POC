@@ -22,21 +22,28 @@
            padding:7px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
   button.primary { background:#1f6feb; border-color:#1f6feb; color:#fff; font-weight:600; }
   button:disabled { opacity:.45; cursor:wait; }
-  .wrap { max-width:1080px; margin:20px auto; padding:0 16px; display:grid;
-          grid-template-columns:1fr 1fr; gap:16px; }
+  .wrap { width:100%; margin:0; padding:14px 18px 28px; display:grid;
+          grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .srcrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .srcrow .grow { flex:1; min-width:160px; }
   .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
   .panel.wide { grid-column:1 / -1; }
   .panel h2 { font-size:11px; text-transform:uppercase; color:var(--sub);
               letter-spacing:1px; margin:0 0 10px; border-bottom:1px solid var(--border);
               padding-bottom:6px; }
+  @media (max-width: 880px) {
+    .wrap { grid-template-columns:1fr; }          /* stack columns on narrow frames */
+    .panel.wide { grid-column:1; }
+    .big { flex-direction:column; }
+  }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th { font-size:11px; text-transform:uppercase; color:var(--sub); text-align:left;
        padding:4px 8px; font-weight:600; }
   td { padding:5px 8px; border-top:1px solid var(--border); color:#c9d1d9; }
   td.k { color:var(--sub); }
   td.v { text-align:right; font-variant-numeric:tabular-nums; color:var(--text); }
-  .big { display:flex; gap:12px; }
-  .card { flex:1; border:1px solid var(--border2); border-radius:8px; padding:12px; text-align:center; }
+  .big { display:flex; gap:12px; flex-wrap:wrap; }
+  .card { flex:1; min-width:180px; border:1px solid var(--border2); border-radius:8px; padding:12px; text-align:center; }
   .card .lab { font-size:11px; text-transform:uppercase; color:var(--sub); letter-spacing:.5px; }
   .card .val { font-size:26px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
   .card .sm { font-size:11px; color:var(--sub); margin-top:2px; }
@@ -63,12 +70,6 @@
 
 <div class="toolbar">
   <h1>NS-<span>UPRO</span> · Weekly Covered-Call Calculator</h1>
-  <select id="ticker" onchange="resetPull()">
-    <option value="UPRO" selected>UPRO</option>
-    <option value="TQQQ">TQQQ</option>
-  </select>
-  <button class="primary" id="btnPull" onclick="doPull()">⬇ Pull free data</button>
-  <span class="status" id="pullStatus">not pulled yet</span>
   <span style="flex:1"></span>
   <span class="status">Paper-trade weeks: <b id="paperWeeks">–</b>/4</span>
 </div>
@@ -122,14 +123,22 @@
     <div class="hint">Yellow-ringed cells are the only required manual entries. Everything else auto-fills from the pull.</div>
   </div>
 
-  <!-- ================= PULLED DATA ================= -->
+  <!-- ================= DATA SOURCE / PULLED DATA ================= -->
   <div class="panel">
-    <h2>Auto-pulled data (free sources)</h2>
+    <h2>Data source <span style="color:var(--sub)">(free pull)</span></h2>
+    <div class="srcrow">
+      <select id="ticker" onchange="resetPull()">
+        <option value="UPRO" selected>UPRO</option>
+        <option value="TQQQ">TQQQ</option>
+      </select>
+      <button class="primary" id="btnPull" onclick="doPull()">⬇ Pull free data</button>
+      <span class="status grow" id="pullStatus">not pulled yet</span>
+    </div>
     <table>
       <tr><td class="k">Ticker / as-of</td><td class="v" id="dAsOf">—</td></tr>
       <tr><td class="k">S0 (open today / last close)</td><td class="v" id="dS0">—</td></tr>
       <tr><td class="k">RV20 (20d realized vol, ann.)</td><td class="v" id="dRV">—</td></tr>
-      <tr><td class="k">Rolling 2y terciles (p50 / p75)</td><td class="v" id="dTer">—</td></tr>
+      <tr><td class="k">Rolling 2y vol bands (p50 / p75)</td><td class="v" id="dTer">—</td></tr>
       <tr><td class="k">VIX9D (SPY 9d IV, ref)</td><td class="v" id="dVIX">—</td></tr>
       <tr><td class="k">IV markup scale (chain IV ÷ VIX9D)</td><td class="v" id="dScale">—</td></tr>
     </table>
