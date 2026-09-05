@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NS-UPRO Weekly Covered-Call Calculator</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#21262d; --border2:#30363d;
+          --text:#e6edf3; --sub:#8b949e; --blue:#58a6ff; --green:#3fb950;
+          --red:#f85149; --yellow:#d29922; --input:#0d1117; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .toolbar { background:var(--panel); padding:12px 24px; display:flex; gap:12px;
+             align-items:center; border-bottom:1px solid var(--border2); flex-wrap:wrap; }
+  .toolbar h1 { font-size:15px; margin:0 12px 0 0; letter-spacing:.5px; }
+  .toolbar h1 span { color:var(--blue); }
+  select, input[type=number], input[type=text], input[type=date] {
+    background:var(--input); border:1px solid var(--border2); color:var(--text);
+    padding:7px 10px; border-radius:6px; font-size:13px; }
+  input.man { border-color:var(--yellow); }  /* manual inputs: yellow ring */
+  button { background:#21262d; border:1px solid var(--border2); color:var(--text);
+           padding:7px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
+  button.primary { background:#1f6feb; border-color:#1f6feb; color:#fff; font-weight:600; }
+  button:disabled { opacity:.45; cursor:wait; }
+  .wrap { width:100%; margin:0; padding:14px 18px 28px; display:grid;
+          grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .srcrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .srcrow .grow { flex:1; min-width:160px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+  .panel.wide { grid-column:1 / -1; }
+  .panel h2 { font-size:11px; text-transform:uppercase; color:var(--sub);
+              letter-spacing:1px; margin:0 0 10px; border-bottom:1px solid var(--border);
+              padding-bottom:6px; }
+  @media (max-width: 880px) {
+    .wrap { grid-template-columns:1fr; }          /* stack columns on narrow frames */
+    .panel.wide { grid-column:1; }
+    .big { flex-direction:column; }
+  }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { font-size:11px; text-transform:uppercase; color:var(--sub); text-align:left;
+       padding:4px 8px; font-weight:600; }
+  td { padding:5px 8px; border-top:1px solid var(--border); color:#c9d1d9; }
+  td.k { color:var(--sub); }
+  td.v { text-align:right; font-variant-numeric:tabular-nums; color:var(--text); }
+  .big { display:flex; gap:12px; flex-wrap:wrap; }
+  .card { flex:1; min-width:180px; border:1px solid var(--border2); border-radius:8px; padding:12px; text-align:center; }
+  .card .lab { font-size:11px; text-transform:uppercase; color:var(--sub); letter-spacing:.5px; }
+  .card .val { font-size:26px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .card .sm { font-size:11px; color:var(--sub); margin-top:2px; }
+  .g-WRITE { color:var(--green); } .g-SKIP { color:var(--red); }
+  .badge { display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px;
+           font-weight:700; letter-spacing:.5px; }
+  .b-write { background:rgba(63,185,80,.15); color:var(--green); }
+  .b-stand  { background:rgba(248,81,73,.15); color:var(--red); }
+  .b-w050   { background:rgba(88,166,255,.15); color:var(--blue); }
+  .b-w040   { background:rgba(210,153,34,.15); color:var(--yellow); }
+  .b-w025   { background:rgba(248,81,73,.15); color:var(--red); }
+  .hint { font-size:11px; color:var(--sub); margin-top:6px; }
+  .status { font-size:12px; color:var(--sub); }
+  .err { color:var(--red); font-size:12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+  label { font-size:12px; color:var(--sub); display:block; margin-bottom:2px; }
+  label b { color:var(--yellow); font-weight:600; }
+  .row { display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  #verdict { font-size:15px; font-weight:700; }
+  .up { color:var(--green); } .dn { color:var(--red); }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>NS-<span>UPRO</span> · Weekly Covered-Call Calculator</h1>
+  <span style="flex:1"></span>
+  <span class="status">Paper-trade weeks: <b id="paperWeeks">–</b>/4</span>
+</div>
+
+<div class="wrap">
+
+  <!-- ================= MANUAL INPUTS ================= -->
+  <div class="panel">
+    <h2>Manual inputs <span style="color:var(--yellow)">(from your broker)</span></h2>
+    <div class="grid2">
+      <div>
+        <label><b>Chain IV (ATM weekly) %</b> — required</label>
+        <input class="man" type="number" id="iv" step="0.01" min="1" max="300"
+               placeholder="e.g. 40.42" oninput="recalc()">
+      </div>
+      <div>
+        <label>Option bid / ask $</label>
+        <div style="display:flex; gap:6px">
+          <input class="man" type="number" id="bid" step="0.01" min="0" style="width:50%"
+                 placeholder="bid" oninput="recalc()">
+          <input class="man" type="number" id="ask" step="0.01" min="0" style="width:50%"
+                 placeholder="ask" oninput="recalc()">
+        </div>
+      </div>
+      <div>
+        <label>Strike override % of S0 (default 105)</label>
+        <input type="number" id="kOverride" step="0.5" min="100" max="120" value="105"
+               placeholder="105" oninput="recalc()">
+      </div>
+      <div>
+        <label>Sleeve capital $ <span style="color:var(--sub)">(or % below)</span></label>
+        <input type="number" id="capital" step="100" min="0" placeholder="50000" oninput="recalc()">
+      </div>
+      <div>
+        <label>…or sleeve % of fund equity</label>
+        <input type="number" id="capPct" step="0.5" min="0" max="100" placeholder="5.0" oninput="recalc()">
+      </div>
+      <div>
+        <label>Fund equity $ <span style="color:var(--sub)">(for % mode)</span></label>
+        <input type="number" id="equity" step="1000" min="0" placeholder="1000000" oninput="recalc()">
+      </div>
+      <div>
+        <label>Trade date</label>
+        <input type="date" id="tradeDate" onchange="recalc()">
+      </div>
+      <div>
+        <label>risk-free % (13-wk T-bill, default 4.5)</label>
+        <input type="number" id="rf" step="0.05" min="0" max="15" value="4.5" oninput="recalc()">
+      </div>
+    </div>
+    <div class="hint">Yellow-ringed cells are the only required manual entries. Everything else auto-fills from the pull.</div>
+  </div>
+
+  <!-- ================= DATA SOURCE / PULLED DATA ================= -->
+  <div class="panel">
+    <h2>Data source <span style="color:var(--sub)">(free pull)</span></h2>
+    <div class="srcrow">
+      <select id="ticker" onchange="resetPull()">
+        <option value="UPRO" selected>UPRO</option>
+        <option value="TQQQ">TQQQ</option>
+      </select>
+      <button class="primary" id="btnPull" onclick="doPull()">⬇ Pull free data</button>
+      <span class="status grow" id="pullStatus">not pulled yet</span>
+    </div>
+    <table>
+      <tr><td class="k">Ticker / as-of</td><td class="v" id="dAsOf">—</td></tr>
+      <tr><td class="k">S0 (open today / last close)</td><td class="v" id="dS0">—</td></tr>
+      <tr><td class="k">RV20 (20d realized vol, ann.)</td><td class="v" id="dRV">—</td></tr>
+      <tr><td class="k">Rolling 2y vol bands (p50 / p75)</td><td class="v" id="dTer">—</td></tr>
+      <tr><td class="k">VIX9D (SPY 9d IV, ref)</td><td class="v" id="dVIX">—</td></tr>
+      <tr><td class="k">IV markup scale (chain IV ÷ VIX9D)</td><td class="v" id="dScale">—</td></tr>
+    </table>
+    <div class="status" id="dNote"></div>
+  </div>
+
+  <!-- ================= VERDICT ================= -->
+  <div class="panel wide">
+    <h2>This week's verdict</h2>
+    <div class="big">
+      <div class="card" style="flex:1.3">
+        <div class="lab">Gate (IV/RV vs two-tier rule)</div>
+        <div class="val" id="verdict">—</div>
+        <div class="sm" id="gateDetail">enter chain IV and pull data</div>
+      </div>
+      <div class="card">
+        <div class="lab">Allocation w</div>
+        <div class="val" id="wVal">—</div>
+        <div class="sm"><span class="badge" id="wBadge">—</span></div>
+      </div>
+      <div class="card">
+        <div class="lab">BS fair value / call</div>
+        <div class="val" id="bsVal">—</div>
+        <div class="sm" id="bsNote">per share, K at strike</div>
+      </div>
+      <div class="card">
+        <div class="lab">Premium @ mid</div>
+        <div class="val" id="premVal">—</div>
+        <div class="sm" id="fillNote">enter bid/ask for fill check</div>
+      </div>
+      <div class="card">
+        <div class="lab">Contracts (w-slice)</div>
+        <div class="val" id="ctVal">—</div>
+        <div class="sm" id="ctNote">100 shares per contract</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SCENARIOS ================= -->
+  <div class="panel">
+    <h2>Friday scenarios (per w-slice, hold to expiry)</h2>
+    <table id="scen">
+      <thead><tr><th>UPRO move</th><th>Price</th><th>Call P&L</th><th>Shares P&L</th><th>Sleeve return</th></tr></thead>
+      <tbody id="scenBody"><tr><td colspan="5" class="k">waiting for inputs…</td></tr></tbody>
+    </table>
+    <div class="hint">Breakeven = K − premium. Max weekly loss = full gap-down on the w-slice (premium only cushions).</div>
+  </div>
+
+  <!-- ================= IV LOG ================= -->
+  <div class="panel">
+    <h2>IV Log <span style="color:var(--sub)">(accumulates the missing dataset)</span>
+        <button style="float:right" onclick="logThisWeek()">＋ Log this week</button></h2>
+    <table>
+      <thead><tr><th>Week</th><th>Ticker</th><th>IV%</th><th>RV20%</th><th>Ratio</th><th>Scale</th><th>Gate</th></tr></thead>
+      <tbody id="logBody"><tr><td colspan="7" class="k">empty — log each Monday</td></tr></tbody>
+    </table>
+    <div class="hint" id="logHint"></div>
+  </div>
+
+</div>
+
+<script>
+var DATA = null;   // pulled payload
+var R = 0.045;
+
+function $(id){ return document.getElementById(id); }
+function num(id){ var v = parseFloat($(id).value); return isNaN(v) ? null : v; }
+function fmt(x, d){ return x == null ? "—" : x.toFixed(d == null ? 2 : d); }
+
+function resetPull(){
+  DATA = null;
+  $("pullStatus").textContent = "not pulled yet";
+  $("dAsOf").textContent = $("dS0").textContent = $("dRV").textContent =
+  $("dTer").textContent = $("dVIX").textContent = $("dScale").textContent = "—";
+  recalc();
+}
+
+function doPull(){
+  var t = $("ticker").value;
+  var btn = $("btnPull");
+  btn.disabled = true;
+  $("pullStatus").textContent = "pulling " + t + " …";
+  fetch("/api/pull?ticker=" + t)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      btn.disabled = false;
+      if (d.error){ $("pullStatus").innerHTML = '<span class="err">' + d.error + '</span>'; return; }
+      DATA = d;
+      R = (num("rf") || 4.5) / 100;
+      $("pullStatus").textContent = "pulled " + d.bars + " bars · " + d.pulled_at + (d.cached ? " (cached)" : "");
+      $("dAsOf").textContent = d.ticker + " · " + d.as_of;
+      $("dS0").textContent = "$" + fmt(d.s0);
+      $("dRV").textContent = fmt(d.rv20_pct) + "%";
+      $("dTer").textContent = fmt(d.p50_pct) + "% / " + fmt(d.p75_pct) + "%";
+      $("dVIX").textContent = d.vix9d_pct == null ? "n/a" : fmt(d.vix9d_pct) + "%";
+      $("dNote").textContent = d.vix9d_pct == null
+        ? "VIX9D unavailable — scale not computed this pull."
+        : "";
+      if (!$("tradeDate").value) $("tradeDate").value = d.as_of;
+      recalc();
+    })
+    .catch(function(e){
+      btn.disabled = false;
+      $("pullStatus").innerHTML = '<span class="err">fetch failed: ' + e.message + '</span>';
+    });
+}
+
+function normCdf(x){
+  // Abramowitz-Stegun 7.1.26
+  var t = 1/(1 + 0.2316419*Math.abs(x));
+  var d = 0.3989423*Math.exp(-x*x/2);
+  var p = d*t*(0.3193815 + t*(-0.3565638 + t*(1.781478 + t*(-1.821256 + t*1.330274))));
+  return x > 0 ? 1 - p : p;
+}
+
+function bsCall(S, K, sig, T, r){
+  if (T <= 0) return Math.max(S - K, 0);
+  var sq = sig * Math.sqrt(T);
+  var d1 = (Math.log(S/K) + (r + 0.5*sig*sig)*T) / sq;
+  var d2 = d1 - sq;
+  return S*normCdf(d1) - K*Math.exp(-r*T)*normCdf(d2);
+}
+
+function tradingDaysLeft(dateStr){
+  // Contract: write Monday open -> Friday expiry. Return trading days remaining.
+  var d = new Date(dateStr + "T12:00:00");
+  var dow = d.getDay();
+  // A weekend date means we're logging for the NEXT weekly cycle: roll to Monday.
+  if (dow === 0) d.setDate(d.getDate() + 1);       // Sun -> Mon
+  if (dow === 6) d.setDate(d.getDate() + 2);       // Sat -> Mon
+  dow = d.getDay();
+  if (dow === 0 || dow === 6) return 0;            // defensive (shouldn't happen)
+  return 5 - dow;                                  // Mon=4, Tue=3, Wed=2, Thu=1, Fri=0
+}
+
+function recalc(){
+  if (DATA) R = (num("rf") || 4.5) / 100;
+
+  var ivPct = num("iv");
+  var tDate = $("tradeDate").value || (DATA ? DATA.as_of : null);
+  var S0 = DATA ? DATA.s0 : null;
+  var rv = DATA ? DATA.rv20 : null;
+
+  // ---------- Gate ----------
+  var gate = null, ratio = null;
+  if (ivPct != null && rv != null){
+    ratio = (ivPct/100) / rv;
+    var need = (DATA && DATA.rv20_pct != null && DATA.p75_pct != null && DATA.rv20_pct >= DATA.p75_pct) ? 1.25 : 1.15;
+    gate = ratio >= need;
+    var el = $("verdict");
+    el.textContent = gate ? "WRITE" : "STAND ASIDE";
+    el.className = gate ? "g-WRITE" : "g-SKIP";
+    $("gateDetail").textContent = "IV/RV = " + fmt(ratio) + " vs required " + need +
+      (need > 1.15 ? " (tightened: high-vol regime)" : " (base)") +
+      (DATA && DATA.vix9d_pct ? " · scale vs VIX9D " + fmt((ivPct/DATA.vix9d_pct)) + "×" : "");
+  } else {
+    $("verdict").textContent = "—";
+    $("verdict").className = "";
+    $("gateDetail").textContent = "enter chain IV and pull data";
+  }
+
+  // ---------- w ----------
+  var w = null;
+  if (DATA){
+    if (DATA.rv20_pct < DATA.p50_pct) w = 0.50;
+    else if (DATA.rv20_pct < DATA.p75_pct) w = 0.40;
+    else w = 0.25;
+    $("wVal").textContent = w.toFixed(2);
+    var cls = w === 0.50 ? "b-w050" : (w === 0.40 ? "b-w040" : "b-w025");
+    var lab = w === 0.50 ? "LOW-VOL WEEK" : (w === 0.40 ? "MID-VOL WEEK" : "HIGH-VOL WEEK");
+    $("wBadge").textContent = lab;
+    $("wBadge").className = "badge " + cls;
+  } else {
+    $("wVal").textContent = "—"; $("wBadge").textContent = "—"; $("wBadge").className = "badge";
+  }
+
+  // ---------- BS ----------
+  var K = null, T = null, bs = null;
+  if (S0 != null){
+    var kOv = num("kOverride");
+    K = S0 * ((kOv != null ? kOv : 105) / 100);
+    T = tDate ? tradingDaysLeft(tDate) / 252 : 4/252;
+    if (ivPct != null && ivPct > 0){
+      bs = bsCall(S0, K, ivPct/100, T, R);
+      $("bsVal").textContent = "$" + fmt(bs);
+      $("bsNote").textContent = "K=$" + fmt(K) + " · T=" + fmt(T*252,1) + "d · r=" + fmt(R*100,1) + "%";
+    } else {
+      $("bsVal").textContent = "—";
+      $("bsNote").textContent = "needs chain IV";
+    }
+  }
+
+  // ---------- Premium / fill ----------
+  var mid = null;
+  if (num("bid") != null && num("ask") != null) mid = (num("bid") + num("ask"))/2;
+  if (mid != null){
+    $("premVal").textContent = "$" + fmt(mid);
+    if (bs != null){
+      var ok = mid >= bs;
+      $("fillNote").innerHTML = (ok ? '<span class="up">mid ≥ BS fair — paid enough</span>'
+                                    : '<span class="dn">mid &lt; BS fair — PRICE rule says skip</span>');
+      // log-row fill quality
+    } else $("fillNote").textContent = "BS pending";
+  } else {
+    $("premVal").textContent = "—"; $("fillNote").textContent = "enter bid/ask for fill check";
+  }
+
+  // ---------- Contracts ----------
+  var cap = num("capital");
+  if (cap == null && num("capPct") != null && num("equity") != null)
+    cap = num("capPct")/100 * num("equity");
+  if (cap != null && w != null && S0 != null){
+    var ct = Math.floor(w * cap / (100 * S0));
+    $("ctVal").textContent = ct;
+    $("ctNote").textContent = "w-slice $" + fmt(w*cap, 0) + " · S0 $" + fmt(S0);
+  } else { $("ctVal").textContent = "—"; $("ctNote").textContent = "needs capital + w"; }
+
+  // ---------- Scenarios ----------
+  var tb = $("scenBody");
+  if (S0 != null && K != null && bs != null && w != null){
+    var rows = [-0.10, -0.05, 0, +0.05, +0.10];
+    var html = "";
+    for (var i = 0; i < rows.length; i++){
+      var m = rows[i];
+      var Se = S0 * (1 + m);
+      var callPL = bs - Math.max(Se - K, 0);          // short call, per share
+      var shPL = Se - S0;                              // long shares, per share
+      var sleeveRet = w * (shPL + callPL) / S0;        // w-slice return; cash 4.5%/52 negligible here
+      html += '<tr><td class="' + (m >= 0 ? 'up' : 'dn') + '">' + (m >= 0 ? '+' : '') + (m*100).toFixed(0) + '%</td>'
+            + '<td class="v">$' + fmt(Se) + '</td>'
+            + '<td class="v">' + (callPL >= 0 ? '+' : '') + '$' + fmt(callPL) + '</td>'
+            + '<td class="v">' + (shPL >= 0 ? '+' : '') + '$' + fmt(shPL) + '</td>'
+            + '<td class="v ' + (sleeveRet >= 0 ? 'up' : 'dn') + '">' + (sleeveRet*100 >= 0 ? '+' : '') + fmt(sleeveRet*100) + '%</td></tr>';
+    }
+    var be = S0 - bs;   // covered-call breakeven = S0 - premium (matches sleeveRet above)
+    html += '<tr><td class="k">breakeven</td><td class="v">$' + fmt(be) + '</td><td colspan="3" class="k">UPRO closes at/above this for the w-slice to profit; upside capped at strike ($' + fmt(K) + ')</td></tr>';
+    tb.innerHTML = html;
+  } else tb.innerHTML = '<tr><td colspan="5" class="k">waiting for inputs…</td></tr>';
+}
+
+// ---------- IV Log ----------
+function loadLog(){
+  fetch("/api/log").then(function(r){ return r.json(); }).then(function(d){
+    $("paperWeeks").textContent = d.paper_weeks;
+    $("logHint").textContent = d.paper_weeks >= 4
+      ? "✅ paper-trade prerequisite met (" + d.paper_weeks + " weeks)"
+      : "⏳ " + d.paper_weeks + "/4 weeks logged — service build blocked until ≥4 (design §7)";
+    var tb = $("logBody");
+    if (!d.entries.length){ tb.innerHTML = '<tr><td colspan="7" class="k">empty — log each Monday</td></tr>'; return; }
+    var html = "";
+    for (var i = d.entries.length - 1; i >= 0 && i > d.entries.length - 13; i--){
+      var e = d.entries[i];
+      html += '<tr><td>' + (e.week || e.date) + '</td><td><b>' + e.ticker + '</b></td>'
+            + '<td class="v">' + fmt(e.iv_pct) + '</td><td class="v">' + fmt(e.rv20_pct) + '</td>'
+            + '<td class="v">' + fmt(e.ratio) + '</td><td class="v">' + (e.scale ? fmt(e.scale) + '×' : '—') + '</td>'
+            + '<td>' + (e.gate === "WRITE" ? '<span class="up">WRITE</span>' : '<span class="dn">STAND</span>') + '</td></tr>';
+    }
+    tb.innerHTML = html;
+  });
+}
+
+function logThisWeek(){
+  var ivPct = num("iv");
+  if (!DATA || ivPct == null){ alert("Pull data and enter chain IV first."); return; }
+  var scale = DATA.vix9d_pct ? ivPct / DATA.vix9d_pct : null;
+  var entry = {
+    date: $("tradeDate").value || DATA.as_of,
+    ticker: DATA.ticker,
+    iv_pct: ivPct,
+    rv20_pct: DATA.rv20_pct,
+    ratio: +(ivPct/100 / DATA.rv20).toFixed(3),
+    scale: scale == null ? null : +scale.toFixed(2),
+    gate: (ivPct/100 / DATA.rv20) >= ((DATA.rv20_pct >= DATA.p75_pct) ? 1.25 : 1.15) ? "WRITE" : "STAND",
+    s0: DATA.s0
+  };
+  fetch("/api/log", { method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(entry) })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if (d.ok) loadLog(); else alert("log failed: " + d.error); });
+}
+
+loadLog();
+</script>
+</body>
+</html>

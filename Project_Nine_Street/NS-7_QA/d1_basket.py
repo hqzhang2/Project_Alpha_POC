@@ -260,6 +260,32 @@ def save_overrides(method: Optional[str], top_n: Optional[int],
     return doc
 
 
+def apply_keep(weights: Dict[str, float],
+               keep: Optional[list]) -> tuple:
+    """Filter a basket to the `keep` names, renormalized to 100%.
+
+    v4.9: distinguishes keep=absent/None (no filter → all names) from an
+    explicitly-empty keep=[] (rejected — a basket needs >= 1 name), instead of
+    silently coercing "select none" to "all selected".
+
+    Returns (filtered_weights, error). error is None on success.
+    - keep is None → (weights, None)  # no filter
+    - keep is []   → ({}, "keep list is empty — cannot build an empty basket")
+    - keep=[...] with none matching → ({}, "no kept names remain in basket")
+    - otherwise     → (renormalized kept weights, None)
+    """
+    if keep is None:
+        return weights, None
+    keep_set = {str(t).strip().upper() for t in keep}
+    if not keep_set:
+        return {}, "keep list is empty — cannot build an empty basket"
+    kept = {t: w for t, w in weights.items() if t in keep_set}
+    if not kept:
+        return {}, "no kept names remain in basket"
+    total = sum(kept.values())
+    return {t: round(w / total, 6) for t, w in kept.items()}, None
+
+
 def build_basket(selection: Optional[Dict] = None,
                  method: Optional[str] = None,
                  n: Optional[int] = None,
